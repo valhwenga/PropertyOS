@@ -13,3 +13,7 @@ export * from './receipts';
 export * from './allocations';
 export * from './statements';
 export * from './billing';
+export * from './maintenance';
+export * from './inspections';
+export * from './documents';
+export * from './invitations';

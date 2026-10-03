@@ -1,0 +1,109 @@
+import { Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
+import type { StatusTone } from '@propertyos/ui';
+import { readAs, requireOperator } from '@/lib/auth';
+import { formatDate } from '@/lib/format';
+import { loadDocuments } from '@/lib/operations-queries';
+
+export const metadata = { title: 'Documents' };
+export const dynamic = 'force-dynamic';
+
+const VISIBILITY: Record<string, { tone: StatusTone; label: string; glyph: string }> = {
+  internal:           { tone: 'neutral',  label: 'Internal',            glyph: '🔒' },
+  resident_shared:    { tone: 'info',     label: 'Shared with resident', glyph: '👤' },
+  contractor_shared:  { tone: 'caution',  label: 'Shared with contractor', glyph: '🔧' },
+  owner_shared:       { tone: 'info',     label: 'Shared with owner',   glyph: '🏠' },
+};
+
+const SCAN: Record<string, { tone: StatusTone; label: string; glyph: string }> = {
+  pending:                 { tone: 'caution',  label: 'Awaiting scan',   glyph: '◐' },
+  skipped_not_configured:  { tone: 'caution',  label: 'Not scanned',     glyph: '▲' },
+  clean:                   { tone: 'positive', label: 'Clean',           glyph: '✓' },
+  infected:                { tone: 'critical', label: 'Flagged',         glyph: '✕' },
+  failed:                  { tone: 'critical', label: 'Scan failed',     glyph: '✕' },
+};
+
+function formatBytes(bytes: string): string {
+  const value = Number(bytes);
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(0)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export default async function DocumentsPage({ params }: { params: Promise<{ org: string }> }) {
+  const { org } = await params;
+  const context = await requireOperator(org);
+  const documents = await readAs(context.viewer, (tx) => loadDocuments(tx, context.organisationId));
+
+  const unscanned = documents.filter((d) => d.quarantined);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Documents"
+        description="All files are private. Downloads are authorised per request and recorded."
+      />
+
+      {/* An honest, prominent statement of the scanning position. The product
+          must never imply files have been checked when they have not. */}
+      {unscanned.length > 0 ? (
+        <Card className="border-caution-700/25 bg-caution-50 p-4">
+          <p className="text-sm font-semibold text-caution-700">
+            {unscanned.length} file{unscanned.length === 1 ? ' is' : 's are'} quarantined
+          </p>
+          <p className="mt-1 text-sm text-ink-700">
+            No malware scanner is configured, so these files have <strong>not</strong> been
+            scanned. They remain quarantined and cannot be shared with residents, contractors
+            or owners. This is enforced by the database, not only by this screen. See{' '}
+            <code className="text-xs">docs/runbooks/uploads.md</code> to configure a scanner.
+          </p>
+        </Card>
+      ) : null}
+
+      {documents.length === 0 ? (
+        <EmptyState
+          title="No documents yet"
+          description="Lease contracts, invoices, inspection photos and proof of payment appear here once uploaded."
+        />
+      ) : (
+        <DataTable
+          caption="Private documents"
+          head={
+            <tr>
+              <Th>Title</Th><Th>Class</Th><Th>Linked to</Th><Th>Size</Th>
+              <Th>Scan</Th><Th>Visibility</Th><Th>Uploaded</Th>
+            </tr>
+          }
+        >
+          {documents.map((d) => {
+            const visibility = VISIBILITY[d.visibility] ?? VISIBILITY.internal!;
+            const scan = SCAN[d.scan_status] ?? SCAN.pending!;
+            return (
+              <tr key={d.id} className="hover:bg-ink-50">
+                <Td>
+                  <a
+                    href={`/app/${org}/documents/${d.id}/download`}
+                    className="font-medium text-spike-600 hover:underline aria-disabled:pointer-events-none aria-disabled:text-ink-400"
+                    aria-disabled={d.quarantined}
+                  >
+                    {d.title}
+                  </a>
+                  {d.quarantined ? (
+                    <span className="block text-xs text-ink-400">Download blocked while quarantined</span>
+                  ) : null}
+                </Td>
+                <Td className="capitalize text-ink-500">{d.classification.replace(/_/g, ' ')}</Td>
+                <Td className="text-ink-500">{d.lease_reference ?? d.property_name ?? '—'}</Td>
+                <Td className="tabular text-ink-500">{formatBytes(d.byte_size)}</Td>
+                <Td><StatusBadge tone={scan.tone} glyph={scan.glyph}>{scan.label}</StatusBadge></Td>
+                <Td><StatusBadge tone={visibility.tone} glyph={visibility.glyph}>{visibility.label}</StatusBadge></Td>
+                <Td className="whitespace-nowrap text-ink-500">
+                  {formatDate(d.uploaded_at, context.timeZone)}
+                </Td>
+              </tr>
+            );
+          })}
+        </DataTable>
+      )}
+    </div>
+  );
+}

@@ -22,7 +22,9 @@ residents until those are done.
 | Bank CSV import UI | Schema, deduplication and matching constraints complete | The import screen and mapping preview are not built. Duplicate protection is enforced at database level and covered by tests. |
 | Content Security Policy | Permits `'unsafe-inline'` for scripts | Required by Next's inline hydration bootstrap. Tightening to a nonce-based policy is outstanding. |
 | Rent payment provider | **Deliberately disabled** | See `docs/decisions/0004-money-flow.md`. Not to be enabled before merchant ownership and settlement are confirmed in writing. |
-| Contractor portal | Schema only | Phase 2 per the blueprint. |
+| Contractor portal | Schema and assignment model only | Phase 2 per the blueprint. Contractor-visible comments and attachments are already separated in the data model and enforced by RLS, ready for that portal. |
+| Document upload UI | Register/share/download commands and policies complete | The operator upload form and the resident photo attachment are not built; documents are currently registered programmatically. |
+| Inspection capture UI | Commands, versioning and resident response complete | The inspector's item-by-item capture screen and photo attachment are not built. |
 | Owner portal | Scope functions and policies exist | Phase 2 per the blueprint. |
 | Utilities (meters, tariffs) | Phase 2 | MVP supports reviewed, manually entered utility charges only. |
 
