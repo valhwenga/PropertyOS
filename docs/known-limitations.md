@@ -25,7 +25,10 @@ residents until those are done.
 | Contractor portal | Schema and assignment model only | Phase 2 per the blueprint. Contractor-visible comments and attachments are already separated in the data model and enforced by RLS, ready for that portal. |
 | Document upload UI | Register/share/download commands and policies complete | The operator upload form and the resident photo attachment are not built; documents are currently registered programmatically. |
 | Inspection capture UI | Commands, versioning and resident response complete | The inspector's item-by-item capture screen and photo attachment are not built. |
-| Owner portal | Scope functions and policies exist | Phase 2 per the blueprint. |
+| Owner portal | Scope functions and policies exist | Phase 2 per the blueprint. `app.owns_property` and the owner read policies are in place. |
+| Customer provisioning UI | `createOrganisationWithOwner` and the platform console exist | Self-service sign-up and the operator "provision a customer" form are not built; organisations are currently created by the seed script or programmatically. |
+| CSV onboarding import | Not built | Bulk import of properties, units, residents, leases and opening balances is specified in the blueprint but not implemented. Opening balances are currently posted as explicit `opening_balance` charge documents one at a time. |
+| PDF statement export | Not built | Statements export as CSV. The blueprint also asks for PDF. |
 | Utilities (meters, tariffs) | Phase 2 | MVP supports reviewed, manually entered utility charges only. |
 
 ## Business rules that need named human decisions

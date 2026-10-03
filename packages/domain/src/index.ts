@@ -17,3 +17,5 @@ export * from './maintenance';
 export * from './inspections';
 export * from './documents';
 export * from './invitations';
+export * from './reports';
+export * from './platform';

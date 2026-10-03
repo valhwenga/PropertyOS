@@ -244,12 +244,57 @@ describe('Cross-organisation and scope isolation', () => {
     });
   });
 
-  it('gives a Spike operator nothing without an authorised support session', async () => {
+  it('gives a Spike operator account metadata but NO customer content without a support session', async () => {
     const operator = await createAuthUser('Spike Operator', { platformOperator: true });
     await as(operator, async (tx) => {
+      // Platform administration legitimately covers the account record itself:
+      // which customers exist, their plan, their status. That is metadata.
+      const organisation = await tx<{ name: string }[]>`
+        select name from organisations where id = ${orgA.organisationId}::uuid
+      `;
+      expect(organisation).toHaveLength(1);
+
+      // Customer CONTENT stays closed. Every one of these is a valid id the
+      // operator knows, and every one returns nothing.
       expect(await tx`select id from leases where id = ${aLease}::uuid`).toHaveLength(0);
-      expect(await tx`select id from organisations where id = ${orgA.organisationId}::uuid`).toHaveLength(0);
+      expect(await tx`select id from resident_profiles where id = ${aResident}::uuid`).toHaveLength(0);
+      expect(await tx`select id from properties where id = ${aProperty}::uuid`).toHaveLength(0);
+      expect(await tx`select id from documents where id = ${aDocumentId}::uuid`).toHaveLength(0);
+      expect(await tx`select id from charge_documents`).toHaveLength(0);
+      expect(await tx`select id from receipts`).toHaveLength(0);
+      expect(await tx`select id from journals`).toHaveLength(0);
+      expect(await tx`select id from journal_lines`).toHaveLength(0);
+      expect(await tx`select id from payment_allocations`).toHaveLength(0);
+      expect(await tx`select id from maintenance_tickets`).toHaveLength(0);
+      // Not even the audit trail of the customer's own operations.
+      expect(await tx`
+        select id from audit_events where organisation_id = ${orgA.organisationId}::uuid
+      `).toHaveLength(0);
     });
+  });
+
+  it('refuses a Spike operator a writable support session', async () => {
+    const operator = await createAuthUser('Spike Write Attempt', { platformOperator: true });
+    // The policy requires read_only = true, so a writable session cannot exist.
+    await expect(
+      as(operator, (tx) => tx`
+        insert into support_sessions (organisation_id, operator_user_id, reason, expires_at, read_only)
+        values (${orgA.organisationId}, ${operator},
+                'Attempting to grant myself write access', now() + interval '1 hour', false)
+      `),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it('refuses a Spike operator a support session in someone else name', async () => {
+    const operator = await createAuthUser('Spike Proxy Attempt', { platformOperator: true });
+    const colleague = await createAuthUser('Spike Colleague', { platformOperator: true });
+    await expect(
+      as(operator, (tx) => tx`
+        insert into support_sessions (organisation_id, operator_user_id, reason, expires_at)
+        values (${orgA.organisationId}, ${colleague},
+                'Attempting to grant a colleague access', now() + interval '1 hour')
+      `),
+    ).rejects.toThrow(/row-level security/);
   });
 
   it('grants a Spike operator time-limited READ access under an authorised session, and no writes', async () => {
