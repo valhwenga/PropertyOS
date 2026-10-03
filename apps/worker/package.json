@@ -1,0 +1,22 @@
+{
+  "name": "@propertyos/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@propertyos/db": "workspace:*",
+    "@propertyos/domain": "workspace:*",
+    "@propertyos/integrations": "workspace:*",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}
