@@ -1,4 +1,6 @@
 import { Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
+import { UploadForm } from './upload-form';
+import { ShareControl } from './share-control';
 import type { StatusTone } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
@@ -41,6 +43,7 @@ export default async function DocumentsPage({ params }: { params: Promise<{ org:
       <PageHeader
         title="Documents"
         description="All files are private. Downloads are authorised per request and recorded."
+        actions={<UploadForm org={org} />}
       />
 
       {/* An honest, prominent statement of the scanning position. The product
@@ -95,7 +98,15 @@ export default async function DocumentsPage({ params }: { params: Promise<{ org:
                 <Td className="text-ink-500">{d.lease_reference ?? d.property_name ?? '—'}</Td>
                 <Td className="tabular text-ink-500">{formatBytes(d.byte_size)}</Td>
                 <Td><StatusBadge tone={scan.tone} glyph={scan.glyph}>{scan.label}</StatusBadge></Td>
-                <Td><StatusBadge tone={visibility.tone} glyph={visibility.glyph}>{visibility.label}</StatusBadge></Td>
+                <Td>
+                  <ShareControl
+                    org={org}
+                    documentId={d.id}
+                    visibility={d.visibility}
+                    quarantined={d.quarantined}
+                    canShareToResident={Boolean(d.lease_reference)}
+                  />
+                </Td>
                 <Td className="whitespace-nowrap text-ink-500">
                   {formatDate(d.uploaded_at, context.timeZone)}
                 </Td>

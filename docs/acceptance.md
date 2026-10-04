@@ -23,6 +23,7 @@ it. Run `pnpm test` to execute all of them.
 | Malicious or oversized upload | Rejected or quarantined before sharing | `integration/acceptance.test.ts` — "Malicious or oversized uploads" (6 tests); `integration/operations.test.ts` — quarantine constraint |
 | Backup restored into isolated environment | Journals balance and original documents are accessible | `scripts/restore-verify.sh` — see the measured exercise in `docs/runbooks/recovery.md` |
 | Portal tested on a small mobile screen | Statements and maintenance usable without horizontal scrolling | `tests/e2e/portal.spec.ts` — "has no horizontal scrolling on a small screen" |
+| Private file access | Authorised, expiring, tamper-proof, recorded | `integration/integrations.test.ts` — signed URL tests; plus 15 HTTP checks covering tampered keys, extended expiry, expired links, cross-organisation and quarantined documents |
 
 ## Additional assertions beyond the blueprint table
 
@@ -43,9 +44,15 @@ it. Run `pnpm test` to execute all of them.
 These are honest gaps, not oversights. Each is listed in
 [`known-limitations.md`](known-limitations.md):
 
-* **No malware scanner is configured**, so the "malicious upload" scenario is
-  proven only to the extent of type, size and magic-byte validation plus
-  quarantine. A file carrying a real payload in a valid PDF is not detected.
+* **No ClamAV daemon is deployed.** The scanner client is tested against a mock
+  daemon for every documented reply shape, but has never spoken to real clamd,
+  so no file in this build has been scanned by actual virus definitions.
+  Validation and quarantine are the compensating controls.
+* **SMTP has never spoken to a commercial provider.** The client is tested
+  against a real in-process SMTP server, which proves the protocol but not
+  deliverability, sender authentication or bounce handling.
+* **Supabase Storage has never run against a live bucket.** The local
+  filesystem adapter is exercised end to end over HTTP.
 * **Supabase Auth sign-in is implemented but untested against a live project.**
   MFA *enforcement* is fully tested; MFA *verification* via Supabase is not.
 * **No storage object backup** is configured, so the restore exercise verifies

@@ -20,8 +20,8 @@ closed.
 | # | Blocker | Why it blocks | Owner |
 | --- | --- | --- | --- |
 | 1 | **Supabase Auth not verified against a live project** | The sign-in and MFA adapters are implemented and the enforcement is fully tested, but no code path has run against a real Supabase project. Password policy, breach detection and account recovery are Supabase's, and none has been exercised. | Technical lead |
-| 2 | **No malware scanning** | Uploads are quarantined and cannot be shared, which is safe but means document sharing is effectively unusable in production. | Technical lead |
-| 3 | **No email delivery** | Residents cannot receive invitations or statements. The system is honest about this (`development_sink`, never `sent`), but the product does not function without it. | Technical lead |
+| 2 | **No ClamAV daemon deployed** | The scanner client is implemented and tested against a mock daemon, but no clamd instance exists. Until one is deployed and `MALWARE_SCANNER=clamav` is set, every upload stays quarantined and cannot be shared. **Reduced from "not implemented" to "not deployed".** | Technical lead |
+| 3 | **Email not exercised against a commercial provider** | The SMTP client is implemented and tested against a real in-process server, but has never spoken to a production provider. Sender domain authentication (SPF, DKIM, DMARC) is not set up, and there is no bounce or complaint handling. **Reduced from "no email delivery".** | Technical lead |
 | 4 | **Opening balances not signed off** | Wrong opening balances mean untrusted statements, the second-highest risk in the blueprint's register. | Operator + accountant |
 | 5 | **Chart of accounts and tax treatment not confirmed** | The posting model is proposed, not validated. | Accountant |
 | 6 | **Deposit rules not legally reviewed** | Interest basis and refund deadlines are deliberately not hardcoded and fail safe, but they must be configured from a reviewed rule pack before deposits are handled. | Legal adviser |

@@ -26,6 +26,8 @@ export type EmailOutcome =
   | { status: 'development_sink'; provider: 'sink'; reason: string }
   | { status: 'failed'; provider: string; error: string };
 
+import { sendViaSmtp, type SmtpConfig } from './smtp';
+
 export interface EmailAdapter {
   readonly name: string;
   send(message: EmailMessage): Promise<EmailOutcome>;
@@ -45,23 +47,33 @@ export class SinkEmailAdapter implements EmailAdapter {
 
 export class SmtpEmailAdapter implements EmailAdapter {
   readonly name = 'smtp';
-  constructor(
-    private readonly config: {
-      host: string; port: number; user: string; password: string; from: string;
-    },
-  ) {}
+  constructor(private readonly config: SmtpConfig) {}
 
-  async send(_message: EmailMessage): Promise<EmailOutcome> {
-    // Intentionally not implemented in this release. Wiring a real SMTP client
-    // is a configuration task, and returning a fake success here would be
-    // exactly the failure mode the blueprint warns about.
-    return {
-      status: 'failed',
-      provider: 'smtp',
-      error:
-        'The SMTP adapter is configured but not yet implemented in this release. ' +
-        'See docs/known-limitations.md. No message was sent.',
-    };
+  /**
+   * Returns `sent` ONLY when the server issued a 2xx to the final `.` of the
+   * DATA block — that is, when the provider accepted responsibility for the
+   * message. Any other outcome is `failed`, with the server's own words.
+   */
+  async send(message: EmailMessage): Promise<EmailOutcome> {
+    try {
+      const accepted = await sendViaSmtp(this.config, {
+        to: message.to,
+        subject: message.subject,
+        body: message.body,
+      });
+      return {
+        status: 'sent',
+        provider: 'smtp',
+        // The server's queue id where it supplies one, else our Message-ID.
+        providerMessageId: accepted.response.replace(/^250[ -]/, '').trim() || accepted.messageId,
+      };
+    } catch (error) {
+      return {
+        status: 'failed',
+        provider: 'smtp',
+        error: error instanceof Error ? error.message : 'The message could not be sent.',
+      };
+    }
   }
 }
 
@@ -85,8 +97,15 @@ export function resolveEmailAdapter(env: NodeJS.ProcessEnv = process.env): Email
         'Messages are recorded locally and NOT delivered.',
     );
   }
+  const port = Number(env.SMTP_PORT);
   return new SmtpEmailAdapter({
-    host: env.SMTP_HOST!, port: Number(env.SMTP_PORT), user: env.SMTP_USER!,
-    password: env.SMTP_PASSWORD!, from: env.EMAIL_FROM!,
+    host: env.SMTP_HOST!,
+    port,
+    user: env.SMTP_USER!,
+    password: env.SMTP_PASSWORD!,
+    from: env.EMAIL_FROM!,
+    // Port 465 is implicit TLS; everything else attempts STARTTLS.
+    secure: port === 465,
+    rejectUnauthorized: env.SMTP_ALLOW_SELF_SIGNED !== 'true',
   });
 }

@@ -79,6 +79,8 @@ export function validateUpload(params: {
   return { ok: true };
 }
 
+import { scanWithClamAv } from './clamav';
+
 export type ScanOutcome =
   | { status: 'clean' }
   | { status: 'infected'; detail: string }
@@ -88,14 +90,17 @@ export type ScanOutcome =
 /**
  * Malware scanning.
  *
- * When no scanner is configured this returns `skipped_not_configured` and the
+ * With `MALWARE_SCANNER=clamav` the file is streamed to clamd over INSTREAM and
+ * the daemon's verdict is returned verbatim.
+ *
+ * With no scanner configured this returns `skipped_not_configured`, and the
  * document STAYS QUARANTINED. The product never claims a file was scanned when
- * it was not, and a quarantined file can never be shared with a resident — the
- * database check constraint `documents_quarantine_not_shared` enforces that even
- * if application code were wrong.
+ * it was not, and a failed scan is never treated as clean — a quarantined file
+ * can never be shared, enforced by the database check constraint
+ * `documents_quarantine_not_shared` as well as by this code.
  */
 export async function scanDocument(
-  _object: { bucket: string; key: string },
+  object: { bucket: string; key: string; body?: Uint8Array },
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ScanOutcome> {
   if (!env.MALWARE_SCANNER) {
@@ -106,10 +111,35 @@ export async function scanDocument(
         'It remains quarantined and cannot be shared. See docs/runbooks/uploads.md.',
     };
   }
-  return {
-    status: 'failed',
-    detail:
-      `MALWARE_SCANNER is set to "${env.MALWARE_SCANNER}" but no scanner client is implemented in this release. ` +
-      'The file remains quarantined. See docs/known-limitations.md.',
-  };
+
+  if (env.MALWARE_SCANNER !== 'clamav') {
+    return {
+      status: 'failed',
+      detail:
+        `MALWARE_SCANNER is set to "${env.MALWARE_SCANNER}", which is not supported. ` +
+        'Supported value: "clamav". The file remains quarantined.',
+    };
+  }
+
+  if (!object.body) {
+    return {
+      status: 'failed',
+      detail: 'The file content was not supplied to the scanner, so it was NOT scanned.',
+    };
+  }
+
+  const result = await scanWithClamAv(
+    {
+      host: env.CLAMAV_HOST ?? '127.0.0.1',
+      port: Number(env.CLAMAV_PORT ?? 3310),
+      timeoutMs: Number(env.CLAMAV_TIMEOUT_MS ?? 30_000),
+    },
+    object.body,
+  );
+
+  if (result.status === 'clean') return { status: 'clean' };
+  if (result.status === 'infected') {
+    return { status: 'infected', detail: `Malware detected: ${result.signature}` };
+  }
+  return { status: 'failed', detail: result.detail };
 }
