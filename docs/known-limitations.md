@@ -60,6 +60,18 @@ way that fails safe until someone with the relevant authority decides.
    `residential_rent_exempt`. *Needs: confirmation of VAT treatment per
    customer segment.*
 
+## Known behaviours that are correct but surprising
+
+* **Independent rounding can lose a cent across three or more shares.** Three
+  equal shares of R10.00 round to R3.33 each, totalling R9.99. Proration is
+  per lease and a month is never split three ways between leases on one unit,
+  so this does not arise in the billing path; it is recorded because it would
+  if a future feature split one charge several ways.
+* **Balance views return `numeric`, not `bigint`.** `sum(bigint)` is `numeric`
+  in PostgreSQL. It is exact arbitrary precision and the driver returns it as an
+  integer string, so no precision is lost. Pinned by
+  `tests/db/schema-invariants.test.ts`.
+
 ## Operational gaps
 
 * **Backups are not configured by this repository.** Supabase database backups

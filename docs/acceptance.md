@@ -41,6 +41,9 @@ it. Run `pnpm test` to execute all of them.
 
 | Onboarding import (blueprint section 31) | Errors by row and field before committing; a failed import leaves no partial state | `integration/onboarding.test.ts` (28 tests), plus 20 HTTP checks on templates and the wizard |
 
+| Adversarial review of the financial and isolation paths | Two real defects found and fixed; 52 other probes held | `db/adversarial.test.ts`, `db/adversarial-isolation.test.ts`, `db/adversarial-money.test.ts` (45 tests) · ADR 0010 |
+| Schema invariants cannot be broken by a future migration | RLS on every table, security_invoker on every view, money stored as bigint | `db/schema-invariants.test.ts` (9 tests) |
+
 ## What acceptance does NOT cover
 
 These are honest gaps, not oversights. Each is listed in

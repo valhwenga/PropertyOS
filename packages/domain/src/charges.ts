@@ -216,11 +216,16 @@ export async function issueCreditNote(
   await requirePermission(tx, organisationId, 'charge.adjust');
   if (params.reason.trim().length < 5) throw invalid('A credit note requires a reason.');
 
+  // Locked for the duration of the transaction, so two operators crediting the
+  // same document at the same moment serialise instead of both reading a stale
+  // already-credited total. The database trigger enforces the same rule
+  // independently; this is here to produce a readable error.
   const [original] = await tx<
     { id: string; lease_id: string; book_id: string; currency_code: string; total_minor: string; status: string }[]
   >`
     select id, lease_id, book_id, currency_code, total_minor, status from charge_documents
     where id = ${params.documentId}::uuid and organisation_id = ${organisationId}::uuid
+    for update
   `;
   if (!original) throw notFound('Charge document');
   if (original.status !== 'posted') throw new DomainError('conflict', 'Only a posted document can be credited.');
@@ -232,8 +237,28 @@ export async function issueCreditNote(
 
   const credited = sumMinor(params.lines.map((l) => l.amountMinor));
   if (credited <= 0n) throw invalid('A credit note must credit a positive amount.');
-  if (credited > BigInt(original.total_minor)) {
-    throw invalid('A credit note cannot exceed the original document total.');
+
+  // A document can be credited more than once, so the limit is what remains
+  // after earlier notes — not the original total. Checking only the latter let
+  // two R600 notes credit R1,200 against a R900 charge.
+  const [{ already }] = await tx<{ already: string }[]>`
+    select coalesce(sum(-total_minor), 0)::text as already
+    from charge_documents
+    where corrects_document_id = ${original.id}::uuid
+      and document_type = 'credit_note'
+      and status <> 'draft'
+  ` as unknown as [{ already: string }];
+  const alreadyCredited = BigInt(already ?? '0');
+  const remaining = BigInt(original.total_minor) - alreadyCredited;
+
+  if (credited > remaining) {
+    throw invalid(
+      alreadyCredited > 0n
+        ? `This document has already been credited ${alreadyCredited} minor units of ${original.total_minor}. ` +
+          `Only ${remaining} remains creditable.`
+        : 'A credit note cannot exceed the original document total.',
+      { alreadyCreditedMinor: alreadyCredited.toString(), remainingMinor: remaining.toString() },
+    );
   }
 
   const accounts = await resolveSystemAccounts(tx, original.book_id);
