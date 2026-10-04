@@ -5,3 +5,4 @@ export * from './auth-provider';
 export * from './smtp';
 export * from './clamav';
 export * from './storage-adapter';
+export * from './pdf';

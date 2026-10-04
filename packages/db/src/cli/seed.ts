@@ -39,14 +39,35 @@ async function main(): Promise<void> {
   const hash = await hashPassword(password);
 
   try {
+    const [existing] = await sql<{ count: string }[]>`
+      select count(*)::text from organisations where slug like 'demo-%'
+    `;
+    if (Number(existing?.count ?? 0) > 0) {
+      throw new Error(
+        'Demo data is already present. Run `pnpm db:reset` first, or drop the demo ' +
+          'organisations, rather than seeding on top of existing records.',
+      );
+    }
+
+    // The entire seed runs in ONE transaction. A failure part way through leaves
+    // nothing behind, so re-running after fixing the cause always starts clean —
+    // the same all-or-nothing rule the onboarding import follows.
+    await sql.begin(async (outer) => {
+    const tx = outer as unknown as Sql;
     const createUser = async (name: string, email: string, operator = false) => {
       const id = randomUUID();
-      await sql`insert into auth.users (id, email, password_hash) values (${id}, ${email}, ${hash})`;
-      await sql`
+      await tx`insert into auth.users (id, email, password_hash) values (${id}, ${email}, ${hash})`;
+      await tx`
         insert into user_profiles (auth_user_id, full_name, email, is_platform_operator)
         values (${id}, ${name}, ${email}, ${operator})
       `;
       return id;
+    };
+
+    /** Switches the acting identity for the rest of this transaction. */
+    const actAs = async (userId: string) => {
+      await tx`select set_config('request.jwt.claims',
+        ${JSON.stringify({ sub: userId, aal: 'aal2' })}, true)`;
     };
 
     const adminId = await createUser('Nomsa Dlamini', 'admin@demo.invalid');
@@ -58,41 +79,37 @@ async function main(): Promise<void> {
     // admin and seeing nothing of the first.
     const otherAdminId = await createUser('Riaan Botha', 'other-admin@demo.invalid');
 
-    const org = await sql.begin((tx) =>
-      createOrganisationWithOwner(tx as unknown as Sql, {
+    const org = await (async () =>
+      createOrganisationWithOwner(tx, {
         name: '[DEMO] Blue Crane Rentals', slug: 'demo-blue-crane',
         countryCode: 'ZA', currencyCode: 'ZAR', timeZone: 'Africa/Johannesburg',
         legalEntityName: '[DEMO] Blue Crane Rentals (Pty) Ltd', planKey: 'starter',
-      }, adminId),
-    ) as { organisationId: string; bookId: string };
+      }, adminId))() as { organisationId: string; bookId: string };
 
-    await sql.begin((tx) =>
-      createOrganisationWithOwner(tx as unknown as Sql, {
+    await createOrganisationWithOwner(tx, {
         name: '[DEMO] Karoo Letting', slug: 'demo-karoo',
         countryCode: 'ZA', currencyCode: 'ZAR', timeZone: 'Africa/Johannesburg',
         legalEntityName: '[DEMO] Karoo Letting CC', planKey: 'starter',
-      }, otherAdminId),
-    );
+      }, otherAdminId);
 
     // A finance approver alongside the administrator.
-    const [financeMembership] = await sql<{ id: string }[]>`
+    const [financeMembership] = await tx<{ id: string }[]>`
       insert into memberships (organisation_id, auth_user_id, status)
       values (${org.organisationId}, ${financeId}, 'active') returning id
     `;
-    await sql`
+    await tx`
       insert into membership_roles (membership_id, role_key)
       values (${financeMembership!.id}, 'finance_approver')
     `;
-    await sql`
+    await tx`
       insert into property_assignments (organisation_id, membership_id, scope_type)
       values (${org.organisationId}, ${financeMembership!.id}, 'organisation')
     `;
 
-    const run = <T>(fn: (tx: Sql) => Promise<T>) =>
-      sql.begin(async (tx) => {
-        await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: adminId })}, true)`;
-        return fn(tx as unknown as Sql);
-      }) as Promise<T>;
+    // aal2: the seeded administrator holds MFA-gated roles, so a single-factor
+    // claim would correctly withhold their permissions.
+    await actAs(adminId);
+    const run = <T>(fn: (txn: Sql) => Promise<T>) => fn(tx);
 
     // A standalone house.
     const house = await run((tx) =>
@@ -151,7 +168,7 @@ async function main(): Promise<void> {
     );
 
     // Portal access for the primary resident.
-    await sql`
+    await tx`
       insert into portal_links (
         organisation_id, resident_id, lease_id, auth_user_id, invited_email,
         status, accepted_at, expires_at
@@ -208,15 +225,14 @@ async function main(): Promise<void> {
     );
 
     // Unverified evidence, to show it carries no accounting effect.
-    await sql.begin(async (tx) => {
-      await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: residentId1 })}, true)`;
-      await submitPaymentEvidence(tx as unknown as Sql, org.organisationId, residentId1, {
-        leaseId: lease.leaseId, claimedAmountMinor: R('1850'),
-        claimedPaidAt: '2026-01-28', reference: 'DEMO screenshot of EFT',
-      });
+    await actAs(residentId1);
+    await submitPaymentEvidence(tx, org.organisationId, residentId1, {
+      leaseId: lease.leaseId, claimedAmountMinor: R('1850'),
+      claimedPaidAt: '2026-01-28', reference: 'DEMO screenshot of EFT',
     });
 
-    const [balance] = await sql<{ receivable_minor: string }[]>`
+    await actAs(adminId);
+    const [balance] = await tx<{ receivable_minor: string }[]>`
       select receivable_minor::text from lease_balances where lease_id = ${lease.leaseId}
     `;
 
@@ -230,12 +246,18 @@ async function main(): Promise<void> {
         `  Resident       thandiwe@demo.invalid   / ${password}`,
         `  Other customer other-admin@demo.invalid / ${password}   (sees none of the above)`,
         `  Spike support  support@demo.invalid    / ${password}   (needs an authorised session)`,
+      '',
+      '  Elevated roles require a second factor. The seeded accounts have no',
+      '  TOTP factor enrolled, so org_admin and finance_approver permissions are',
+      '  withheld until one is added. Enrol with the MFA factor table, or use the',
+      '  finance preparer account for work that is not MFA-gated.',
         '',
         `  Lease ${lease.reference} closing receivable: ${balance?.receivable_minor} minor units ` +
           '(expected 185000 = R1,850.00)',
         '',
       ].join('\n'),
     );
+    });
   } finally {
     await sql.end({ timeout: 5 });
   }

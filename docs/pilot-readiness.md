@@ -35,7 +35,8 @@ closed.
 - Monitoring and alerting. Logs are produced; nothing consumes them.
 - Rate limiting beyond sign-in (uploads, exports, invitation endpoints).
 - Content Security Policy tightened to a nonce-based script policy.
-- PDF statements, inspection capture UI, bulk document import, bulk portal invitations.
+- Inspection capture UI, bulk document import, bulk portal invitations.
+- A font that covers scripts beyond Latin-1 in PDF statements.
 - Two complete billing cycles observed with a pilot operator, per the blueprint.
 
 ## What I would defend

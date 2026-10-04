@@ -23,7 +23,34 @@ function urlFor(database: string, user?: string, password?: string): string {
   return url.toString();
 }
 
+/**
+ * Refuses to drop anything that is not obviously a throwaway test database.
+ *
+ * This harness DROPS the database it is pointed at. Running it against a
+ * development, staging or production database destroys it, and the only thing
+ * standing between those outcomes is an environment variable. The guard is here
+ * because I made exactly that mistake: pointing TEST_DATABASE_NAME at the
+ * development database wiped its seed data.
+ *
+ * Opt out deliberately with ALLOW_DESTRUCTIVE_TEST_DB=true if a differently
+ * named database really is disposable.
+ */
+function assertDisposable(name: string): void {
+  if (process.env.ALLOW_DESTRUCTIVE_TEST_DB === 'true') return;
+  if (/^(propertyos_)?test(_|$)|_test$|^propertyos_test$/.test(name)) return;
+  throw new Error(
+    `Refusing to drop database "${name}": its name does not identify it as a test database. ` +
+      'The test harness DROPS the database it is given. Name it like "propertyos_test", ' +
+      'or set ALLOW_DESTRUCTIVE_TEST_DB=true if you are certain it is disposable.',
+  );
+}
+
 export async function setup(): Promise<void> {
+  assertDisposable(TEST_DB);
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to run the destructive test harness with NODE_ENV=production.');
+  }
+
   const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
   try {
     await admin.unsafe(`drop database if exists ${TEST_DB} with (force)`);

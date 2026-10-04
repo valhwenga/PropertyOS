@@ -348,3 +348,82 @@ describe('Adversarial: worker and job paths', () => {
     expect(row!.status).toBe('dead');
   });
 });
+
+describe('Adversarial: what a resident SHOULD be able to see', () => {
+  /**
+   * Isolation work tends to push everything towards "deny", and a statement
+   * that cannot name the landlord is the result. These assert the other
+   * direction: the resident can see what is legitimately theirs, and still
+   * nothing more.
+   */
+  let org: OrganisationFixture;
+  let other: OrganisationFixture;
+  let residentUser: string;
+
+  beforeAll(async () => {
+    org = await createOrganisation('Resident Visibility Co');
+    other = await createOrganisation('Resident Visibility Neighbour');
+
+    const resident = await as(org.adminUserId, (tx) =>
+      createResident(tx, org.organisationId, org.adminUserId, { firstName: 'Vis', lastName: 'Ible' }),
+    );
+    const house = await as(org.adminUserId, (tx) =>
+      createStandaloneHouse(tx, org.organisationId, org.adminUserId, {
+        name: 'Visibility House', code: 'VIS1', propertyType: 'house',
+        addressLine1: '1 Visibility Road', city: 'Cape Town',
+      }),
+    );
+    const lease = await as(org.adminUserId, (tx) =>
+      draftLease(tx, org.organisationId, org.adminUserId, {
+        unitId: house.unitId, startDate: '2026-01-01', rentMinor: R('5000'),
+        parties: [{ residentId: resident.residentId, role: 'primary_resident' }],
+      }),
+    );
+    await as(org.adminUserId, (tx) =>
+      activateLease(tx, org.organisationId, org.adminUserId, {
+        leaseId: lease.leaseId, expectedVersion: 1, activationDate: '2026-01-01',
+        executionExceptionReason: 'Filed offline.',
+      }),
+    );
+    residentUser = await grantPortalAccess(
+      org.organisationId, lease.leaseId, resident.residentId, 'Visibility Portal User',
+    );
+  });
+
+  afterAll(async () => { await closeOwner(); });
+
+  it('can read the name of the organisation they rent from', async () => {
+    await as(residentUser, async (tx) => {
+      const rows = await tx<{ name: string }[]>`select name from organisations`;
+      // Exactly one: their own landlord, and no other customer.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.name).toBe('Resident Visibility Co');
+    });
+  });
+
+  it('still cannot see any other organisation', async () => {
+    await as(residentUser, async (tx) => {
+      const rows = await tx`
+        select id from organisations where id = ${other.organisationId}::uuid
+      `;
+      expect(rows).toHaveLength(0);
+    });
+  });
+
+  it('can read their own unit and property, and no others', async () => {
+    await as(residentUser, async (tx) => {
+      expect(await tx`select id from properties`).toHaveLength(1);
+      expect(await tx`select id from units`).toHaveLength(1);
+    });
+  });
+
+  it('loses the organisation name again when their access is revoked', async () => {
+    await ownerSql()`
+      update portal_links set status = 'revoked', revoked_at = now()
+      where auth_user_id = ${residentUser}
+    `;
+    await as(residentUser, async (tx) => {
+      expect(await tx`select id from organisations`).toHaveLength(0);
+    });
+  });
+});

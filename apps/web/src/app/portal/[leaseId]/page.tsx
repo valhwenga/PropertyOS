@@ -120,9 +120,19 @@ export default async function ResidentLeasePage({
       ) : null}
 
       <section aria-labelledby="statement-heading" className="space-y-3">
-        <h2 id="statement-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
-          Statement
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="statement-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+            Statement
+          </h2>
+          {/* A resident needs a copy they can keep, forward to their bank, or
+              take to an advice office. */}
+          <a
+            href={`/portal/${leaseId}/statement.pdf`}
+            className="rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-700"
+          >
+            Download PDF
+          </a>
+        </div>
         <DataTable
           caption={`Statement for lease ${lease.reference}`}
           dense

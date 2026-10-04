@@ -68,10 +68,14 @@ export default async function LeaseDetailPage({
         description={`${lease.resident_name} · ${lease.unit_label}`}
         actions={
           <>
-            <Link href={`/app/${org}/leases/${leaseId}/statement.csv?cutOff=${cut}`}
-                  className="rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700">
+            <a href={`/app/${org}/leases/${leaseId}/statement.pdf?cutOff=${cut}`}
+               className="rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700">
+              Download PDF
+            </a>
+            <a href={`/app/${org}/leases/${leaseId}/statement.csv?cutOff=${cut}`}
+               className="rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700">
               Export CSV
-            </Link>
+            </a>
             <Link href={`/app/${org}/reconciliation?lease=${leaseId}`}
                   className="rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white">
               Record a receipt

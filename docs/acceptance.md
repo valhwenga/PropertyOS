@@ -44,6 +44,8 @@ it. Run `pnpm test` to execute all of them.
 | Adversarial review of the financial and isolation paths | Two real defects found and fixed; 52 other probes held | `db/adversarial.test.ts`, `db/adversarial-isolation.test.ts`, `db/adversarial-money.test.ts` (45 tests) · ADR 0010 |
 | Schema invariants cannot be broken by a future migration | RLS on every table, security_invoker on every view, money stored as bigint | `db/schema-invariants.test.ts` (9 tests) |
 
+| PDF statements open in a real reader and carry the right figures | Verified by `pdftotext`, an independent parser, not only by our own assertions | `integration/statement-pdf.test.ts` (16 tests) · plus 19 HTTP checks |
+
 ## What acceptance does NOT cover
 
 These are honest gaps, not oversights. Each is listed in

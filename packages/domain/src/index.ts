@@ -21,3 +21,4 @@ export * from './reports';
 export * from './platform';
 export * from './csv';
 export * from './onboarding';
+export * from './statement-pdf';
