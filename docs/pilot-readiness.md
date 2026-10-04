@@ -22,7 +22,7 @@ closed.
 | 1 | **Supabase Auth not verified against a live project** | The sign-in and MFA adapters are implemented and the enforcement is fully tested, but no code path has run against a real Supabase project. Password policy, breach detection and account recovery are Supabase's, and none has been exercised. | Technical lead |
 | 2 | **No ClamAV daemon deployed** | The scanner client is implemented and tested against a mock daemon, but no clamd instance exists. Until one is deployed and `MALWARE_SCANNER=clamav` is set, every upload stays quarantined and cannot be shared. **Reduced from "not implemented" to "not deployed".** | Technical lead |
 | 3 | **Email not exercised against a commercial provider** | The SMTP client is implemented and tested against a real in-process server, but has never spoken to a production provider. Sender domain authentication (SPF, DKIM, DMARC) is not set up, and there is no bounce or complaint handling. **Reduced from "no email delivery".** | Technical lead |
-| 4 | **Opening balances not signed off** | Wrong opening balances mean untrusted statements, the second-highest risk in the blueprint's register. | Operator + accountant |
+| 4 | **Opening balances not signed off** | Wrong opening balances mean untrusted statements, the second-highest risk in the blueprint's register. The import now **enforces** a cut-off date, a source reference and a named approver before balances can be recorded, and posts them to opening equity rather than rental income — but the sign-off itself is still a human act that has not happened. | Operator + accountant |
 | 5 | **Chart of accounts and tax treatment not confirmed** | The posting model is proposed, not validated. | Accountant |
 | 6 | **Deposit rules not legally reviewed** | Interest basis and refund deadlines are deliberately not hardcoded and fail safe, but they must be configured from a reviewed rule pack before deposits are handled. | Legal adviser |
 | 7 | **No restore exercise at production scale** | A 1-second restore of a 448 KB development database proves the procedure, not the recovery time. | Technical lead |
@@ -35,7 +35,7 @@ closed.
 - Monitoring and alerting. Logs are produced; nothing consumes them.
 - Rate limiting beyond sign-in (uploads, exports, invitation endpoints).
 - Content Security Policy tightened to a nonce-based script policy.
-- CSV onboarding import, PDF statements, document upload UI, inspection capture UI.
+- PDF statements, inspection capture UI, bulk document import, bulk portal invitations.
 - Two complete billing cycles observed with a pilot operator, per the blueprint.
 
 ## What I would defend

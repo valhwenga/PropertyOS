@@ -39,6 +39,8 @@ it. Run `pnpm test` to execute all of them.
 | Invitation tokens are hashed, consumed, and non-enumerable | `integration/operations.test.ts` — "resident invitations" (5 tests) |
 | Money never passes through a JS float | `unit/money.test.ts`, `db/bigint-fidelity.test.ts` |
 
+| Onboarding import (blueprint section 31) | Errors by row and field before committing; a failed import leaves no partial state | `integration/onboarding.test.ts` (28 tests), plus 20 HTTP checks on templates and the wizard |
+
 ## What acceptance does NOT cover
 
 These are honest gaps, not oversights. Each is listed in

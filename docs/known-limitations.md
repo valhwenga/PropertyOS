@@ -29,7 +29,7 @@ residents until those are done.
 | Inspection capture UI | Commands, versioning and resident response complete | The inspector's item-by-item capture screen and photo attachment are not built. |
 | Owner portal | Scope functions and policies exist | Phase 2 per the blueprint. `app.owns_property` and the owner read policies are in place. |
 | Customer provisioning UI | `createOrganisationWithOwner` and the platform console exist | Self-service sign-up and the operator "provision a customer" form are not built; organisations are currently created by the seed script or programmatically. |
-| CSV onboarding import | Not built | Bulk import of properties, units, residents, leases and opening balances is specified in the blueprint but not implemented. Opening balances are currently posted as explicit `opening_balance` charge documents one at a time. |
+| CSV onboarding import | **Built** | Seven import kinds in the blueprint's order, with downloadable templates, row-and-field validation that writes nothing, and all-or-nothing commits. Opening balances require a cut-off date, source reference and approval. See `docs/runbooks/onboarding.md`. Document import (step 8 in the blueprint) is still not built, and there is no bulk portal-invitation step. |
 | PDF statement export | Not built | Statements export as CSV. The blueprint also asks for PDF. |
 | Utilities (meters, tariffs) | Phase 2 | MVP supports reviewed, manually entered utility charges only. |
 
