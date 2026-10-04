@@ -155,7 +155,21 @@ export async function grantSupportSession(
   return row!.id;
 }
 
-/** Convenience wrapper: run a block as a given user under their RLS context. */
+/**
+ * Runs a block as a given user under their RLS context.
+ *
+ * Defaults to aal2 (second factor verified) because most fixtures exercise
+ * business rules rather than the MFA gate itself. `asSingleFactor` is the
+ * explicit opposite, used by the tests that assert the gate works.
+ */
 export async function as<T>(authUserId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
-  return withActor({ authUserId }, ({ tx }) => fn(tx));
+  return withActor({ authUserId, assuranceLevel: 'aal2' }, ({ tx }) => fn(tx));
+}
+
+/** Runs a block on a password-only session, as an un-MFA'd user would. */
+export async function asSingleFactor<T>(
+  authUserId: string,
+  fn: (tx: Sql) => Promise<T>,
+): Promise<T> {
+  return withActor({ authUserId, assuranceLevel: 'aal1' }, ({ tx }) => fn(tx));
 }

@@ -4,10 +4,12 @@ import { redirect } from 'next/navigation';
 import { withActor, withAnonymous } from '@propertyos/db';
 import type { Sql } from '@propertyos/db';
 import { DomainError } from '@propertyos/domain';
-import { currentAuthUserId } from './session';
+import { currentSession, type AssuranceLevel } from './session';
 
 export interface Viewer {
   authUserId: string;
+  /** From the verified session. Permission resolution depends on it. */
+  assuranceLevel: AssuranceLevel;
   fullName: string;
   email: string;
   isPlatformOperator: boolean;
@@ -26,10 +28,11 @@ export interface Viewer {
  * revoking a role or a portal link takes effect on the next request.
  */
 export const getViewer = cache(async (): Promise<Viewer | null> => {
-  const authUserId = await currentAuthUserId();
-  if (!authUserId) return null;
+  const session = await currentSession();
+  if (!session) return null;
+  const { authUserId, assuranceLevel } = session;
 
-  return withActor({ authUserId }, async ({ tx }) => {
+  return withActor({ authUserId, assuranceLevel }, async ({ tx }) => {
     const [profile] = await tx<
       { full_name: string; email: string; is_platform_operator: boolean }[]
     >`
@@ -64,6 +67,7 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
 
     return {
       authUserId,
+      assuranceLevel,
       fullName: profile.full_name,
       email: profile.email,
       isPlatformOperator: profile.is_platform_operator,
@@ -116,7 +120,10 @@ export async function requireOperator(slug: string): Promise<OperatorContext> {
 
 /** Runs a read under the caller's RLS context. */
 export async function readAs<T>(viewer: Viewer, fn: (tx: Sql) => Promise<T>): Promise<T> {
-  return withActor({ authUserId: viewer.authUserId }, ({ tx }) => fn(tx));
+  return withActor(
+    { authUserId: viewer.authUserId, assuranceLevel: viewer.assuranceLevel },
+    ({ tx }) => fn(tx),
+  );
 }
 
 export { withAnonymous, DomainError };

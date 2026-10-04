@@ -53,8 +53,13 @@ export async function command<T>(
     if (!viewer) {
       return { ok: false, code: 'unauthenticated', message: 'Please sign in again.', correlationId };
     }
-    const result = await withActor({ authUserId: viewer.authUserId, correlationId }, ({ tx }) =>
-      fn({ tx, viewer, correlationId }),
+    const result = await withActor(
+      {
+        authUserId: viewer.authUserId,
+        assuranceLevel: viewer.assuranceLevel,
+        correlationId,
+      },
+      ({ tx }) => fn({ tx, viewer, correlationId }),
     );
     return { ok: true, ...result };
   } catch (error) {

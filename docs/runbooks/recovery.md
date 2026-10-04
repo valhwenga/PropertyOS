@@ -1,8 +1,35 @@
 # Runbook — backup and recovery
 
-> **These are targets, not demonstrated capabilities.** No restore exercise has
-> been performed for this build. Do not quote a recovery time to a customer
-> until one has been completed and timed.
+## Measured results
+
+A restore exercise **has** been performed for this build, against the
+development database, using `scripts/backup.sh` and `scripts/restore-verify.sh`:
+
+| Measure | Result |
+| --- | --- |
+| Backup size | 448 KB (2 organisations, 1 lease, 12 journal lines) |
+| Archive checksum verified | yes |
+| Restore time into an isolated database | **1 second** |
+| Financial books balancing after restore | all |
+| Unbalanced journals after restore | 0 |
+| Allocations exceeding their receipt | 0 |
+| Posted charges missing a journal | 0 |
+| Cross-organisation references | 0 |
+| Overlapping reserving leases | 0 |
+| Row Level Security still enabled | yes, verified on `leases` and `journals` |
+
+**These numbers describe a small development dataset on a local machine.** They
+demonstrate that the procedure works and that the verification catches what it
+claims to; they are **not** a production recovery time. Re-run the exercise
+against a production-sized dataset on production-class infrastructure before
+quoting any figure to a customer.
+
+Still not demonstrated: Storage object recovery (no object backup is configured),
+and a full application-level recovery including sign-in and statement
+reproduction.
+
+> The targets below remain targets. An ordinary daily backup cannot deliver a
+> one-hour recovery point, whatever the table says.
 
 ## What must be backed up
 
@@ -15,7 +42,24 @@
 
 Recovery credentials must be stored separately from routine developer access.
 
-## Restore procedure
+## Automated procedure
+
+```bash
+export DATABASE_URL=...            # the SOURCE database
+./scripts/backup.sh                # writes to ./backups with a checksum
+./scripts/restore-verify.sh ./backups/propertyos-<stamp>.dump
+```
+
+`restore-verify.sh` restores into a scratch database — it never touches the
+source — and then checks the things that actually matter: that every book
+balances, that no allocation exceeds its receipt, that no cross-organisation
+reference survived, and that Row Level Security is still enabled. It exits
+non-zero if any check fails.
+
+It deliberately reports what it has **not** verified, so a green run is not
+mistaken for a complete recovery.
+
+## Manual restore procedure
 
 1. Provision an **isolated** environment. Never restore over production to test.
 2. Restore the database to the chosen point in time.

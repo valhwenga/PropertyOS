@@ -22,16 +22,39 @@ export interface PlatformOperator {
   fullName: string;
 }
 
-/** Confirms the caller is Spike staff. Says nothing about customer access. */
+/**
+ * Confirms the caller is Spike staff AND has verified a second factor.
+ *
+ * Checked through `app.is_platform_operator()`, the same MFA-gated function the
+ * Row Level Security policies use, so the command layer and the database agree.
+ * A staff member without a second factor is told to complete it rather than
+ * being shown an empty console, which would read as a bug.
+ *
+ * Says nothing about customer access: that still needs a support session.
+ */
 export async function requirePlatformOperator(tx: Sql, authUserId: string): Promise<PlatformOperator> {
-  const [row] = await tx<{ full_name: string; is_platform_operator: boolean }[]>`
-    select full_name, is_platform_operator from user_profiles
-    where auth_user_id = ${authUserId}::uuid
+  const [row] = await tx<
+    { full_name: string | null; is_staff: boolean; assured: boolean }[]
+  >`
+    select
+      (select full_name from user_profiles where auth_user_id = ${authUserId}::uuid) as full_name,
+      exists (
+        select 1 from user_profiles
+        where auth_user_id = ${authUserId}::uuid and is_platform_operator
+      ) as is_staff,
+      app.is_platform_operator() as assured
   `;
-  if (!row?.is_platform_operator) {
+  if (!row?.is_staff) {
     throw new DomainError('forbidden', 'This area is restricted to Spike platform operators.');
   }
-  return { authUserId, fullName: row.full_name };
+  if (!row.assured) {
+    throw new DomainError(
+      'forbidden',
+      'Platform administration requires a verified second factor. Sign in again and complete your authenticator step.',
+      { reason: 'mfa_required' },
+    );
+  }
+  return { authUserId, fullName: row.full_name ?? 'Spike operator' };
 }
 
 export interface CustomerSummary {

@@ -10,6 +10,12 @@ import { sql, assertApplicationRoleIsIsolated } from './client';
 export interface RequestActor {
   authUserId: string;
   /**
+   * Authenticator assurance level from the verified session. Row Level Security
+   * and permission resolution read this, so an MFA-gated role grants nothing on
+   * a single-factor session. Defaults to the WEAKER value when absent.
+   */
+  assuranceLevel?: 'aal1' | 'aal2';
+  /**
    * The organisation the request is operating in. This is a *filter*, never a
    * grant: Row Level Security resolves what this user may actually see from
    * their membership rows, so supplying another organisation's id simply
@@ -44,7 +50,11 @@ export async function withActor<T>(
   await assertApplicationRoleIsIsolated();
   const client = sql();
   return client.begin(async (tx) => {
-    const claims = JSON.stringify({ sub: actor.authUserId, role: 'authenticated' });
+    const claims = JSON.stringify({
+      sub: actor.authUserId,
+      role: 'authenticated',
+      aal: actor.assuranceLevel === 'aal2' ? 'aal2' : 'aal1',
+    });
     await tx`select set_config('request.jwt.claims', ${claims}, true)`;
     return fn({ tx: tx as unknown as Sql, actor });
   }) as Promise<T>;

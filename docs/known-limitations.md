@@ -16,8 +16,10 @@ residents until those are done.
 | --- | --- | --- |
 | SMTP email delivery | Adapter exists, client not implemented | Messages are recorded as `development_sink` and are **not delivered**. The UI says so. Nothing is ever reported as sent. |
 | Malware scanning | Not configured | Uploads are recorded `skipped_not_configured` and stay **quarantined**. A quarantined file cannot be shared — enforced by a database check constraint, not just by code. |
-| Supabase Auth sign-in route | Not implemented | `AUTH_PROVIDER=supabase` currently refuses sign-in with an explicit message. Development uses local credentials, **without MFA**. |
-| Multi-factor authentication | Not enforced | The blueprint requires MFA for Spike administrators and finance approvers. The `roles.requires_mfa` flag exists and is seeded; enforcement is pending the Supabase Auth integration. |
+| Supabase Auth sign-in | **Implemented, not verified against a live project** | The adapter signs in and verifies MFA challenges over Supabase's REST API and reads the `aal` claim rather than assuming it. No code path has run against a real Supabase project, so password policy, breach detection and account recovery are unexercised. |
+| Multi-factor authentication | **Enforced** | Part of permission resolution in the database (`app.has_permission` requires `aal2` for MFA-gated roles), so application code cannot bypass it. The local provider implements RFC 6238 TOTP with replay protection; Supabase owns verification in production. 13 tests. |
+| MFA enrolment UI | Not built | Factors can be created programmatically; there is no screen for a user to enrol or to view recovery codes. Recovery codes are not implemented at all. |
+| Session revocation | Time-based only | No server-side session store, so a stolen cookie is valid until it expires (8 hours). Membership and portal-link revocation take effect on the next request, which limits the blast radius. |
 | Supabase Storage | Metadata model complete, object transfer not wired | Document rows, visibility, quarantine and access grants work; actual upload/download against a private bucket is not implemented. |
 | Bank CSV import UI | Schema, deduplication and matching constraints complete | The import screen and mapping preview are not built. Duplicate protection is enforced at database level and covered by tests. |
 | Content Security Policy | Permits `'unsafe-inline'` for scripts | Required by Next's inline hydration bootstrap. Tightening to a nonce-based policy is outstanding. |
@@ -63,8 +65,16 @@ way that fails safe until someone with the relevant authority decides.
 * **Backups are not configured by this repository.** Supabase database backups
   do **not** include Storage object bytes; object backup must be arranged
   separately and both must be restore-tested together.
-* **No uptime, error or performance monitoring is wired up.** The worker emits
-  structured JSON logs; nothing consumes them yet.
-* **Rate limiting** is not implemented on authentication or upload endpoints.
-* **Recovery targets in the blueprint are targets, not capabilities.** An
-  ordinary daily backup cannot deliver a one-hour recovery point.
+* **No uptime, error or performance monitoring is wired up.** The web app and
+  worker emit structured JSON logs with correlation ids, and `/healthz` reports
+  liveness plus the tenant-isolation self-check; nothing consumes any of it yet.
+* **Rate limiting covers sign-in only** (per email and per client address).
+  Uploads, exports, statement generation and invitation acceptance are
+  unthrottled.
+* **Recovery targets in the blueprint are targets, not capabilities.** A restore
+  exercise HAS now been run and verified (see `docs/runbooks/recovery.md`), but
+  against a 448 KB development dataset on a local machine. That measures the
+  procedure, not a production recovery time.
+* **No load or capacity testing.** Performance under realistic volume is unknown.
+* **No dependency CVE scanning or SAST in CI**, and no independent penetration
+  test. See `docs/security-review.md`.

@@ -30,8 +30,9 @@ export default async function SignInPage() {
           <p className="rounded-lg border border-caution-700/25 bg-caution-50 px-4 py-3 text-xs text-caution-700">
             <strong className="font-semibold">Development authentication.</strong>{' '}
             AUTH_PROVIDER is not set to <code>supabase</code>, so credentials are held in the
-            local database and multi-factor authentication is not enforced. Do not use this
-            mode with real customer data.
+            local database rather than by Supabase Auth. Multi-factor authentication IS
+            enforced for elevated roles in this mode, but password policy, breach detection
+            and account recovery are not. Do not use this mode with real customer data.
           </p>
         ) : null}
       </div>

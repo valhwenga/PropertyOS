@@ -19,9 +19,21 @@ function secret(): Buffer {
   return Buffer.from(value, 'utf8');
 }
 
+export type AssuranceLevel = 'aal1' | 'aal2';
+
 interface SessionPayload {
   sub: string;
   exp: number;
+  /**
+   * Authenticator assurance level, mirroring Supabase's claim convention.
+   * aal1 = password only, aal2 = second factor verified.
+   *
+   * This value is set ONLY from what the auth provider confirmed. The
+   * application never promotes a session to aal2 by itself, and a cookie
+   * missing the claim is treated as aal1 — the weaker state, never the
+   * stronger one.
+   */
+  aal: AssuranceLevel;
   /** Bound to the authentication event, so a stale cookie cannot be replayed. */
   jti: string;
 }
@@ -44,15 +56,20 @@ function verify(token: string): SessionPayload | null {
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as SessionPayload;
     if (typeof payload.sub !== 'string' || typeof payload.exp !== 'number') return null;
     if (payload.exp * 1000 < Date.now()) return null;
-    return payload;
+    // Fail safe: anything other than an explicit aal2 is a single-factor session.
+    return { ...payload, aal: payload.aal === 'aal2' ? 'aal2' : 'aal1' };
   } catch {
     return null;
   }
 }
 
-export async function createSession(authUserId: string): Promise<void> {
+export async function createSession(
+  authUserId: string,
+  assuranceLevel: AssuranceLevel = 'aal1',
+): Promise<void> {
   const token = sign({
     sub: authUserId,
+    aal: assuranceLevel,
     exp: Math.floor(Date.now() / 1000) + MAX_AGE_SECONDS,
     jti: randomBytes(12).toString('base64url'),
   });
@@ -80,10 +97,18 @@ export async function destroySession(): Promise<void> {
  * a header is never treated as identity.
  */
 export async function currentAuthUserId(): Promise<string | null> {
+  return (await currentSession())?.authUserId ?? null;
+}
+
+export async function currentSession(): Promise<
+  { authUserId: string; assuranceLevel: AssuranceLevel } | null
+> {
   const store = await cookies();
   const token = store.get(COOKIE)?.value;
   if (!token) return null;
-  return verify(token)?.sub ?? null;
+  const payload = verify(token);
+  if (!payload) return null;
+  return { authUserId: payload.sub, assuranceLevel: payload.aal };
 }
 
 /* ------------------------------------------------- local credential provider */

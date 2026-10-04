@@ -8,6 +8,7 @@ export default defineConfig({
     alias: {
       '@propertyos/db': `${root}packages/db/src/index.ts`,
       '@propertyos/domain': `${root}packages/domain/src/index.ts`,
+      '@propertyos/integrations': `${root}packages/integrations/src/index.ts`,
     },
   },
   test: {

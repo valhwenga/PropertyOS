@@ -3,10 +3,12 @@
 Rental property management for South African landlords managing roughly 2–100
 rentable units. Built to the *PropertyOS Product and Technology Blueprint v0.1*.
 
-> **Status: pilot development build.** Milestones 1 and 2 are implemented and
-> tested; Milestones 3–5 are partially implemented. This is **not** production
-> ready — see [`docs/known-limitations.md`](docs/known-limitations.md) for the
-> complete, honest list of what is missing and what remains unconfigured.
+> **Status: pilot development build.** All five milestones are implemented, with
+> 162 automated tests passing against a real PostgreSQL database. This is **not**
+> production ready. See [`docs/pilot-readiness.md`](docs/pilot-readiness.md) for
+> the blockers, [`docs/known-limitations.md`](docs/known-limitations.md) for what
+> is missing, and [`docs/security-review.md`](docs/security-review.md) for the
+> security self-assessment and its gaps.
 
 ## What works today
 
@@ -110,9 +112,27 @@ pnpm test:e2e      # Playwright browser suite
 The test harness drops and rebuilds its database from empty on every run, so a
 green suite also proves the migrations are reproducible.
 
+### Backup and restore
+
+```bash
+./scripts/backup.sh                                  # writes a checksummed archive
+./scripts/restore-verify.sh backups/<archive>.dump   # restores to a scratch DB and verifies
+```
+
+`restore-verify.sh` never touches the source database. It checks that every book
+balances, that no allocation exceeds its receipt, that no cross-organisation
+reference survived and that Row Level Security is still enabled — and reports
+what it did **not** verify.
+
 ## Documentation
 
-* [Architecture decisions](docs/decisions/) — isolation, accounting, money flow
-* [Runbooks](docs/runbooks/) — billing, reconciliation, recovery, incidents
+* [Pilot readiness](docs/pilot-readiness.md) — blockers before real data
+* [Acceptance traceability](docs/acceptance.md) — every blueprint launch
+  scenario mapped to the test that proves it
+* [Architecture decisions](docs/decisions/) — isolation, accounting, money flow,
+  durable jobs, operations visibility, the Spike platform boundary
+* [Runbooks](docs/runbooks/) — billing, reconciliation, reports, uploads, recovery
+* [Deployment](docs/deployment.md) — environment, roles, containers, rollback
+* [Security model](docs/security.md) and
+  [self-assessment](docs/security-review.md)
 * [Known limitations](docs/known-limitations.md) — what is not done
-* [Security model](docs/security.md)

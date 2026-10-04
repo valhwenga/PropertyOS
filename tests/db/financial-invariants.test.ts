@@ -166,7 +166,7 @@ describe('Financial invariants', () => {
 
     // Two transactions race to spend the SAME R1,000 on two different charges.
     const attempt = (chargeLineId: string) =>
-      withActor({ authUserId: org.adminUserId }, ({ tx }) =>
+      withActor({ authUserId: org.adminUserId, assuranceLevel: 'aal2' }, ({ tx }) =>
         allocateReceipt(tx, org.organisationId, org.adminUserId, {
           receiptId: receipt.receiptId,
           allocations: [{ chargeLineId, amountMinor: R('1000') }],
@@ -398,7 +398,7 @@ describe('Leasing invariants', () => {
     expect(draftA.leaseId).not.toBe(draftB.leaseId);
 
     const activate = (leaseId: string, date: string) =>
-      withActor({ authUserId: org.adminUserId }, ({ tx }) =>
+      withActor({ authUserId: org.adminUserId, assuranceLevel: 'aal2' }, ({ tx }) =>
         activateLease(tx, org.organisationId, org.adminUserId, {
           leaseId, expectedVersion: 1, activationDate: date,
           executionExceptionReason: 'Executed contract filed offline.',
