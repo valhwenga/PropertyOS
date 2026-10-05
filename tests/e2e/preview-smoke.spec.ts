@@ -94,56 +94,46 @@ async function signIn(page: import('@playwright/test').Page, email: string): Pro
     throw new Error(`sign-in as ${email} failed and no second factor was requested`);
   }
 
-  // Two different things can go wrong here and they need different responses.
+  // Poll only for success, and consult the error banner only once that has
+  // timed out.
   //
-  // A code is good for exactly one sign-in, so a run following a previous
-  // sign-in as the same account inside the same 30-second window is handed a
-  // code that has already been spent, and the server is right to refuse it. The
-  // fix for that is to wait for the next window. A genuine failure is not fixed
-  // by waiting and should surface.
-  //
-  // The outcome is polled from `page.url()` and the alert region rather than
-  // awaited with `waitForURL`: the redirect out of a server action did not
-  // reliably settle that wait here, which left the test looping on a sign-in
-  // that had in fact succeeded. Reading the current URL cannot miss it.
-  const settled = async (timeoutMs: number): Promise<'signed-in' | 'refused' | 'no-response'> => {
+  // Racing the two is what kept breaking this. A refused attempt leaves its
+  // banner on screen, so the next attempt sees a stale "Could not sign in" the
+  // instant it starts — before its own navigation has landed — reads that as a
+  // fresh refusal, and goes round again against a page that has in fact signed
+  // in. Success is unambiguous and arrives in about a second; a banner is only
+  // meaningful when success has not come at all.
+  const signedIn = async (timeoutMs: number): Promise<boolean> => {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      if (!onSignInPage()) return 'signed-in';
-      // Match the error banner by its text, not by role alone. Next's route
-      // announcer is also a role="alert" region — on the signed-in page it reads
-      // "Overview · Spike PropertyOS" — so testing the role by itself reports a
-      // refusal at the very moment the sign-in has in fact succeeded, and the
-      // next attempt then waits forever for a form that is gone.
-      const refusal = page.getByRole('alert').filter({ hasText: 'Could not sign in' });
-      if ((await refusal.count().catch(() => 0)) > 0) return 'refused';
+      if (!onSignInPage()) return true;
       await page.waitForTimeout(200);
     }
-    return 'no-response';
+    return false;
   };
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    // The form holds no state between rounds, so the password goes in again.
+  // Two attempts, not three: a code is single-use, so a run following a recent
+  // sign-in as this account within the same 30-second window is handed a spent
+  // one and the server is right to refuse it. Waiting out the window fixes that
+  // case. A second refusal is not a timing problem and should surface.
+  for (let attempt = 1; attempt <= 2; attempt++) {
     await page.getByLabel('Password').fill(PASSWORD);
     await codeField.fill(await freshCode(email));
     await page.getByRole('button', { name: 'Verify and sign in' }).click();
-
-    const outcome = await settled(15_000);
-    if (outcome === 'signed-in') return;
-    if (outcome === 'no-response') break;
-    if (attempt < 3) await waitForNextWindow();
+    if (await signedIn(15_000)) return;
+    if (attempt < 2) await waitForNextWindow();
   }
   const detail = (await page.textContent('body'))?.match(/Could not sign in.{0,120}/s);
   throw new Error(
-    `could not complete the second factor for ${email} in three attempts` +
+    `could not complete the second factor for ${email} in two attempts` +
       (detail ? `: ${detail[0].replace(/\s+/g, ' ')}` : ''),
   );
 }
 
 test.describe('local preview', () => {
-  // Completing a second factor can need to wait out a 30-second TOTP window,
-  // which does not leave much of the default 30-second budget.
-  test.describe.configure({ timeout: 90_000 });
+  // Completing a second factor can need to wait out a 30-second TOTP window
+  // before retrying, which does not fit the default 30-second budget.
+  test.describe.configure({ timeout: 120_000 });
 
   // One project only. These checks ask whether the preview works at all, which
   // is not device-specific — and a TOTP code is good for exactly one sign-in, so
