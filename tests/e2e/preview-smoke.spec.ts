@@ -110,7 +110,12 @@ async function signIn(page: import('@playwright/test').Page, email: string): Pro
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (!onSignInPage()) return 'signed-in';
-      if (await page.getByRole('alert').isVisible().catch(() => false)) return 'refused';
+      // `.first()`: more than one live region can be present, and a strict-mode
+      // violation here would be swallowed by the catch below, leaving the poll
+      // blind to a refusal that is plainly on screen.
+      if (await page.getByRole('alert').first().isVisible().catch(() => false)) {
+        return 'refused';
+      }
       await page.waitForTimeout(200);
     }
     return 'no-response';
