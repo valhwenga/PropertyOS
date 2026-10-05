@@ -78,15 +78,18 @@ async function signIn(page: import('@playwright/test').Page, email: string): Pro
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
-  // Either we are through, or a code is being asked for. Waiting on whichever
-  // happens first keeps the common path quick; a fixed delay here would eat into
-  // the 30-second window the code has to be used in.
+  // Either we are through, or a code is being asked for. Poll for whichever
+  // happens first: a fixed delay here would eat into the 30-second window the
+  // code then has to be used in.
   const codeField = page.getByLabel('Authentication code');
-  await Promise.race([
-    page.waitForURL((url) => !url.pathname.startsWith('/sign-in')).catch(() => null),
-    codeField.waitFor({ state: 'visible' }).catch(() => null),
-  ]);
-  if (!page.url().includes('/sign-in')) return;
+  const onSignInPage = () => new URL(page.url()).pathname.startsWith('/sign-in');
+  const firstRoundDeadline = Date.now() + 20_000;
+  while (Date.now() < firstRoundDeadline) {
+    if (!onSignInPage()) return;
+    if (await codeField.isVisible().catch(() => false)) break;
+    await page.waitForTimeout(200);
+  }
+  if (!onSignInPage()) return;
   if (!(await codeField.isVisible().catch(() => false))) {
     throw new Error(`sign-in as ${email} failed and no second factor was requested`);
   }
@@ -95,27 +98,31 @@ async function signIn(page: import('@playwright/test').Page, email: string): Pro
   //
   // A code is good for exactly one sign-in, so a run following a previous
   // sign-in as the same account inside the same 30-second window is handed a
-  // code that has already been spent; the server is right to refuse it, and the
-  // fix is to wait for the next window. Separately, the sign-in can succeed
-  // server-side while the client-side navigation that follows takes its time.
-  // Inferring either from a plain timeout conflates them, so wait for whichever
-  // of the two actually happens.
+  // code that has already been spent, and the server is right to refuse it. The
+  // fix for that is to wait for the next window. A genuine failure is not fixed
+  // by waiting and should surface.
+  //
+  // The outcome is polled from `page.url()` and the alert region rather than
+  // awaited with `waitForURL`: the redirect out of a server action did not
+  // reliably settle that wait here, which left the test looping on a sign-in
+  // that had in fact succeeded. Reading the current URL cannot miss it.
+  const settled = async (timeoutMs: number): Promise<'signed-in' | 'refused' | 'no-response'> => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!onSignInPage()) return 'signed-in';
+      if (await page.getByRole('alert').isVisible().catch(() => false)) return 'refused';
+      await page.waitForTimeout(200);
+    }
+    return 'no-response';
+  };
+
   for (let attempt = 1; attempt <= 3; attempt++) {
     // The form holds no state between rounds, so the password goes in again.
     await page.getByLabel('Password').fill(PASSWORD);
     await codeField.fill(await freshCode(email));
     await page.getByRole('button', { name: 'Verify and sign in' }).click();
 
-    const outcome = await Promise.race([
-      page
-        .waitForURL((url) => !url.pathname.startsWith('/sign-in'), { timeout: 30_000 })
-        .then(() => 'signed-in' as const),
-      page
-        .getByText('Could not sign in')
-        .waitFor({ state: 'visible', timeout: 30_000 })
-        .then(() => 'refused' as const),
-    ]).catch(() => 'no-response' as const);
-
+    const outcome = await settled(15_000);
     if (outcome === 'signed-in') return;
     if (outcome === 'no-response') break;
     if (attempt < 3) await waitForNextWindow();
