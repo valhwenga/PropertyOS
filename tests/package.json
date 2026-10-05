@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "test": "vitest run" },
+  "scripts": {
+    "test": "vitest run",
+    "e2e": "playwright test -c playwright.config.ts"
+  },
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@propertyos/db": "workspace:*",
     "@propertyos/domain": "workspace:*",
+    "@propertyos/integrations": "workspace:*",
     "@types/node": "22.19.1",
     "postgres": "3.4.9",
     "tsx": "4.23.15",

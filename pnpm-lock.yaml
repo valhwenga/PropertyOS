@@ -185,6 +185,9 @@ importers:
       '@propertyos/domain':
         specifier: workspace:*
         version: link:../packages/domain
+      '@propertyos/integrations':
+        specifier: workspace:*
+        version: link:../packages/integrations
       '@types/node':
         specifier: 22.19.1
         version: 22.19.1

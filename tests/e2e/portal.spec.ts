@@ -36,6 +36,13 @@ test.describe('resident portal', () => {
   });
 
   test('is keyboard navigable to the primary action', async ({ page }) => {
+    // Reload before testing tab order. We arrived here by submitting the sign-in
+    // form, and the browser carries a sequential focus navigation starting point
+    // across that navigation, so the first Tab resumes past the top of the
+    // document and misses the skip link. A reader opening the portal fresh — or
+    // following a link into it — starts from the top, which is what this checks.
+    await page.reload();
+
     await page.keyboard.press('Tab');
     const skipLink = page.getByRole('link', { name: 'Skip to main content' });
     await expect(skipLink).toBeFocused();

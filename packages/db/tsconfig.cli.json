@@ -1,0 +1,10 @@
+{
+  // The development CLIs (migrate, seed, mfa) are run with tsx, never bundled.
+  // `seed` and `mfa` need `@propertyos/domain` and `@propertyos/integrations`,
+  // but both of those depend on `@propertyos/db`, so `db` cannot depend on them
+  // without a cycle — hence the relative imports. They are checked here, under a
+  // repository-wide rootDir, rather than left unchecked.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "../.." },
+  "include": ["src/cli/**/*.ts"]
+}

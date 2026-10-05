@@ -1,5 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "src" },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // The development CLIs reach across packages and are checked by
+  // tsconfig.cli.json instead; see the comment there.
+  "exclude": ["src/cli/**/*.ts"]
 }

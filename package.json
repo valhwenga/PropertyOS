@@ -5,16 +5,20 @@
   "packageManager": "pnpm@10.28.0",
   "engines": { "node": ">=22.11.0 <23" },
   "scripts": {
-    "build": "pnpm -r --filter ./packages/... build && pnpm --filter @propertyos/web build",
+    "build": "pnpm -r --filter \"./packages/**\" build && pnpm --filter @propertyos/web build",
+    "preview": "./scripts/preview.sh",
+    "preview:reset": "./scripts/preview.sh --reset",
+    "preview:check": "pnpm --filter @propertyos/tests exec playwright test -c playwright.config.ts --project=desktop preview-smoke",
     "dev": "pnpm --filter @propertyos/web dev",
     "worker": "pnpm --filter @propertyos/worker dev",
     "db:migrate": "pnpm --filter @propertyos/db migrate",
     "db:reset": "pnpm --filter @propertyos/db reset",
     "db:seed": "pnpm --filter @propertyos/db seed",
+    "db:mfa": "pnpm --filter @propertyos/db exec tsx src/cli/mfa.ts",
     "test": "vitest run --config tests/vitest.config.ts",
     "test:watch": "vitest --config tests/vitest.config.ts",
-    "test:e2e": "playwright test -c tests/playwright.config.ts",
-    "typecheck": "tsc -b --pretty false",
+    "test:e2e": "pnpm --filter @propertyos/tests e2e",
+    "typecheck": "pnpm -r --filter \"./packages/**\" build && pnpm --filter @propertyos/worker build && pnpm --filter @propertyos/web typecheck",
     "lint": "eslint ."
   },
   "devDependencies": {

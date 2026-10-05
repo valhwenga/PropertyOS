@@ -73,6 +73,17 @@ way that fails safe until someone with the relevant authority decides.
 * **The test harness DROPS the database it is pointed at.** It now refuses any
   name that does not identify a test database, after exactly that mistake wiped
   the development seed data. Override with `ALLOW_DESTRUCTIVE_TEST_DB=true`.
+* **A freshly seeded operator account can see almost nothing.** Elevated roles
+  are MFA-gated inside `app.has_permission`, so without a verified second factor
+  an organisation administrator holds none of their elevated permissions. The
+  console renders and is nearly empty. This is the rule working, but it reads as
+  a broken install, so `./scripts/preview.sh` enrols a factor for the demo
+  accounts and `pnpm db:mfa` does it on demand. Neither is a sign-in bypass:
+  codes still go through normal verification and replay protection.
+* **A TOTP code cannot be used twice, including by a test re-run.** Two sign-ins
+  as the same account inside one 30-second window will see the second refused.
+  The preview smoke checks wait for the next window and read a new code rather
+  than treating the refusal as a failure.
 * **Balance views return `numeric`, not `bigint`.** `sum(bigint)` is `numeric`
   in PostgreSQL. It is exact arbitrary precision and the driver returns it as an
   integer string, so no precision is lost. Pinned by
