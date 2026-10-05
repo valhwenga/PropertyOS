@@ -110,12 +110,13 @@ async function signIn(page: import('@playwright/test').Page, email: string): Pro
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (!onSignInPage()) return 'signed-in';
-      // `.first()`: more than one live region can be present, and a strict-mode
-      // violation here would be swallowed by the catch below, leaving the poll
-      // blind to a refusal that is plainly on screen.
-      if (await page.getByRole('alert').first().isVisible().catch(() => false)) {
-        return 'refused';
-      }
+      // Match the error banner by its text, not by role alone. Next's route
+      // announcer is also a role="alert" region — on the signed-in page it reads
+      // "Overview · Spike PropertyOS" — so testing the role by itself reports a
+      // refusal at the very moment the sign-in has in fact succeeded, and the
+      // next attempt then waits forever for a form that is gone.
+      const refusal = page.getByRole('alert').filter({ hasText: 'Could not sign in' });
+      if ((await refusal.count().catch(() => 0)) > 0) return 'refused';
       await page.waitForTimeout(200);
     }
     return 'no-response';
