@@ -241,6 +241,7 @@ step 'Checking configuration'
 ENV_FILE="$ROOT/.env.local"
 if [ ! -f "$ENV_FILE" ]; then
   SECRET=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(48).toString("base64url"))')
+  FIELD_KEY=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64"))')
   cat > "$ENV_FILE" <<ENV
 # Written by scripts/preview.sh for LOCAL PREVIEW ONLY. Not committed, and not
 # suitable for any deployed environment: the secret below was generated on this
@@ -254,6 +255,11 @@ APP_DATABASE_URL=postgresql://$APP_ROLE:$APP_PASSWORD@$PGHOST:$PGPORT/$DB_NAME
 
 AUTH_PROVIDER=local
 SESSION_SECRET=$SECRET
+
+# Seals full identity and bank account numbers at rest, so a lease agreement can
+# state them. Lose this key and those values cannot be read back; the agreement
+# then reports them as incomplete rather than inventing anything.
+FIELD_ENCRYPTION_KEY=$FIELD_KEY
 
 # Mail goes to a labelled development sink. Nothing is delivered, and nothing is
 # reported as delivered.

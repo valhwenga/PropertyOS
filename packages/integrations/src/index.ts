@@ -6,3 +6,4 @@ export * from './smtp';
 export * from './clamav';
 export * from './storage-adapter';
 export * from './pdf';
+export * from './sealed-field';

@@ -22,3 +22,4 @@ export * from './platform';
 export * from './csv';
 export * from './onboarding';
 export * from './statement-pdf';
+export * from './lease-agreements';
