@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  activateLease, confirmReceipt, createResident, createStandaloneHouse,
+  activateLease, createResident, createStandaloneHouse,
   draftLease, parseMajorToMinor, postCharge,
 } from '@propertyos/domain';
 import { validateUpload, scanDocument, resolveEmailAdapter, DOCUMENT_CONSTRAINTS } from '@propertyos/integrations';

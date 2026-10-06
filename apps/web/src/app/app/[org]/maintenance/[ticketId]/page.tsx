@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Card, Money, PageHeader, StatusBadge, Td, Th, DataTable } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';

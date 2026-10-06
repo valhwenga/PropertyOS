@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Card, EmptyState, Money, PageHeader, StatusBadge } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
-import { formatDate } from '@/lib/format';
 import { loadPendingApprovals } from '@/lib/operations-queries';
 
 export const metadata = { title: 'Pending approvals' };

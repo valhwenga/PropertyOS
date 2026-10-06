@@ -139,6 +139,9 @@ test.describe('local preview', () => {
   // is not device-specific — and a TOTP code is good for exactly one sign-in, so
   // running the same account twice inside one 30-second window would have the
   // second run rejected as a replay. Device coverage lives in portal.spec.ts.
+  // An empty pattern is Playwright's documented way to take no fixtures while
+  // still reading testInfo, so the rule is wrong here rather than the code.
+  // eslint-disable-next-line no-empty-pattern
   test.beforeEach(async ({}, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'preview checks run on one project only');
   });

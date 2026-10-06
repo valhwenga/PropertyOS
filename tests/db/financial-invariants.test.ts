@@ -6,12 +6,11 @@
  * tables directly, to prove the invariant survives a bug in application code.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import postgres from 'postgres';
 import { withActor } from '@propertyos/db';
 import {
   activateLease, allocateReceipt, assertBookBalances, buildStatement,
   confirmReceipt, createResident, createStandaloneHouse, draftLease,
-  issueCreditNote, parseMajorToMinor, postCharge, reverseReceipt, suggestAllocation,
+  issueCreditNote, parseMajorToMinor, postCharge, reverseReceipt,
 } from '@propertyos/domain';
 import { as, closeOwner, createOrganisation, ownerSql, type OrganisationFixture } from '../support/factories.js';
 

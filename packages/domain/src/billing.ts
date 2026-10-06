@@ -55,10 +55,6 @@ function lastDayOfMonth(year: number, month1: number): number {
   return new Date(Date.UTC(year, month1, 0)).getUTCDate();
 }
 
-function toISO(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 function daysBetweenInclusive(a: string, b: string): number {
   const start = Date.parse(`${a}T00:00:00Z`);
   const end = Date.parse(`${b}T00:00:00Z`);

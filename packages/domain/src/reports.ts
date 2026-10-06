@@ -1,5 +1,4 @@
 import type { Sql } from '@propertyos/db';
-import { notFound } from './errors';
 import type { Minor } from './money';
 import { requirePermission } from './permissions';
 

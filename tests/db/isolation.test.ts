@@ -280,11 +280,24 @@ describe('Cross-organisation and scope isolation', () => {
       `;
       expect(neighbour).toHaveLength(0);
 
-      // And a resident cannot change their own terms, only read them.
-      await expect(
-        tx`update lease_agreement_terms set renewal_option_months = 99 where lease_id = ${aLease}::uuid`,
-      ).rejects.toThrow();
+      // And a resident cannot change their own terms, only read them. The
+      // policy is SELECT-only, so there is no row for an UPDATE to match and
+      // PostgreSQL reports zero rows affected rather than raising: a write
+      // that silently does nothing is the thing worth asserting, because a
+      // test expecting an error here would pass for the wrong reason.
+      const updated = await tx`
+        update lease_agreement_terms set renewal_option_months = 99
+        where lease_id = ${aLease}::uuid
+        returning lease_id
+      `;
+      expect(updated).toHaveLength(0);
     });
+
+    // Read back as the owner: the resident's attempted write changed nothing.
+    const [after] = await ownerSql()<{ renewal_option_months: number }[]>`
+      select renewal_option_months from lease_agreement_terms where lease_id = ${aLease}::uuid
+    `;
+    expect(after!.renewal_option_months).toBe(12);
   });
 
   it('revokes resident access the moment the portal link is revoked', async () => {

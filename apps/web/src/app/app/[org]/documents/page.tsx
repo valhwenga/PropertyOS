@@ -9,13 +9,6 @@ import { loadDocuments } from '@/lib/operations-queries';
 export const metadata = { title: 'Documents' };
 export const dynamic = 'force-dynamic';
 
-const VISIBILITY: Record<string, { tone: StatusTone; label: string; glyph: string }> = {
-  internal:           { tone: 'neutral',  label: 'Internal',            glyph: '🔒' },
-  resident_shared:    { tone: 'info',     label: 'Shared with resident', glyph: '👤' },
-  contractor_shared:  { tone: 'caution',  label: 'Shared with contractor', glyph: '🔧' },
-  owner_shared:       { tone: 'info',     label: 'Shared with owner',   glyph: '🏠' },
-};
-
 const SCAN: Record<string, { tone: StatusTone; label: string; glyph: string }> = {
   pending:                 { tone: 'caution',  label: 'Awaiting scan',   glyph: '◐' },
   skipped_not_configured:  { tone: 'caution',  label: 'Not scanned',     glyph: '▲' },
@@ -83,7 +76,6 @@ export default async function DocumentsPage({ params }: { params: Promise<{ org:
           }
         >
           {documents.map((d) => {
-            const visibility = VISIBILITY[d.visibility] ?? VISIBILITY.internal!;
             const scan = SCAN[d.scan_status] ?? SCAN.pending!;
             return (
               <tr key={d.id} className="hover:bg-ink-50">

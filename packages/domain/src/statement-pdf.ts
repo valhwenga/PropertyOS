@@ -177,7 +177,7 @@ function drawHeader(page: PdfPage, statement: Statement, context: StatementPdfCo
 
   page.text(context.organisationName, MARGIN, MARGIN + 26, { size: 9, colour: MUTED });
 
-  let y = MARGIN + 58;
+  const y = MARGIN + 58;
   page.line(MARGIN, y - 10, PAGE_WIDTH - MARGIN, y - 10, { colour: RULE, width: 1 });
 
   page.text(context.residentName, MARGIN, y, { font: 'Helvetica-Bold', size: 12, colour: INK });

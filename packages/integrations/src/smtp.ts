@@ -122,7 +122,6 @@ class SmtpSession {
 
 function encodeHeader(value: string): string {
   // RFC 2047 for anything outside ASCII, so a resident's name renders correctly.
-  // eslint-disable-next-line no-control-regex
   return /^[\x20-\x7e]*$/.test(value)
     ? value
     : `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`;

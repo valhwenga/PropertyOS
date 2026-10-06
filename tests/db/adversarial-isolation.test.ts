@@ -5,13 +5,12 @@
  * specific way it tries to get through.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { withActor } from '@propertyos/db';
 import {
   activateLease, confirmReceipt, createResident, createStandaloneHouse,
   draftLease, parseMajorToMinor, postCharge, previewBillingRun,
 } from '@propertyos/domain';
 import {
-  addMember, as, asSingleFactor, closeOwner, createAuthUser, createOrganisation,
+  addMember, as, asSingleFactor, closeOwner, createOrganisation,
   grantPortalAccess, ownerSql, type OrganisationFixture,
 } from '../support/factories.js';
 

@@ -166,13 +166,21 @@ Seeded development accounts (password `DemoPassword123!`):
 ### Tests
 
 ```bash
+pnpm lint           # ESLint across every package
+pnpm typecheck      # tsc over every package and app
 pnpm test           # unit + database/RLS + integration (needs PostgreSQL)
 pnpm test:e2e       # Playwright browser suite (needs a running preview)
 pnpm preview:check  # just the preview smoke checks
 ```
 
-The test harness drops and rebuilds its database from empty on every run, so a
-green suite also proves the migrations are reproducible.
+The test harness drops and rebuilds its database (`propertyos_test`) from empty
+on every run, so a green suite also proves the migrations are reproducible. It
+never touches `propertyos_dev`, and it uses its own login role, so running the
+suite while the preview is up leaves the preview working.
+
+It needs a superuser connection to create that database. `scripts/preview.sh`
+records one in `.env.local` as `TEST_ADMIN_DATABASE_URL`, which the harness
+reads automatically; set that variable yourself if you do not use the script.
 
 The browser suite expects a preview with seeded demo data already running, and
 passes against both dev mode and `--build`. On a machine that cannot download

@@ -55,6 +55,9 @@ die()  { printf '%serror:%s %s\n' "$RED" "$RESET_C" "$1" >&2; exit 1; }
 DB_NAME=propertyos_dev
 APP_ROLE=propertyos_app_login
 APP_PASSWORD="${APP_DB_PASSWORD:-devpassword}"
+# Only used when a local cluster has no superuser password at all; see the
+# fallback further down. Local development only, same as APP_PASSWORD.
+SUPER_PASSWORD="${PREVIEW_SUPERUSER_PASSWORD:-postgres}"
 COMPOSE_PROJECT=propertyos-preview
 
 # The password is interpolated into CREATE ROLE and into the connection string,
@@ -185,9 +188,54 @@ if ! command -v psql >/dev/null; then
   fi
 fi
 
-psql_super -c 'select 1' >/dev/null 2>&1 \
-  || die "cannot connect as a superuser using $SUPERUSER_URL
+# A superuser connection over TCP is what everything downstream uses. Homebrew
+# and Postgres.app clusters accept one without a password; a Debian or Ubuntu
+# cluster does not — its pg_hba requires scram on 127.0.0.1 and the `postgres`
+# role is created with NO password at all, so the connection fails with
+# "password authentication failed" and the preview cannot start.
+#
+# Rather than relax that pg_hba rule, which would make the cluster accept
+# anyone on this machine, set a local development password on the role. The
+# authentication method stays exactly as the distribution shipped it; the role
+# simply gains a credential, which is what the Docker path here already does
+# with POSTGRES_PASSWORD. The password reaches nothing beyond localhost.
+if ! psql_super -c 'select 1' >/dev/null 2>&1; then
+  if [ "$USING_DOCKER" = false ] && [ -z "${PREVIEW_SUPERUSER_URL:-}" ]; then
+    warn "no passwordless superuser on $PGHOST:$PGPORT; trying the local socket"
+    # Peer authentication over the unix socket, which a Debian cluster grants to
+    # the postgres OS user. Whichever of these works, it proves the caller
+    # already administers this cluster.
+    SOCKET_PSQL=
+    if psql -d postgres -qtAX -c 'select 1' >/dev/null 2>&1; then
+      SOCKET_PSQL='psql -d postgres'
+    elif sudo -n -u postgres psql -d postgres -qtAX -c 'select 1' >/dev/null 2>&1; then
+      SOCKET_PSQL='sudo -n -u postgres psql -d postgres'
+    elif su postgres -c 'psql -d postgres -qtAX -c "select 1"' >/dev/null 2>&1; then
+      SOCKET_PSQL='su_postgres'
+    fi
+
+    if [ -n "$SOCKET_PSQL" ]; then
+      if [ "$SOCKET_PSQL" = 'su_postgres' ]; then
+        su postgres -c "psql -d postgres -qtAX -c \"alter role postgres with password '$SUPER_PASSWORD'\"" >/dev/null
+      else
+        $SOCKET_PSQL -qtAX -c "alter role postgres with password '$SUPER_PASSWORD'" >/dev/null
+      fi
+      SUPERUSER_URL="postgresql://postgres:$SUPER_PASSWORD@$PGHOST:$PGPORT/postgres"
+      psql_super -c 'select 1' >/dev/null 2>&1 \
+        && ok 'set a local development password on the postgres role' \
+        || die "set a password on the postgres role, but $PGHOST:$PGPORT still refuses it.
     Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
+    else
+      die "cannot connect as a superuser using $SUPERUSER_URL, and the local
+    socket is not reachable either (peer authentication needs the postgres OS
+    user, so try again with sudo).
+    Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
+    fi
+  else
+    die "cannot connect as a superuser using $SUPERUSER_URL
+    Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
+  fi
+fi
 
 # ----------------------------------------------------- 3. role and database
 step 'Preparing the development database'
@@ -252,6 +300,9 @@ NODE_ENV=development
 DATABASE_URL=$SUPER_DB_URL
 # Application connection: no SUPERUSER, no BYPASSRLS, row-level security applies.
 APP_DATABASE_URL=postgresql://$APP_ROLE:$APP_PASSWORD@$PGHOST:$PGPORT/$DB_NAME
+# How `pnpm test` reaches this cluster to create and drop its own disposable
+# database. It never touches $DB_NAME.
+TEST_ADMIN_DATABASE_URL=$SUPERUSER_URL
 
 AUTH_PROVIDER=local
 SESSION_SECRET=$SECRET
@@ -286,6 +337,18 @@ ENV
   ok 'wrote .env.local with a freshly generated SESSION_SECRET'
 else
   ok 'reusing the existing .env.local'
+  # Backfill the test connection for files written before it was recorded, and
+  # correct it if the superuser connection changed. Nothing else is rewritten:
+  # an existing file's secrets are the user's.
+  if grep -q '^TEST_ADMIN_DATABASE_URL=' "$ENV_FILE"; then
+    TMP_ENV=$(mktemp)
+    sed "s|^TEST_ADMIN_DATABASE_URL=.*|TEST_ADMIN_DATABASE_URL=$SUPERUSER_URL|" "$ENV_FILE" > "$TMP_ENV"
+    mv "$TMP_ENV" "$ENV_FILE"
+  else
+    printf '\n# How `pnpm test` reaches this cluster to create and drop its own disposable\n# database. It never touches %s.\nTEST_ADMIN_DATABASE_URL=%s\n' \
+      "$DB_NAME" "$SUPERUSER_URL" >> "$ENV_FILE"
+    ok 'recorded TEST_ADMIN_DATABASE_URL so pnpm test can reach this cluster'
+  fi
   EXISTING_SECRET=$(sed -n 's/^SESSION_SECRET=//p' "$ENV_FILE" | head -1)
   if [ "${#EXISTING_SECRET}" -lt 32 ]; then
     die "SESSION_SECRET in .env.local is ${#EXISTING_SECRET} characters; at least 32 are required.

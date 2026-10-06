@@ -37,7 +37,7 @@ export function currency(code: string): Currency {
 /** Parses a human-entered major-unit amount ("8000", "8 000.50", "R8,000.50"). */
 export function parseMajorToMinor(input: string | number, code = 'ZAR'): Minor {
   const { exponent } = currency(code);
-  const raw = String(input).trim().replace(/[\s, ]/g, '').replace(/^[A-Za-z$€£]+/, '');
+  const raw = String(input).trim().replace(/[\s,\u00A0]/g, '').replace(/^[A-Za-z$\u20AC\u00A3]+/, '');
   if (!/^-?\d+(\.\d+)?$/.test(raw)) {
     throw new Error(`"${input}" is not a valid amount.`);
   }

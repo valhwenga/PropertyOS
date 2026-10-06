@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Card, EmptyState, Money, PageHeader, StatusBadge } from '@propertyos/ui';
+import { Card, EmptyState, Money, PageHeader } from '@propertyos/ui';
 import { readAs, requireViewer } from '@/lib/auth';
 
 export const metadata = { title: 'Your home' };

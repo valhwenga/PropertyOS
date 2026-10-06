@@ -32,7 +32,7 @@ export class CsvParseError extends Error {
 export function parseCsv(input: string): CsvDocument {
   // Excel writes a UTF-8 byte order mark; left in place it corrupts the first
   // header name and every lookup against it fails confusingly.
-  const text = input.replace(/^﻿/, '');
+  const text = input.replace(/^\uFEFF/, '');
 
   const records: Array<{ line: number; fields: string[] }> = [];
   let field = '';
