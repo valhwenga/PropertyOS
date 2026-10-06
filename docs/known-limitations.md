@@ -73,6 +73,18 @@ way that fails safe until someone with the relevant authority decides.
 * **The test harness DROPS the database it is pointed at.** It now refuses any
   name that does not identify a test database, after exactly that mistake wiped
   the development seed data. Override with `ALLOW_DESTRUCTIVE_TEST_DB=true`.
+* **The content security policy allows `eval` in development.** React's
+  development build uses it to rebuild stack traces across environments, and
+  without the allowance every page logged a violation and the dev overlay
+  reported an issue on a page that was working. The allowance is conditional on
+  `NODE_ENV`, so a deployed build keeps the strict policy, and
+  `tests/unit/content-security-policy.test.ts` fails if anyone makes it
+  unconditional. The policy still carries `'unsafe-inline'` for scripts in both
+  builds; moving to nonces is the real fix and is not done.
+* **The icon is a letter, not a logo.** No approved Spike mark exists, so
+  `apps/web/src/app/icon.svg` is the wordmark's initial in the brand purple.
+  It exists so pages stop requesting a favicon that is not there. Replace it
+  when brand sign-off lands.
 * **A freshly seeded operator account can see almost nothing.** Elevated roles
   are MFA-gated inside `app.has_permission`, so without a verified second factor
   an organisation administrator holds none of their elevated permissions. The

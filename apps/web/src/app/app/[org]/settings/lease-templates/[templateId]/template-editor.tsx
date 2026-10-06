@@ -145,6 +145,15 @@ export function TemplateEditor({
           <code className="mx-1 rounded bg-ink-100 px-1">[its.name]</code> and is listed on a
           final page — never silently blank.
         </p>
+        {/* The product says Residents; a lease says Tenant. Both are right, and
+            leaving the reader to work that out is how you get a template that
+            looks like it is missing its people. */}
+        <p className="mt-2 text-xs text-ink-500">
+          <span className="font-medium text-ink-700">Tenant</span> is the lease&rsquo;s word for
+          the people PropertyOS calls <span className="font-medium text-ink-700">residents</span>.
+          These fields read the lease&rsquo;s parties: the primary resident and any co-lessees,
+          not occupants or guarantors.
+        </p>
 
         <input
           type="search"

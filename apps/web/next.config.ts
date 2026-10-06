@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
 const config: NextConfig = {
   reactStrictMode: true,
   // The domain and db packages are workspace TypeScript sources.
@@ -23,7 +25,15 @@ const config: NextConfig = {
               // hydration payload, which is why 'unsafe-inline' is present here
               // too. Tightening this to a nonce-based policy is tracked in
               // docs/known-limitations.md.
-              "script-src 'self' 'unsafe-inline'",
+              //
+              // 'unsafe-eval' is added in DEVELOPMENT ONLY. React's development
+              // build uses eval() to rebuild stack traces across environments,
+              // so without it every page logged a Content-Security-Policy error
+              // and the dev overlay reported an issue on a page that was fine.
+              // React never uses eval() in its production build, so the
+              // deployed policy stays strict — which is the whole point of
+              // having one.
+              `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ''}`,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob:",
               "font-src 'self' data:",

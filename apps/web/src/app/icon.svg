@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Spike PropertyOS">
+  <!--
+    A typographic mark, not a logo.
+
+    No approved Spike logo exists, so none is invented here: this is the letter
+    the wordmark starts with, set in the brand purple, exactly as the wordmark
+    component does. Replace it with the official asset when brand sign-off
+    lands. Its only job today is to stop every page requesting a favicon that
+    does not exist and logging a 404.
+  -->
+  <rect width="64" height="64" rx="14" fill="#5F33FF"/>
+  <text x="32" y="45" text-anchor="middle"
+        font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="40" font-weight="600" fill="#ffffff">S</text>
+</svg>
