@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import { Button, Card, ErrorState } from '@propertyos/ui';
 import { submitProofOfPayment } from '../actions';
+import { DateField } from '@/components/date-field';
 
 export function ProofOfPaymentForm({ leaseId }: { leaseId: string }) {
   const [state, action, pending] = useActionState(submitProofOfPayment, null);
@@ -47,15 +48,10 @@ export function ProofOfPaymentForm({ leaseId }: { leaseId: string }) {
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <label htmlFor="paidAt" className="block text-sm font-medium text-ink-700">
-          When did you pay?
-        </label>
-        <input
-          id="paidAt" name="paidAt" type="date" required max={today} defaultValue={today}
-          className="w-full rounded-lg border border-ink-200 px-3 py-3 text-base"
-        />
-      </div>
+      {/* dd/mm/yyyy here too, so the resident sees the same format the landlord
+          does. The cost is the native picker, which matters on a phone — worth
+          revisiting if residents struggle with typing a date. */}
+      <DateField name="paidAt" label="When did you pay?" required max={today} value={today} />
 
       <div className="space-y-1.5">
         <label htmlFor="reference" className="block text-sm font-medium text-ink-700">

@@ -216,7 +216,10 @@ describe('Statement PDF', () => {
     expect(text).toContain('14 Protea Street / MAIN');
     expect(text).toMatch(/Lease LSE-\d{6}/);
     expect(text).toContain('PDF Statement Co');
-    expect(text).toContain('2026-01-31');
+    // Dates read dd/mm/yyyy throughout, including in a generated PDF. The ISO
+    // form is what gets stored and passed around, never what a reader sees.
+    expect(text).toContain('31/01/2026');
+    expect(text).not.toContain('2026-01-31');
   });
 
   it('shows the opening balance and where it came from', async () => {

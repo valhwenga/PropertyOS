@@ -6,7 +6,7 @@ import {
 const values = {
   'tenant.primary_name': 'Anthony Tebogo Maetane',
   'money.rent': 'R7,200.00',
-  'term.effective_date': '01 November 2025',
+  'term.effective_date': '01/11/2025',
   'property.full_address': 'Unit 40 Antibes, 18 West Road South, Morningside',
 };
 
@@ -66,9 +66,9 @@ describe('lease template merging', () => {
       .toEqual(['money.rent', 'tenant.names']);
   });
 
-  it('formats dates the way an agreement reads them', () => {
-    expect(formatLeaseDate('2025-11-01')).toBe('01 November 2025');
-    expect(formatLeaseDate('2026-10-31')).toBe('31 October 2026');
+  it('formats dates as dd/mm/yyyy, the same as everywhere else', () => {
+    expect(formatLeaseDate('2025-11-01')).toBe('01/11/2025');
+    expect(formatLeaseDate('2026-10-31')).toBe('31/10/2026');
     expect(formatLeaseDate(null)).toBe('');
   });
 

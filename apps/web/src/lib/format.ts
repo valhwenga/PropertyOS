@@ -1,18 +1,16 @@
 /** Presentation helpers. No business logic lives here. */
+import { formatDayMonthYear, formatDayMonthYearTime } from '@propertyos/domain/dates';
 
-export function formatDate(value: string | Date, timeZone = 'Africa/Johannesburg'): string {
-  const date = typeof value === 'string' ? new Date(`${value.slice(0, 10)}T12:00:00Z`) : value;
-  return new Intl.DateTimeFormat('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric', timeZone,
-  }).format(date);
+/**
+ * Dates are dd/mm/yyyy throughout. The shared implementation lives in the
+ * domain package so the screens and the generated PDFs cannot drift apart.
+ */
+export function formatDate(value: string | Date, _timeZone = 'Africa/Johannesburg'): string {
+  return formatDayMonthYear(value);
 }
 
 export function formatDateTime(value: string | Date, timeZone = 'Africa/Johannesburg'): string {
-  const date = typeof value === 'string' ? new Date(value) : value;
-  return new Intl.DateTimeFormat('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', timeZone, hour12: false,
-  }).format(date);
+  return formatDayMonthYearTime(value, timeZone);
 }
 
 export function daysOverdue(dueDate: string): number {

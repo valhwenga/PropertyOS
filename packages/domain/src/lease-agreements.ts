@@ -15,6 +15,7 @@
  *  - Identity and bank numbers are opened only here, only for the document, and
  *    only masked in anything written down afterwards.
  */
+import { formatDayMonthYear } from './dates';
 import { formatMoney } from './money';
 import { openField } from '@propertyos/integrations';
 import type { Sql } from '@propertyos/db';
@@ -160,14 +161,8 @@ export function templatePlaceholders(body: string): string[] {
   return [...new Set([...body.matchAll(PLACEHOLDER)].map((m) => m[1]!.toLowerCase()))].sort();
 }
 
-export const formatLeaseDate = (value: string | Date | null | undefined): string => {
-  if (!value) return '';
-  const d = typeof value === 'string' ? new Date(`${value}T00:00:00Z`) : value;
-  if (Number.isNaN(d.getTime())) return '';
-  return `${String(d.getUTCDate()).padStart(2, '0')} ${
-    ['January','February','March','April','May','June','July','August','September','October','November','December'][d.getUTCMonth()]
-  } ${d.getUTCFullYear()}`;
-};
+/** Dates in an agreement read the same as dates everywhere else: dd/mm/yyyy. */
+export const formatLeaseDate = formatDayMonthYear;
 
 const yesNo = (v: boolean | null | undefined): string => (v === null || v === undefined ? '' : v ? 'Yes' : 'No');
 const PAYMENT_METHOD_LABEL: Record<string, string> = {

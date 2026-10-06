@@ -7,6 +7,8 @@ import { Button, Card, ErrorState, StatusBadge } from '@propertyos/ui';
 // client component, and the barrel reaches the database layer, which would pull
 // postgres and node:net into the browser bundle.
 import { minorToMajorInput } from '@propertyos/domain/money';
+import { formatDayMonthYear } from '@propertyos/domain/dates';
+import { DateField } from '@/components/date-field';
 import { generateAgreementAction, saveTermsAction } from './actions';
 
 export interface TemplateOption {
@@ -206,9 +208,7 @@ export function AgreementPanel({
                    defaultValue={terms.arrear_interest_monthly_percent} />
             <Field name="arrearInterestAnnualCapPercent" label="Annual cap, %" type="number"
                    defaultValue={terms.arrear_interest_annual_cap_percent} />
-            <Field name="keyReturnAt" label="Key return date" type="date" lang="en-ZA"
-                   defaultValue={terms.key_return_at}
-                   hint="Shown in your browser's date format; stored and printed as e.g. 31 October 2026." />
+            <DateField name="keyReturnAt" label="Key return date" value={terms.key_return_at} />
 
             <Field name="renewalOptionMonths" label="Renewal option, months" type="number"
                    defaultValue={terms.renewal_option_months} hint="A year or two of renewal" />
@@ -266,7 +266,7 @@ export function AgreementPanel({
                 <Link className="text-spike-600 hover:underline" href={`/app/${org}/documents/${g.documentId}`}>
                   {g.templateName} v{g.version}
                 </Link>
-                <span className="text-ink-400">{new Date(g.generatedAt).toISOString().slice(0, 10)}</span>
+                <span className="text-ink-400">{formatDayMonthYear(g.generatedAt)}</span>
                 {g.missingFields.length > 0 ? (
                   <StatusBadge tone="caution">{g.missingFields.length} incomplete</StatusBadge>
                 ) : (

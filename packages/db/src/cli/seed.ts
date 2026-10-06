@@ -185,7 +185,7 @@ async function main(): Promise<void> {
         issueDate: '2025-12-31', dueDate: '2025-12-31',
         lines: [{
           category: 'other',
-          description: 'Opening arrears brought forward (DEMO, operator signed 2025-12-31)',
+          description: 'Opening arrears brought forward (DEMO, operator signed 31/12/2025)',
           amountMinor: R('1000'), dueDate: '2025-12-31',
         }],
       }),

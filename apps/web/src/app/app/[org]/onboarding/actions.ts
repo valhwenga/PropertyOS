@@ -5,6 +5,21 @@ import { commitImport, previewImport, type ImportKind, type ImportPreview } from
 import { DomainError } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
+import { parseDayMonthYear } from '@propertyos/domain/dates';
+
+/**
+ * Dates arrive as dd/mm/yyyy, because that is the one format this product
+ * shows. Parsing here means an unreadable date stops the command rather than
+ * reaching a `date` column where the server's DateStyle decides what was meant.
+ */
+function isoDate(value: string, label: string): string {
+  const iso = parseDayMonthYear(value);
+  if (!iso) {
+    throw new DomainError('validation_failed', `${label} must be dd/mm/yyyy, for example 31/10/2026.`);
+  }
+  return iso;
+}
+
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -41,7 +56,8 @@ export async function commitImportAction(_previous: unknown, formData: FormData)
   const kind = String(formData.get('kind')) as ImportKind;
   const filename = String(formData.get('filename'));
   const content = String(formData.get('content'));
-  const cutOffDate = String(formData.get('cutOffDate') ?? '').trim() || undefined;
+  const cutOffRaw = String(formData.get('cutOffDate') ?? '').trim();
+  const cutOffDate = cutOffRaw ? isoDate(cutOffRaw, 'Cut-off date') : undefined;
   const sourceReference = String(formData.get('sourceReference') ?? '').trim() || undefined;
   const confirmApproval = formData.get('confirmApproval') === 'on';
 

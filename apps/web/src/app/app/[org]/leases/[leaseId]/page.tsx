@@ -199,7 +199,7 @@ export default async function LeaseDetailPage({
         </h2>
 
         <DataTable
-          caption={`Statement for lease ${lease.reference} to ${cut}`}
+          caption={`Statement for lease ${lease.reference} to ${formatDate(cut, context.timeZone)}`}
           head={
             <tr>
               <Th>Date</Th><Th>Reference</Th><Th>Description</Th>

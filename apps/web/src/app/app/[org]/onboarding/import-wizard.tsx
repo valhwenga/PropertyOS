@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import { DateField } from '@/components/date-field';
 import { Button, Card, DataTable, ErrorState, Money, StatusBadge, Td, Th } from '@propertyos/ui';
 import type { ImportKind } from '@propertyos/domain';
 import { commitImportAction, previewImportAction } from './actions';
@@ -178,19 +179,12 @@ export function ImportWizard({ org, kind }: { org: string; kind: ImportKind }) {
               <>
                 {/* The three controls the blueprint requires before opening
                     balances may be recorded. None of them is optional. */}
-                <div className="space-y-1.5">
-                  <label htmlFor="cutOffDate" className="block text-sm font-medium text-ink-700">
-                    Cut-off date
-                  </label>
-                  <input
-                    id="cutOffDate" name="cutOffDate" type="date" required
-                    className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
-                  />
-                  <p className="text-xs text-ink-400">
-                    The date these balances are correct as at. Charges after this date should be
-                    billed normally, not imported.
-                  </p>
-                </div>
+                <DateField
+                  name="cutOffDate"
+                  label="Cut-off date"
+                  required
+                  hint="The date these balances are correct as at. Charges after this date should be billed normally, not imported."
+                />
 
                 <div className="space-y-1.5">
                   <label htmlFor="sourceReference" className="block text-sm font-medium text-ink-700">

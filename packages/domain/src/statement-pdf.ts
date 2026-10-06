@@ -1,3 +1,4 @@
+import { formatDayMonthYear, formatDayMonthYearTime } from './dates';
 import { PdfDocument, measureText, type PdfPage } from '@propertyos/integrations';
 import { formatMinor } from './money';
 import type { Statement } from './statements';
@@ -83,7 +84,7 @@ export function renderStatementPdf(statement: Statement, context: StatementPdfCo
       y = drawTableHead(page, y);
     }
 
-    page.text(line.entryDate, COLUMNS.date, y, { size: 8.5, colour: MUTED });
+    page.text(formatDayMonthYear(line.entryDate), COLUMNS.date, y, { size: 8.5, colour: MUTED });
     page.text(line.reference, COLUMNS.reference, y, { size: 8.5, font: 'Courier', colour: MUTED });
     page.text(truncate(line.description, 46), COLUMNS.description, y, { size: 9, colour: INK });
     if (line.debitMinor > 0n) {
@@ -187,7 +188,7 @@ function drawHeader(page: PdfPage, statement: Statement, context: StatementPdfCo
 
   const rightColumn = PAGE_WIDTH - MARGIN - 160;
   page.text('Statement date', rightColumn, y, { size: 8, colour: MUTED });
-  page.text(statement.cutOff, rightColumn, y + 11, { size: 9.5, colour: INK });
+  page.text(formatDayMonthYear(statement.cutOff), rightColumn, y + 11, { size: 9.5, colour: INK });
   page.text('Currency', rightColumn, y + 29, { size: 8, colour: MUTED });
   page.text(statement.currencyCode, rightColumn, y + 40, { size: 9.5, colour: INK });
 
@@ -234,7 +235,7 @@ function drawFooter(
     page.text(`Questions about this statement: ${contact}`, MARGIN, y + 8, { size: 7.5, colour: MUTED });
   }
   page.text(
-    `Generated ${statement.generatedAt.slice(0, 19).replace('T', ' ')} UTC  ·  page ${pageNumber}`,
+    `Generated ${formatDayMonthYearTime(statement.generatedAt, 'UTC')} UTC  ·  page ${pageNumber}`,
     MARGIN, y + 19, { size: 7.5, colour: MUTED },
   );
   page.text(

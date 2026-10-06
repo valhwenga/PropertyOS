@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  DomainError, generateLeaseAgreement, parseMajorToMinor, registerDocument,
+  DomainError, formatDayMonthYear, generateLeaseAgreement, parseDayMonthYear,
+  parseMajorToMinor, registerDocument,
   renderLeaseAgreementPdf, saveLeaseAgreementTerms, sha256,
 } from '@propertyos/domain';
 import { resolveStorageAdapter } from '@propertyos/integrations';
@@ -32,6 +33,19 @@ export async function saveTermsAction(_previous: unknown, formData: FormData) {
       throw new DomainError('validation_failed', `${label} is not a valid amount.`);
     }
   };
+  /**
+   * Dates arrive as dd/mm/yyyy, because that is what the field shows. Parsing
+   * here means an unreadable date stops the save rather than reaching a `date`
+   * column where the server's DateStyle would decide what the person meant.
+   */
+  const date = (k: string, label: string) => {
+    const v = String(formData.get(k) ?? '').trim();
+    if (v === '') return undefined;
+    const iso = parseDayMonthYear(v);
+    if (!iso) throw new DomainError('validation_failed', `${label} must be dd/mm/yyyy, for example 31/10/2026.`);
+    return iso;
+  };
+
   /** Unset stays unset. See the note on Choice in the panel. */
   const choice = (k: string) => {
     const v = String(formData.get(k) ?? '');
@@ -57,7 +71,7 @@ export async function saveTermsAction(_previous: unknown, formData: FormData) {
       paymentMethod: (text('paymentMethod') ?? undefined) as never,
       placeOfPayment: text('placeOfPayment'),
       jurisdictionCourt: text('jurisdictionCourt'),
-      keyReturnAt: text('keyReturnAt'),
+      keyReturnAt: date('keyReturnAt', 'Key return date'),
       surchargeDetail: text('surchargeDetail'),
       specialConditions: text('specialConditions'),
     });
@@ -90,7 +104,7 @@ export async function generateAgreementAction(_previous: unknown, formData: Form
           title: 'Lease Agreement',
           organisationName: context.organisationName,
           leaseReference: reference,
-          generatedOn: new Date().toISOString().slice(0, 10),
+          generatedOn: formatDayMonthYear(new Date()),
           missingFields: missing,
         }),
       async (bytes, filename) => {

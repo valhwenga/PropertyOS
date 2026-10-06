@@ -7,7 +7,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./money": "./src/money.ts"
+    "./money": "./src/money.ts",
+    "./dates": "./src/dates.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit"

@@ -4,6 +4,21 @@ import { revalidatePath } from 'next/cache';
 import { createTicket, submitPaymentEvidence, parseMajorToMinor } from '@propertyos/domain';
 import { DomainError } from '@propertyos/domain';
 import { command } from '@/lib/actions';
+import { parseDayMonthYear } from '@propertyos/domain/dates';
+
+/**
+ * Dates arrive as dd/mm/yyyy, because that is the one format this product
+ * shows. Parsing here means an unreadable date stops the command rather than
+ * reaching a `date` column where the server's DateStyle decides what was meant.
+ */
+function isoDate(value: string, label: string): string {
+  const iso = parseDayMonthYear(value);
+  if (!iso) {
+    throw new DomainError('validation_failed', `${label} must be dd/mm/yyyy, for example 31/10/2026.`);
+  }
+  return iso;
+}
+
 
 /** Resolves the organisation from the viewer's OWN portal links, never from input. */
 function organisationForLease(
@@ -56,7 +71,7 @@ export async function submitMaintenanceRequest(_previous: unknown, formData: For
 export async function submitProofOfPayment(_previous: unknown, formData: FormData) {
   const leaseId = String(formData.get('leaseId'));
   const amount = String(formData.get('amount') ?? '');
-  const paidAt = String(formData.get('paidAt') ?? '');
+  const paidAt = isoDate(String(formData.get('paidAt') ?? ''), 'Payment date');
   const reference = String(formData.get('reference') ?? '').trim();
 
   const result = await command(async ({ tx, viewer }) => {
