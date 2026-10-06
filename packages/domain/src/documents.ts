@@ -28,6 +28,12 @@ export const registerDocumentSchema = z.object({
   contentSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   propertyId: z.string().uuid().optional(),
   leaseId: z.string().uuid().optional(),
+  /**
+   * The document this one replaces. Set when a thing is regenerated or
+   * re-issued, so the list reads as a history rather than as duplicates and it
+   * stays clear which version supersedes which.
+   */
+  supersedesDocumentId: z.string().uuid().optional(),
   residentId: z.string().uuid().optional(),
 });
 
@@ -79,7 +85,8 @@ export async function registerDocument(
       insert into documents (
         organisation_id, classification, title, storage_key, content_type, byte_size,
         content_sha256, visibility, property_id, lease_id, resident_id,
-        scan_status, scan_detail, scanned_at, quarantined, uploaded_by
+        scan_status, scan_detail, scanned_at, quarantined, uploaded_by,
+        supersedes_document_id
       ) values (
         ${organisationId}, ${d.classification}, ${d.title}, ${storageKey},
         ${d.contentType}, ${d.byteSize},
@@ -87,7 +94,7 @@ export async function registerDocument(
         'internal', ${d.propertyId ?? null}, ${d.leaseId ?? null}, ${d.residentId ?? null},
         ${scan.status}, ${scan.detail ?? null},
         ${scan.status === 'pending' ? null : tx`now()`},
-        ${quarantined}, ${actorUserId}
+        ${quarantined}, ${actorUserId}, ${d.supersedesDocumentId ?? null}
       )
       returning id
     `;

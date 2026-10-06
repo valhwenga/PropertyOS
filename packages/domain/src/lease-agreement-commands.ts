@@ -354,7 +354,12 @@ export async function generateLeaseAgreement(
   actorUserId: string,
   input: { leaseId: string; templateId: string },
   render: (body: string, missing: string[], reference: string) => Uint8Array,
-  registerPdf: (bytes: Uint8Array, filename: string) => Promise<{ documentId: string }>,
+  registerPdf: (
+    bytes: Uint8Array,
+    filename: string,
+    title: string,
+    supersedesDocumentId: string | undefined,
+  ) => Promise<{ documentId: string }>,
 ): Promise<GeneratedAgreement> {
   await requirePermission(tx, organisationId, 'lease.agreement.generate');
 
@@ -379,8 +384,39 @@ export async function generateLeaseAgreement(
   const rendered = renderTemplate(version.body, context.values);
   const pdf = render(rendered.text, rendered.missing, context.leaseReference);
 
-  const filename = `lease-agreement-${context.leaseReference}-v${version.version}.pdf`;
-  const { documentId } = await registerPdf(pdf, filename);
+  // Which agreement this one replaces, if any.
+  //
+  // Regenerating used to leave identical rows side by side — same name, same
+  // size, same day — with nothing to say which was current or which the parties
+  // actually signed. Each generation now points at the one before it, so the
+  // document list reads as a history.
+  const [previous] = await tx<{ document_id: string }[]>`
+    select document_id
+      from lease_agreement_generations
+     where lease_id = ${input.leaseId} and organisation_id = ${organisationId}
+     order by generated_at desc
+     limit 1
+  `;
+
+  // The ordinal makes each generation distinguishable. The template version
+  // alone does not: two agreements from the same version are otherwise
+  // identical in name forever.
+  const [counted] = await tx<{ count: string }[]>`
+    select count(*)::text as count
+      from lease_agreement_generations
+     where lease_id = ${input.leaseId} and organisation_id = ${organisationId}
+  `;
+  const ordinal = Number(counted?.count ?? '0') + 1;
+
+  const filename =
+    `lease-agreement-${context.leaseReference}-v${version.version}-${String(ordinal).padStart(2, '0')}.pdf`;
+  // Separated with middle dots, not dashes: a template is free to have a dash in
+  // its own name ("Residential lease — natural person"), and three em-dashes in
+  // one line stop telling the reader where one part ends.
+  const title =
+    `Lease agreement ${context.leaseReference} · issue ${ordinal} · ` +
+    `${version.name} v${version.version}`;
+  const { documentId } = await registerPdf(pdf, filename, title, previous?.document_id);
 
   const [generation] = await tx<{ id: string }[]>`
     insert into lease_agreement_generations (

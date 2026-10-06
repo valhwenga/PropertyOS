@@ -102,7 +102,14 @@ export default async function DocumentsPage({ params }: { params: Promise<{ org:
                 <Td className="capitalize text-ink-500">{d.classification.replace(/_/g, ' ')}</Td>
                 <Td className="text-ink-500">{d.lease_reference ?? d.property_name ?? '—'}</Td>
                 <Td className="tabular text-ink-500">{formatBytes(d.byte_size)}</Td>
-                <Td><StatusBadge tone={scan.tone} glyph={scan.glyph}>{scan.label}</StatusBadge></Td>
+                <Td>
+                  <StatusBadge tone={scan.tone} glyph={scan.glyph}>{scan.label}</StatusBadge>
+                  {d.superseded ? (
+                    <span className="ml-1.5 align-middle">
+                      <StatusBadge tone="neutral">Replaced</StatusBadge>
+                    </span>
+                  ) : null}
+                </Td>
                 <Td>
                   <ShareControl
                     org={org}

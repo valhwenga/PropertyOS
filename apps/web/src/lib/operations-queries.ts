@@ -96,11 +96,17 @@ export async function loadDocuments(tx: Sql, organisationId: string) {
     { id: string; title: string; classification: string; visibility: string; scan_status: string;
       scan_detail: string | null; quarantined: boolean; byte_size: string; content_type: string;
       uploaded_at: string; uploader: string | null; lease_reference: string | null;
-      property_name: string | null }[]
+      property_name: string | null; superseded: boolean }[]
   >`
     select d.id, d.title, d.classification, d.visibility::text, d.scan_status::text,
            d.scan_detail, d.quarantined, d.byte_size::text, d.content_type, d.uploaded_at::text,
-           up.full_name as uploader, l.reference as lease_reference, p.name as property_name
+           up.full_name as uploader, l.reference as lease_reference, p.name as property_name,
+           -- Whether something later replaced this one, so a re-issued document
+           -- reads as history rather than as a duplicate of the current version.
+           exists (
+             select 1 from documents newer
+              where newer.supersedes_document_id = d.id and newer.deleted_at is null
+           ) as superseded
     from documents d
     left join user_profiles up on up.auth_user_id = d.uploaded_by
     left join leases l on l.id = d.lease_id

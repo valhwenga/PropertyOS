@@ -107,17 +107,18 @@ export async function generateAgreementAction(_previous: unknown, formData: Form
           generatedOn: formatDayMonthYear(new Date()),
           missingFields: missing,
         }),
-      async (bytes, filename) => {
+      async (bytes, filename, title, supersedesDocumentId) => {
         const registered = await registerDocument(
           tx, context.organisationId, viewer.authUserId,
           {
             classification: 'lease',
-            title: filename,
+            title,
             filename,
             contentType: 'application/pdf',
             byteSize: bytes.byteLength,
             contentSha256: sha256(bytes),
             leaseId,
+            supersedesDocumentId,
           },
           { status: 'system_generated', detail: 'Rendered by PropertyOS from a lease template.' },
         );
