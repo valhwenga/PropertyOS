@@ -225,6 +225,68 @@ describe('Cross-organisation and scope isolation', () => {
     ).rejects.toMatchObject({ code: 'not_found' });
   });
 
+  // The portal shows a resident their own renewal option, which lives on
+  // lease_agreement_terms. That table's only select policy required
+  // organisation membership, so the join returned nothing for a resident and
+  // the renewal line silently vanished — a missing fact with no error. The
+  // access must be scoped to the resident's OWN lease, never the organisation.
+  it('lets a resident read the agreement terms of their own lease, and only theirs', async () => {
+    // A neighbour's lease in the SAME organisation, so this proves the access is
+    // scoped to the resident's own lease rather than merely to the landlord.
+    const neighbourResident = await as(orgA.adminUserId, (tx) =>
+      createResident(tx, orgA.organisationId, orgA.adminUserId, {
+        firstName: 'Terms', lastName: 'Neighbour',
+      }),
+    );
+    const neighbourHouse = await as(orgA.adminUserId, (tx) =>
+      createStandaloneHouse(tx, orgA.organisationId, orgA.adminUserId, {
+        name: 'Alpha House 9', code: 'ALPHA9', propertyType: 'cottage',
+        addressLine1: '9 Alpha Road', city: 'Johannesburg',
+      }),
+    );
+    const neighbourLease = await as(orgA.adminUserId, (tx) =>
+      draftLease(tx, orgA.organisationId, orgA.adminUserId, {
+        unitId: neighbourHouse.unitId, startDate: '2026-03-01', rentMinor: R('4000'),
+        parties: [{ residentId: neighbourResident.residentId, role: 'primary_resident' }],
+      }),
+    );
+
+    const sql = ownerSql();
+    await sql`
+      insert into lease_agreement_terms (lease_id, organisation_id, renewal_option_months, renewal_notice_months)
+      values (${aLease}::uuid, ${orgA.organisationId}::uuid, 12, 2)
+      on conflict (lease_id) do update set renewal_option_months = 12, renewal_notice_months = 2
+    `;
+    await sql`
+      insert into lease_agreement_terms (lease_id, organisation_id, renewal_option_months)
+      values (${neighbourLease.leaseId}::uuid, ${orgA.organisationId}::uuid, 24)
+      on conflict (lease_id) do update set renewal_option_months = 24
+    `;
+
+    const residentUser = await grantPortalAccess(
+      orgA.organisationId, aLease, aResident, 'Terms Portal User',
+    );
+
+    await as(residentUser, async (tx) => {
+      const own = await tx<{ renewal_option_months: number }[]>`
+        select renewal_option_months from lease_agreement_terms where lease_id = ${aLease}::uuid
+      `;
+      expect(own).toHaveLength(1);
+      expect(own[0]!.renewal_option_months).toBe(12);
+
+      // The neighbour's schedule stays invisible.
+      const neighbour = await tx`
+        select renewal_option_months from lease_agreement_terms where lease_id = ${neighbourLease.leaseId}::uuid
+      `;
+      expect(neighbour).toHaveLength(0);
+
+      // And a resident cannot change their own terms, only read them.
+      await expect(
+        tx`update lease_agreement_terms set renewal_option_months = 99 where lease_id = ${aLease}::uuid`,
+      ).rejects.toThrow();
+    });
+  });
+
   it('revokes resident access the moment the portal link is revoked', async () => {
     const residentUser = await grantPortalAccess(
       orgA.organisationId, aLease, aResident, 'Revocable User',

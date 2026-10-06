@@ -22,14 +22,23 @@ export default async function ResidentLeasePage({
   if (!link) notFound();
 
   const data = await readAs(viewer, async (tx) => {
+    // The resident's own lease terms. All of this is already known to the
+    // system and was previously visible only to staff, so a tenant asking when
+    // their lease ends had to ask a person.
     const [lease] = await tx<
-      { reference: string; unit_label: string; status: string; end_date: string | null }[]
+      { reference: string; unit_label: string; status: string; start_date: string;
+        end_date: string | null; notice_days: number | null; rent_minor: string;
+        currency_code: string; renewal_option_months: number | null;
+        renewal_notice_months: number | null }[]
     >`
-      select l.reference, l.status::text, l.end_date::text,
+      select l.reference, l.status::text, l.start_date::text, l.end_date::text,
+             l.notice_days, l.rent_minor::text, l.currency_code,
+             t.renewal_option_months, t.renewal_notice_months,
              p.name || ' / ' || u.code as unit_label
       from leases l
       join properties p on p.id = l.property_id
       join units u on u.id = l.unit_id
+      left join lease_agreement_terms t on t.lease_id = l.id
       where l.id = ${leaseId}::uuid
     `;
     if (!lease) return null;
@@ -118,6 +127,59 @@ export default async function ResidentLeasePage({
           </p>
         </Card>
       ) : null}
+
+      {/* The lease itself. A tenant asking "when does this end?" or "how much
+          notice do I give?" should not have to ask a person for something the
+          system already knows. */}
+      <section aria-labelledby="lease-heading" className="space-y-3">
+        <h2 id="lease-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+          Your lease
+        </h2>
+        <Card className="divide-y divide-ink-100 p-0">
+          <dl className="grid grid-cols-1 sm:grid-cols-2">
+            <div className="px-5 py-3">
+              <dt className="text-xs text-ink-500">Rent</dt>
+              <dd className="text-sm font-medium text-ink-900">
+                <Money minor={BigInt(lease.rent_minor)} currency={lease.currency_code} /> a month
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="text-xs text-ink-500">Started</dt>
+              <dd className="text-sm font-medium text-ink-900">{formatDate(lease.start_date)}</dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="text-xs text-ink-500">Ends</dt>
+              <dd className="text-sm font-medium text-ink-900">
+                {lease.end_date ? formatDate(lease.end_date) : 'No end date recorded'}
+              </dd>
+            </div>
+            <div className="px-5 py-3">
+              <dt className="text-xs text-ink-500">Notice to end the lease</dt>
+              <dd className="text-sm font-medium text-ink-900">
+                {lease.notice_days === null
+                  ? 'Not recorded — ask your landlord'
+                  : `${lease.notice_days} days`}
+              </dd>
+            </div>
+            {lease.renewal_option_months ? (
+              <div className="px-5 py-3 sm:col-span-2">
+                <dt className="text-xs text-ink-500">Renewal</dt>
+                <dd className="text-sm font-medium text-ink-900">
+                  You may renew for a further {lease.renewal_option_months} months
+                  {lease.renewal_notice_months
+                    ? `, by telling your landlord in writing at least ${lease.renewal_notice_months} months before the end date`
+                    : ''}
+                  .
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </Card>
+        <p className="text-xs text-ink-500">
+          These are the terms recorded on your lease. The signed agreement is the authority; if
+          something here looks wrong, tell your landlord.
+        </p>
+      </section>
 
       <section aria-labelledby="statement-heading" className="space-y-3">
         <div className="flex items-center justify-between gap-3">

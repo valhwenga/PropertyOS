@@ -9,7 +9,7 @@ import { Button, Card, ErrorState, StatusBadge } from '@propertyos/ui';
 import { minorToMajorInput } from '@propertyos/domain/money';
 import { formatDayMonthYear } from '@propertyos/domain/dates';
 import { DateField } from '@/components/date-field';
-import { generateAgreementAction, saveTermsAction } from './actions';
+import { generateAgreementAction, saveTermsAction, shareAgreementAction } from './actions';
 
 export interface TemplateOption {
   id: string;
@@ -24,6 +24,48 @@ export interface PriorGeneration {
   version: number;
   missingFields: string[];
   generatedAt: string;
+  issue: number;
+  visibility: string;
+  superseded: boolean;
+}
+
+/**
+ * Sends an agreement to the resident, or takes it back.
+ *
+ * Only offered on the current issue: sharing a superseded draft would put the
+ * wrong agreement in front of the tenant, which is worse than sharing nothing.
+ */
+function ShareWithResident({
+  org, leaseId, generation,
+}: {
+  org: string; leaseId: string; generation: PriorGeneration;
+}) {
+  const [state, action, pending] = useActionState(shareAgreementAction, null);
+  const shared = generation.visibility === 'resident_shared';
+
+  if (generation.superseded) {
+    return <span className="text-xs text-ink-400">Superseded</span>;
+  }
+
+  return (
+    <form action={action} className="inline-flex items-center gap-2">
+      <input type="hidden" name="org" value={org} />
+      <input type="hidden" name="leaseId" value={leaseId} />
+      <input type="hidden" name="documentId" value={generation.documentId} />
+      <input type="hidden" name="share" value={shared ? 'no' : 'yes'} />
+      <button
+        type="submit" disabled={pending}
+        className="text-xs text-spike-600 hover:underline disabled:text-ink-400"
+      >
+        {pending
+          ? (shared ? 'Removing…' : 'Sharing…')
+          : (shared ? 'Stop sharing' : 'Share with resident')}
+      </button>
+      {state && !state.ok ? (
+        <span className="text-xs text-critical-700">{state.message}</span>
+      ) : null}
+    </form>
+  );
 }
 
 function Field({ name, label, defaultValue, hint, type = 'text', placeholder, step, lang }: {
@@ -264,7 +306,7 @@ export function AgreementPanel({
             {generations.map((g) => (
               <li key={g.id} className="flex flex-wrap items-center gap-2 text-sm">
                 <Link className="text-spike-600 hover:underline" href={`/app/${org}/documents/${g.documentId}`}>
-                  {g.templateName} v{g.version}
+                  Issue {g.issue} · {g.templateName} v{g.version}
                 </Link>
                 <span className="text-ink-400">{formatDayMonthYear(g.generatedAt)}</span>
                 {g.missingFields.length > 0 ? (
@@ -272,9 +314,18 @@ export function AgreementPanel({
                 ) : (
                   <StatusBadge tone="positive">Complete</StatusBadge>
                 )}
+                {g.visibility === 'resident_shared' ? (
+                  <StatusBadge tone="info">Shared with resident</StatusBadge>
+                ) : null}
+                <ShareWithResident org={org} leaseId={leaseId} generation={g} />
               </li>
             ))}
           </ul>
+          <p className="mt-3 text-xs text-ink-500">
+            Sharing puts the agreement in the resident&rsquo;s portal, where they can read and
+            download it. Only the current issue can be shared, so a superseded draft never
+            reaches them.
+          </p>
         </Card>
       ) : null}
     </section>

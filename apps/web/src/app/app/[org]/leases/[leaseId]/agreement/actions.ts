@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import {
   DomainError, formatDayMonthYear, generateLeaseAgreement, parseDayMonthYear,
-  parseMajorToMinor, registerDocument,
+  parseMajorToMinor, registerDocument, shareDocument,
   renderLeaseAgreementPdf, saveLeaseAgreementTerms, sha256,
 } from '@propertyos/domain';
 import { resolveStorageAdapter } from '@propertyos/integrations';
@@ -136,6 +136,33 @@ export async function generateAgreementAction(_previous: unknown, formData: Form
     };
   });
 
+  if (result.ok) revalidatePath(`/app/${org}/leases/${leaseId}`);
+  return result;
+}
+
+/**
+ * Sends a generated agreement to the resident, or takes it back.
+ *
+ * Generated agreements are internal by default, which is right — nobody should
+ * see a draft the moment it exists. But until now nothing connected generating
+ * to sharing, so an agreement the tenant needed sat where only staff could see
+ * it. The domain refuses to share anything quarantined or not linked to a
+ * lease, so this is a visibility change and nothing more.
+ */
+export async function shareAgreementAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org'));
+  const leaseId = String(formData.get('leaseId'));
+  const documentId = String(formData.get('documentId'));
+  const share = String(formData.get('share')) === 'yes';
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    await shareDocument(tx, context.organisationId, viewer.authUserId, {
+      documentId,
+      visibility: share ? 'resident_shared' : 'internal',
+    });
+    return { shared: share };
+  });
   if (result.ok) revalidatePath(`/app/${org}/leases/${leaseId}`);
   return result;
 }

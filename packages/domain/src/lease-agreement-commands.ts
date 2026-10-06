@@ -449,13 +449,23 @@ export async function generateLeaseAgreement(
 export async function listLeaseAgreementGenerations(
   tx: Sql, organisationId: string, leaseId: string,
 ): Promise<{ id: string; documentId: string; templateName: string; version: number;
-             missingFields: string[]; generatedAt: string }[]> {
+             missingFields: string[]; generatedAt: string; issue: number;
+             visibility: string; superseded: boolean }[]> {
   const rows = await tx<Record<string, unknown>[]>`
     select g.id, g.document_id, t.name as template_name, v.version,
-           g.missing_fields, g.generated_at::text as generated_at
+           g.missing_fields, g.generated_at::text as generated_at,
+           d.visibility::text as visibility,
+           -- Whether a later generation replaced this one, so the panel can show
+           -- which agreement is the current one.
+           exists (
+             select 1 from lease_agreement_generations newer
+              where newer.lease_id = g.lease_id and newer.generated_at > g.generated_at
+           ) as superseded,
+           row_number() over (order by g.generated_at) as issue
       from lease_agreement_generations g
       join lease_template_versions v on v.id = g.template_version_id
       join lease_templates t on t.id = v.template_id
+      join documents d on d.id = g.document_id
      where g.lease_id = ${leaseId} and g.organisation_id = ${organisationId}
      order by g.generated_at desc
   `;
@@ -464,5 +474,8 @@ export async function listLeaseAgreementGenerations(
     templateName: r.template_name as string, version: Number(r.version),
     missingFields: (r.missing_fields as string[]) ?? [],
     generatedAt: r.generated_at as string,
+    issue: Number(r.issue),
+    visibility: r.visibility as string,
+    superseded: Boolean(r.superseded),
   }));
 }
