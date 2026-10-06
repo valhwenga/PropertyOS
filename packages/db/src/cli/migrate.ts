@@ -11,11 +11,13 @@ import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
+import { loadLocalEnv } from './load-env';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsDir = join(here, '..', '..', 'migrations');
 
 async function main(): Promise<void> {
+  loadLocalEnv();
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is required to run migrations.');
   const reset = process.argv.includes('--reset');

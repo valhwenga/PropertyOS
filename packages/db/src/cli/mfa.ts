@@ -18,6 +18,7 @@
  */
 import postgres from 'postgres';
 import { enrolmentUri, generateCode, generateSecret } from '../../../integrations/src/totp';
+import { loadLocalEnv } from './load-env';
 
 const USAGE = `Usage:
   pnpm db:mfa enrol <email> [--reset]   enrol a verified TOTP factor
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
         'there; this command only drives the local development provider.',
     );
   }
+  loadLocalEnv();
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is required.');
 

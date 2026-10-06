@@ -17,6 +17,7 @@ import {
   parseMajorToMinor, postCharge, submitPaymentEvidence, suggestAllocation,
 } from '../../../domain/src/index';
 import type { Sql } from '../client';
+import { loadLocalEnv } from './load-env';
 
 const scrypt = promisify(scryptCb) as (p: string, s: Buffer, k: number) => Promise<Buffer>;
 const R = (v: string) => parseMajorToMinor(v, 'ZAR');
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('Refusing to seed demo data into a production environment.');
   }
+  loadLocalEnv();
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is required.');
 
