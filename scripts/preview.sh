@@ -322,6 +322,12 @@ ENV_FILE="$ROOT/.env.local"
 if [ ! -f "$ENV_FILE" ]; then
   SECRET=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(48).toString("base64url"))')
   FIELD_KEY=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64"))')
+  # NOTE: the ENV delimiter is deliberately UNQUOTED so $SUPER_DB_URL and the
+  # rest expand. That also means a backtick or $(...) anywhere in this body is
+  # COMMAND SUBSTITUTION and will be executed while writing the file. A comment
+  # mentioning `pnpm test` once did exactly that: it ran the test suite and
+  # spliced the output into .env.local. Keep both out of here; a regression
+  # test in tests/unit/preview-env-template.test.ts enforces it.
   cat > "$ENV_FILE" <<ENV
 # Written by scripts/preview.sh for LOCAL PREVIEW ONLY. Not committed, and not
 # suitable for any deployed environment: the secret below was generated on this
@@ -332,7 +338,7 @@ NODE_ENV=development
 DATABASE_URL=$SUPER_DB_URL
 # Application connection: no SUPERUSER, no BYPASSRLS, row-level security applies.
 APP_DATABASE_URL=postgresql://$APP_ROLE:$APP_PASSWORD@$PGHOST:$PGPORT/$DB_NAME
-# How `pnpm test` reaches this cluster to create and drop its own disposable
+# How 'pnpm test' reaches this cluster to create and drop its own disposable
 # database. It never touches $DB_NAME.
 TEST_ADMIN_DATABASE_URL=$SUPERUSER_URL
 
