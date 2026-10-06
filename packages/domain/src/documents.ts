@@ -6,7 +6,15 @@ import { DomainError, fromDatabaseError, invalid, notFound } from './errors';
 import { requirePermission } from './permissions';
 
 export type DocumentVisibility = 'internal' | 'resident_shared' | 'contractor_shared' | 'owner_shared';
-export type ScanStatus = 'pending' | 'skipped_not_configured' | 'clean' | 'infected' | 'failed';
+export type ScanStatus =
+  | 'pending'
+  | 'skipped_not_configured'
+  | 'clean'
+  | 'infected'
+  | 'failed'
+  // Bytes PropertyOS authored itself, such as a generated lease agreement.
+  // Not scanned, because a scanner is for untrusted input and this is not any.
+  | 'system_generated';
 
 export const registerDocumentSchema = z.object({
   classification: z.enum([
@@ -60,8 +68,11 @@ export async function registerDocument(
   const d = registerDocumentSchema.parse(input);
 
   const storageKey = buildStorageKey(organisationId, d.classification, d.filename);
-  // Only a clean result from a real scanner releases a file from quarantine.
-  const quarantined = scan.status !== 'clean';
+  // Only a clean result from a real scanner releases an UPLOAD from quarantine.
+  // A document the system generated was never untrusted input, so it is not held;
+  // it carries its own status rather than borrowing 'clean' from a scan that
+  // never ran.
+  const quarantined = scan.status !== 'clean' && scan.status !== 'system_generated';
 
   try {
     const [doc] = await tx<{ id: string }[]>`

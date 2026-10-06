@@ -3,7 +3,10 @@ import { notFound } from 'next/navigation';
 import {
   Card, DataTable, Money, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
-import { buildStatement, DomainError } from '@propertyos/domain';
+import {
+  buildStatement, DomainError, listLeaseAgreementGenerations, listLeaseTemplates,
+} from '@propertyos/domain';
+import { AgreementPanel } from './agreement/agreement-panel';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 
@@ -49,9 +52,23 @@ export default async function LeaseDetailPage({
       order by lp.role
     `;
 
+    const templates = await listLeaseTemplates(tx, context.organisationId);
+    const generations = await listLeaseAgreementGenerations(tx, context.organisationId, leaseId);
+    const [terms] = await tx<Record<string, string | null>[]>`
+      select parking_bays, max_occupants::text, permanent_vehicles::text,
+             smoking_allowed::text, pets_allowed::text, pets_detail,
+             admin_fee_minor::text, credit_check_fee_minor::text,
+             arrear_interest_monthly_percent::text, arrear_interest_annual_cap_percent::text,
+             renewal_option_months::text, renewal_notice_months::text,
+             payment_method::text, place_of_payment, jurisdiction_court,
+             key_return_at::text, surcharge_detail, special_conditions
+        from lease_agreement_terms
+       where lease_id = ${leaseId}::uuid and organisation_id = ${context.organisationId}::uuid
+    `;
+
     try {
       const statement = await buildStatement(tx, context.organisationId, { leaseId, cutOff: cut });
-      return { lease, parties, statement };
+      return { lease, parties, statement, templates, generations, terms: terms ?? {} };
     } catch (error) {
       if (error instanceof DomainError && error.code === 'not_found') return null;
       throw error;
@@ -247,6 +264,16 @@ export default async function LeaseDetailPage({
           allocation. Deposits and unverified payment evidence are excluded from this balance.
         </p>
       </section>
+
+      <AgreementPanel
+        org={org}
+        leaseId={leaseId}
+        templates={data.templates.map((t) => ({
+          id: t.id, name: t.name, publishedVersion: t.publishedVersion,
+        }))}
+        terms={data.terms}
+        generations={data.generations}
+      />
     </div>
   );
 }

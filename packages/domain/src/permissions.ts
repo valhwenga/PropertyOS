@@ -6,6 +6,7 @@ export type PermissionKey =
   | 'portfolio.read' | 'property.create' | 'property.update'
   | 'resident.read' | 'resident.manage' | 'resident.identity.read'
   | 'lease.read' | 'lease.create' | 'lease.activate' | 'lease.close'
+  | 'lease.template.manage' | 'lease.agreement.generate'
   | 'billing.preview' | 'billing.post' | 'charge.adjust'
   | 'payment.record' | 'payment.allocate' | 'payment.reverse' | 'bank.import'
   | 'deposit.read' | 'deposit.record' | 'deposit.refund.approve'

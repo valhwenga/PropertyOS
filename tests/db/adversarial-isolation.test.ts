@@ -309,18 +309,20 @@ describe('Adversarial: worker and job paths', () => {
 
   it('publishing the outbox twice produces one job, not two', async () => {
     const sql = ownerSql();
-    await sql`
+    // Keep the id this test created. Selecting "the newest event for this
+    // organisation" afterwards picks up anything another test wrote in the
+    // meantime, which made this assertion fail intermittently against a shared
+    // database rather than because redelivery was broken.
+    const [event] = await sql<{ id: string }[]>`
       insert into outbox_events (organisation_id, event_type, resource_type, payload)
       values (${org.organisationId}, 'charge.posted', 'charge_document', '{}'::jsonb)
+      returning id
     `;
     const { publishOutbox } = await import('../../apps/worker/src/outbox.js');
     const first = await publishOutbox(sql as never);
     expect(first).toBeGreaterThanOrEqual(1);
 
     // Simulate a redelivery: unpublish and publish again.
-    const [event] = await sql<{ id: string }[]>`
-      select id from outbox_events where organisation_id = ${org.organisationId} order by id desc limit 1
-    `;
     await sql`update outbox_events set published_at = null where id = ${event!.id}`;
     await publishOutbox(sql as never);
 
