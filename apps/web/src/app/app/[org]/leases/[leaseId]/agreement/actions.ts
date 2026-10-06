@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  generateLeaseAgreement, registerDocument, renderLeaseAgreementPdf,
-  saveLeaseAgreementTerms, sha256,
+  DomainError, generateLeaseAgreement, parseMajorToMinor, registerDocument,
+  renderLeaseAgreementPdf, saveLeaseAgreementTerms, sha256,
 } from '@propertyos/domain';
 import { resolveStorageAdapter } from '@propertyos/integrations';
 import { command } from '@/lib/actions';
@@ -17,6 +17,26 @@ export async function saveTermsAction(_previous: unknown, formData: FormData) {
     const v = String(formData.get(k) ?? '').trim();
     return v === '' ? undefined : v;
   };
+  /**
+   * The form asks for rands; the column stores minor units. Converting here
+   * keeps the storage format off the screen, and a value that is not an amount
+   * is refused rather than coerced into one — a silently misread fee ends up in
+   * a signed agreement.
+   */
+  const money = (k: string, label: string) => {
+    const v = String(formData.get(k) ?? '').trim();
+    if (v === '') return undefined;
+    try {
+      return Number(parseMajorToMinor(v, 'ZAR'));
+    } catch {
+      throw new DomainError('validation_failed', `${label} is not a valid amount.`);
+    }
+  };
+  /** Unset stays unset. See the note on Choice in the panel. */
+  const choice = (k: string) => {
+    const v = String(formData.get(k) ?? '');
+    return v === 'yes' ? true : v === 'no' ? false : undefined;
+  };
 
   const result = await command(async ({ tx, viewer }) => {
     const context = await requireOperator(org);
@@ -25,11 +45,11 @@ export async function saveTermsAction(_previous: unknown, formData: FormData) {
       parkingBays: text('parkingBays'),
       maxOccupants: num('maxOccupants') as never,
       permanentVehicles: num('permanentVehicles') as never,
-      smokingAllowed: formData.get('smokingAllowed') === 'on',
-      petsAllowed: formData.get('petsAllowed') === 'on',
+      smokingAllowed: choice('smokingAllowed'),
+      petsAllowed: choice('petsAllowed'),
       petsDetail: text('petsDetail'),
-      adminFeeMinor: num('adminFeeMinor') as never,
-      creditCheckFeeMinor: num('creditCheckFeeMinor') as never,
+      adminFeeMinor: money('adminFee', 'Admin fee') as never,
+      creditCheckFeeMinor: money('creditCheckFee', 'Credit check fee') as never,
       arrearInterestMonthlyPercent: num('arrearInterestMonthlyPercent') as never,
       arrearInterestAnnualCapPercent: num('arrearInterestAnnualCapPercent') as never,
       renewalOptionMonths: num('renewalOptionMonths') as never,

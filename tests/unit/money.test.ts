@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { formatMinor, formatMoney, parseMajorToMinor, prorate, sumMinor } from '@propertyos/domain';
+import {
+  formatMinor, formatMoney, minorToMajorInput, parseMajorToMinor, prorate, sumMinor,
+} from '@propertyos/domain';
 
 describe('money', () => {
   it('parses major units into exact integer minor units', () => {
@@ -66,5 +68,35 @@ describe('money', () => {
       expect(() => prorate(1000n, -1, 30)).toThrow(/cannot be negative/);
       expect(() => prorate(1000n, 1.5, 30)).toThrow(/whole days/);
     });
+  });
+});
+
+describe('minor units in a form field', () => {
+  it('renders a fee as the amount a person would type', () => {
+    expect(minorToMajorInput('150000')).toBe('1500.00');
+    expect(minorToMajorInput(0)).toBe('0.00');
+    expect(minorToMajorInput('5')).toBe('0.05');
+    expect(minorToMajorInput('50')).toBe('0.50');
+    expect(minorToMajorInput(-2500)).toBe('-25.00');
+  });
+
+  it('is empty for an unset value, so the field stays blank rather than showing 0.00', () => {
+    expect(minorToMajorInput(null)).toBe('');
+    expect(minorToMajorInput(undefined)).toBe('');
+    expect(minorToMajorInput('')).toBe('');
+  });
+
+  // The property that matters: whatever the form shows, parsing it back must
+  // give the exact minor units it came from. A fee printed in a signed lease
+  // cannot drift by a cent.
+  it('round-trips exactly through parseMajorToMinor', () => {
+    for (const minor of ['0', '1', '99', '100', '150000', '99999999', '123456789012']) {
+      expect(parseMajorToMinor(minorToMajorInput(minor))).toBe(BigInt(minor));
+    }
+  });
+
+  it('survives amounts beyond what a double can hold exactly', () => {
+    const huge = '90071992547409911';
+    expect(parseMajorToMinor(minorToMajorInput(huge))).toBe(BigInt(huge));
   });
 });

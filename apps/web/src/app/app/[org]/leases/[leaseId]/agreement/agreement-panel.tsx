@@ -3,6 +3,10 @@
 import { useActionState, useState } from 'react';
 import Link from 'next/link';
 import { Button, Card, ErrorState, StatusBadge } from '@propertyos/ui';
+// Imported from the money module directly, not the package barrel: this is a
+// client component, and the barrel reaches the database layer, which would pull
+// postgres and node:net into the browser bundle.
+import { minorToMajorInput } from '@propertyos/domain/money';
 import { generateAgreementAction, saveTermsAction } from './actions';
 
 export interface TemplateOption {
@@ -20,18 +24,43 @@ export interface PriorGeneration {
   generatedAt: string;
 }
 
-function Field({ name, label, defaultValue, hint, type = 'text', placeholder }: {
+function Field({ name, label, defaultValue, hint, type = 'text', placeholder, step, lang }: {
   name: string; label: string; defaultValue?: string | null;
-  hint?: string; type?: string; placeholder?: string;
+  hint?: string; type?: string; placeholder?: string; step?: string; lang?: string;
 }) {
   return (
     <div className="space-y-1.5">
       <label htmlFor={name} className="block text-xs font-medium text-ink-700">{label}</label>
       <input
         id={name} name={name} type={type} defaultValue={defaultValue ?? ''} placeholder={placeholder}
+        step={step} lang={lang} min={type === 'number' ? 0 : undefined}
         className="w-full rounded-lg border border-ink-200 px-2.5 py-1.5 text-sm"
       />
       {hint ? <p className="text-xs text-ink-500">{hint}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Three states, not two.
+ *
+ * A bare checkbox cannot say "nobody has decided yet": unticked reads the same
+ * as "not allowed", and the agreement would then print a term the operator
+ * never set. Unset stays unset, and the generated document reports it as
+ * incomplete instead of asserting it.
+ */
+function Choice({ name, label, value }: { name: string; label: string; value: string | null | undefined }) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={name} className="block text-xs font-medium text-ink-700">{label}</label>
+      <select
+        id={name} name={name} defaultValue={value === 'true' ? 'yes' : value === 'false' ? 'no' : ''}
+        className="w-full rounded-lg border border-ink-200 px-2.5 py-1.5 text-sm"
+      >
+        <option value="">Not set</option>
+        <option value="yes">Allowed</option>
+        <option value="no">Not allowed</option>
+      </select>
     </div>
   );
 }
@@ -166,9 +195,10 @@ export function AgreementPanel({
             <Field name="maxOccupants" label="Maximum occupants" type="number" defaultValue={terms.max_occupants} />
             <Field name="permanentVehicles" label="Permanent vehicles" type="number" defaultValue={terms.permanent_vehicles} />
 
-            <Field name="adminFeeMinor" label="Admin fee (cents)" type="number" defaultValue={terms.admin_fee_minor}
-                   hint="150000 = R1,500.00" />
-            <Field name="creditCheckFeeMinor" label="Credit check fee (cents)" type="number" defaultValue={terms.credit_check_fee_minor} />
+            <Field name="adminFee" label="Admin fee (R)" type="number" step="0.01"
+                   defaultValue={minorToMajorInput(terms.admin_fee_minor)} placeholder="1500.00" />
+            <Field name="creditCheckFee" label="Credit check fee (R)" type="number" step="0.01"
+                   defaultValue={minorToMajorInput(terms.credit_check_fee_minor)} placeholder="0.00" />
             <Field name="surchargeDetail" label="Surcharge" defaultValue={terms.surcharge_detail}
                    placeholder="Electricity only" />
 
@@ -176,7 +206,9 @@ export function AgreementPanel({
                    defaultValue={terms.arrear_interest_monthly_percent} />
             <Field name="arrearInterestAnnualCapPercent" label="Annual cap, %" type="number"
                    defaultValue={terms.arrear_interest_annual_cap_percent} />
-            <Field name="keyReturnAt" label="Key return date" type="date" defaultValue={terms.key_return_at} />
+            <Field name="keyReturnAt" label="Key return date" type="date" lang="en-ZA"
+                   defaultValue={terms.key_return_at}
+                   hint="Shown in your browser's date format; stored and printed as e.g. 31 October 2026." />
 
             <Field name="renewalOptionMonths" label="Renewal option, months" type="number"
                    defaultValue={terms.renewal_option_months} hint="A year or two of renewal" />
@@ -202,16 +234,8 @@ export function AgreementPanel({
             </div>
             <Field name="placeOfPayment" label="Place of payment" defaultValue={terms.place_of_payment} />
 
-            <div className="flex items-end gap-4">
-              <label className="flex items-center gap-2 text-sm text-ink-700">
-                <input type="checkbox" name="smokingAllowed" defaultChecked={terms.smoking_allowed === 'true'} />
-                Smoking
-              </label>
-              <label className="flex items-center gap-2 text-sm text-ink-700">
-                <input type="checkbox" name="petsAllowed" defaultChecked={terms.pets_allowed === 'true'} />
-                Pets
-              </label>
-            </div>
+            <Choice name="smokingAllowed" label="Smoking" value={terms.smoking_allowed} />
+            <Choice name="petsAllowed" label="Pets" value={terms.pets_allowed} />
 
             <div className="sm:col-span-3 space-y-1.5">
               <label htmlFor="specialConditions" className="block text-xs font-medium text-ink-700">

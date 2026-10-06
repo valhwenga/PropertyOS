@@ -66,6 +66,27 @@ export function formatMinor(amount: Minor | string | number, code = 'ZAR'): stri
   return `${negative ? '-' : ''}${grouped}${exponent > 0 ? `.${fraction}` : ''}`;
 }
 
+/**
+ * Minor units as a plain major amount for a form field, e.g. 150000n -> "1500.00".
+ *
+ * No grouping separators, because a number input will not accept them, and
+ * string arithmetic rather than division so an amount bound for a legal
+ * document is never shifted by a floating point rounding error.
+ */
+export function minorToMajorInput(
+  amount: Minor | string | number | null | undefined,
+  code = 'ZAR',
+): string {
+  if (amount === null || amount === undefined || amount === '') return '';
+  const { exponent } = currency(code);
+  const raw = typeof amount === 'string' ? amount : String(amount);
+  const negative = raw.startsWith('-');
+  const digits = (negative ? raw.slice(1) : raw).padStart(exponent + 1, '0');
+  const whole = digits.slice(0, digits.length - exponent);
+  const fraction = exponent > 0 ? `.${digits.slice(digits.length - exponent)}` : '';
+  return `${negative ? '-' : ''}${whole}${fraction}`;
+}
+
 /** Renders with the currency symbol, e.g. "R1,850.00". */
 export function formatMoney(amount: Minor | string | number, code = 'ZAR'): string {
   return `${currency(code).symbol}${formatMinor(amount, code)}`;
