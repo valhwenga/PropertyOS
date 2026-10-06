@@ -127,6 +127,9 @@ pg_installed() {
 USING_DOCKER=false
 if [ "$USE_DOCKER" = false ] && pg_listening; then
   ok "using the PostgreSQL already listening on $PGHOST:$PGPORT"
+  # Homebrew and Postgres.app do NOT create a role called `postgres`: the
+  # superuser is named after the account that ran initdb. So try that too
+  # before concluding the cluster is unreachable.
   SUPERUSER_URL="${PREVIEW_SUPERUSER_URL:-postgresql://postgres@$PGHOST:$PGPORT/postgres}"
 elif [ "$USE_DOCKER" = false ] && pg_installed; then
   # A cluster is installed but stopped. Starting a Docker one instead would be a
@@ -200,41 +203,70 @@ fi
 # simply gains a credential, which is what the Docker path here already does
 # with POSTGRES_PASSWORD. The password reaches nothing beyond localhost.
 if ! psql_super -c 'select 1' >/dev/null 2>&1; then
-  if [ "$USING_DOCKER" = false ] && [ -z "${PREVIEW_SUPERUSER_URL:-}" ]; then
-    warn "no passwordless superuser on $PGHOST:$PGPORT; trying the local socket"
-    # Peer authentication over the unix socket, which a Debian cluster grants to
-    # the postgres OS user. Whichever of these works, it proves the caller
-    # already administers this cluster.
-    SOCKET_PSQL=
-    if psql -d postgres -qtAX -c 'select 1' >/dev/null 2>&1; then
-      SOCKET_PSQL='psql -d postgres'
-    elif sudo -n -u postgres psql -d postgres -qtAX -c 'select 1' >/dev/null 2>&1; then
-      SOCKET_PSQL='sudo -n -u postgres psql -d postgres'
-    elif su postgres -c 'psql -d postgres -qtAX -c "select 1"' >/dev/null 2>&1; then
-      SOCKET_PSQL='su_postgres'
-    fi
-
-    if [ -n "$SOCKET_PSQL" ]; then
-      if [ "$SOCKET_PSQL" = 'su_postgres' ]; then
-        su postgres -c "psql -d postgres -qtAX -c \"alter role postgres with password '$SUPER_PASSWORD'\"" >/dev/null
-      else
-        $SOCKET_PSQL -qtAX -c "alter role postgres with password '$SUPER_PASSWORD'" >/dev/null
-      fi
-      SUPERUSER_URL="postgresql://postgres:$SUPER_PASSWORD@$PGHOST:$PGPORT/postgres"
-      psql_super -c 'select 1' >/dev/null 2>&1 \
-        && ok 'set a local development password on the postgres role' \
-        || die "set a password on the postgres role, but $PGHOST:$PGPORT still refuses it.
-    Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
-    else
-      die "cannot connect as a superuser using $SUPERUSER_URL, and the local
-    socket is not reachable either (peer authentication needs the postgres OS
-    user, so try again with sudo).
-    Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
-    fi
-  else
+  if [ "$USING_DOCKER" = true ] || [ -n "${PREVIEW_SUPERUSER_URL:-}" ]; then
     die "cannot connect as a superuser using $SUPERUSER_URL
     Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
   fi
+
+  # A Homebrew or Postgres.app cluster has no `postgres` role at all; its
+  # superuser is the account that ran initdb. Try that over TCP before doing
+  # anything cleverer, because it usually just works and needs no password.
+  if [ -n "${USER:-}" ]; then
+    CANDIDATE="postgresql://$USER@$PGHOST:$PGPORT/postgres"
+    if psql "$CANDIDATE" -v ON_ERROR_STOP=1 -qtAX -c 'select 1' >/dev/null 2>&1; then
+      SUPERUSER_URL="$CANDIDATE"
+      ok "connected as $USER, this cluster's superuser"
+    fi
+  fi
+fi
+
+if ! psql_super -c 'select 1' >/dev/null 2>&1; then
+  warn "no passwordless superuser on $PGHOST:$PGPORT; trying the local socket"
+  # Peer authentication over the unix socket. A Debian cluster grants it to the
+  # postgres OS user; a Homebrew one grants it to you. Whichever works proves
+  # the caller already administers this cluster.
+  SOCKET_PSQL=
+  if psql -d postgres -qtAX -c 'select 1' >/dev/null 2>&1; then
+    SOCKET_PSQL='psql -d postgres'
+  elif sudo -n -u postgres psql -d postgres -qtAX -c 'select 1' >/dev/null 2>&1; then
+    SOCKET_PSQL='sudo -n -u postgres psql -d postgres'
+  elif su postgres -c 'psql -d postgres -qtAX -c "select 1"' >/dev/null 2>&1; then
+    SOCKET_PSQL='su_postgres'
+  fi
+
+  [ -n "$SOCKET_PSQL" ] || die "cannot connect as a superuser on $PGHOST:$PGPORT,
+    and the local socket is not reachable either. On Debian or Ubuntu peer
+    authentication needs the postgres OS user, so try again with sudo.
+    Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
+
+  socket_sql() {
+    if [ "$SOCKET_PSQL" = 'su_postgres' ]; then
+      su postgres -c "psql -d postgres -v ON_ERROR_STOP=1 -qtAX -c \"$1\""
+    else
+      $SOCKET_PSQL -v ON_ERROR_STOP=1 -qtAX -c "$1"
+    fi
+  }
+
+  # Give the `postgres` role a local development password, creating the role
+  # first where there is none. This ADDS a credential; it does not relax any
+  # pg_hba rule, so the cluster keeps the authentication method it shipped with
+  # and the password reaches nothing beyond localhost. It is the same posture
+  # as the Docker path above with POSTGRES_PASSWORD.
+  if [ "$(socket_sql "select 1 from pg_roles where rolname = 'postgres'" 2>/dev/null)" = '1' ]; then
+    socket_sql "alter role postgres with login superuser password '$SUPER_PASSWORD'" >/dev/null \
+      || die 'could not set a password on the postgres role.'
+    ok 'set a local development password on the postgres role'
+  else
+    socket_sql "create role postgres login superuser password '$SUPER_PASSWORD'" >/dev/null \
+      || die "this cluster has no postgres role and one could not be created.
+    Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
+    ok 'created a postgres superuser role for local development'
+  fi
+
+  SUPERUSER_URL="postgresql://postgres:$SUPER_PASSWORD@$PGHOST:$PGPORT/postgres"
+  psql_super -c 'select 1' >/dev/null 2>&1 \
+    || die "the postgres role now has a password, but $PGHOST:$PGPORT still refuses it.
+    Set PREVIEW_SUPERUSER_URL to a working superuser connection string and retry."
 fi
 
 # ----------------------------------------------------- 3. role and database
