@@ -337,18 +337,30 @@ ENV
   ok 'wrote .env.local with a freshly generated SESSION_SECRET'
 else
   ok 'reusing the existing .env.local'
-  # Backfill the test connection for files written before it was recorded, and
-  # correct it if the superuser connection changed. Nothing else is rewritten:
-  # an existing file's secrets are the user's.
-  if grep -q '^TEST_ADMIN_DATABASE_URL=' "$ENV_FILE"; then
-    TMP_ENV=$(mktemp)
-    sed "s|^TEST_ADMIN_DATABASE_URL=.*|TEST_ADMIN_DATABASE_URL=$SUPERUSER_URL|" "$ENV_FILE" > "$TMP_ENV"
-    mv "$TMP_ENV" "$ENV_FILE"
-  else
-    printf '\n# How `pnpm test` reaches this cluster to create and drop its own disposable\n# database. It never touches %s.\nTEST_ADMIN_DATABASE_URL=%s\n' \
-      "$DB_NAME" "$SUPERUSER_URL" >> "$ENV_FILE"
-    ok 'recorded TEST_ADMIN_DATABASE_URL so pnpm test can reach this cluster'
-  fi
+  # Keep the connection strings in step with the cluster this run actually
+  # reached. The script exports corrected values into its own children, but
+  # anything reading the FILE later — the browser suite, a psql invocation of
+  # your own — got whatever was written the first time, which fails once the
+  # cluster is rebuilt or gains a superuser password. Only these three lines are
+  # touched; an existing file's secrets stay the user's.
+  set_env_var() {
+    if grep -q "^$1=" "$ENV_FILE"; then
+      if [ "$(sed -n "s|^$1=||p" "$ENV_FILE" | head -1)" != "$2" ]; then
+        TMP_ENV=$(mktemp)
+        awk -v key="$1" -v val="$2" \
+          'index($0, key "=") == 1 { print key "=" val; next } { print }' \
+          "$ENV_FILE" > "$TMP_ENV"
+        mv "$TMP_ENV" "$ENV_FILE"
+        ok "updated $1 to match this cluster"
+      fi
+    else
+      printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"
+      ok "recorded $1"
+    fi
+  }
+  set_env_var DATABASE_URL "$SUPER_DB_URL"
+  set_env_var APP_DATABASE_URL "postgresql://$APP_ROLE:$APP_PASSWORD@$PGHOST:$PGPORT/$DB_NAME"
+  set_env_var TEST_ADMIN_DATABASE_URL "$SUPERUSER_URL"
   EXISTING_SECRET=$(sed -n 's/^SESSION_SECRET=//p' "$ENV_FILE" | head -1)
   if [ "${#EXISTING_SECRET}" -lt 32 ]; then
     die "SESSION_SECRET in .env.local is ${#EXISTING_SECRET} characters; at least 32 are required.

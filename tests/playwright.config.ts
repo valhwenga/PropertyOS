@@ -1,4 +1,26 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+
+/**
+ * Loads the preview's own .env.local, so the browser suite talks to the same
+ * database and port the preview is actually using.
+ *
+ * The specs read the demo accounts' TOTP secrets directly, because a one-time
+ * code cannot be typed from a fixture. Without this they fell back to a
+ * passwordless `postgres` connection string, which fails on any cluster whose
+ * superuser has a password — and the failure surfaced as two unrelated-looking
+ * sign-in tests breaking, not as a configuration problem. Anything already in
+ * the environment wins, so CI is unaffected.
+ */
+const ENV_FILE = fileURLToPath(new URL('../.env.local', import.meta.url));
+if (existsSync(ENV_FILE) && !process.env.DATABASE_URL) {
+  try {
+    process.loadEnvFile(ENV_FILE);
+  } catch {
+    // Not fatal: the defaults below still apply and the specs report clearly.
+  }
+}
 
 export default defineConfig({
   testDir: './e2e',
