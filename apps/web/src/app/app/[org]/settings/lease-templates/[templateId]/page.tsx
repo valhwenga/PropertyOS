@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
+import { PageHeader, StatusBadge } from '@propertyos/ui';
 import { LEASE_MERGE_FIELDS, getLeaseTemplate } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { TemplateEditor } from './template-editor';
@@ -17,15 +17,6 @@ export default async function TemplatePage({
   const template = await readAs(context.viewer, (tx) =>
     getLeaseTemplate(tx, context.organisationId, templateId),
   );
-
-  const groups = new Map<string, typeof LEASE_MERGE_FIELDS[number][]>();
-  for (const field of LEASE_MERGE_FIELDS) {
-    const list = groups.get(field.group) ?? [];
-    list.push(field);
-    groups.set(field.group, list);
-  }
-
-  const used = new Set(template.placeholders);
 
   return (
     <div className="space-y-6">
@@ -49,54 +40,16 @@ export default async function TemplatePage({
         ) : null}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-        <TemplateEditor
-          org={org}
-          templateId={templateId}
-          body={template.body}
-          draftVersionId={template.draftVersionId}
-          publishedVersion={template.publishedVersion}
-        />
-
-        <Card className="p-5">
-          <h2 className="text-sm font-semibold text-ink-900">Placeholders</h2>
-          <p className="mt-1 text-xs text-ink-500">
-            Type any of these into the template. A field with no value is left visible as
-            <code className="mx-1 rounded bg-ink-100 px-1">[its.name]</code> and listed on a
-            final page — never silently blank.
-          </p>
-          <div className="mt-4 space-y-4">
-            {[...groups].map(([group, fields]) => (
-              <div key={group}>
-                <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">{group}</p>
-                <ul className="mt-1.5 space-y-1">
-                  {fields.map((f) => (
-                    <li key={f.key} className="text-xs">
-                      <code
-                        className={
-                          used.has(f.key)
-                            ? 'rounded bg-spike-50 px-1 text-spike-700'
-                            : 'rounded bg-ink-100 px-1 text-ink-700'
-                        }
-                      >
-                        {`{{${f.key}}}`}
-                      </code>
-                      <span className="ml-1.5 text-ink-500">{f.label}</span>
-                      {f.sensitive ? (
-                        <span className="ml-1 text-caution-700" title="Opens a sealed value">●</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-          <p className="mt-4 text-xs text-ink-500">
-            <span className="text-caution-700">●</span> opens a sealed identity or account
-            number. Generating is recorded in the audit trail.
-          </p>
-        </Card>
-      </div>
+      <TemplateEditor
+        org={org}
+        templateId={templateId}
+        body={template.body}
+        draftVersionId={template.draftVersionId}
+        publishedVersion={template.publishedVersion}
+        fields={LEASE_MERGE_FIELDS.map((f) => ({
+          key: f.key, label: f.label, group: f.group, sensitive: f.sensitive,
+        }))}
+      />
     </div>
   );
 }
