@@ -2,11 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  DomainError, formatDayMonthYear, generateLeaseAgreement, parseDayMonthYear, parseMajorToMinor, postInAppNotice, registerDocument, renderLeaseAgreementPdf, saveLeaseAgreementTerms, sha256, shareDocument,
+  DomainError, formatDayMonthYear, generateLeaseAgreement, parseDayMonthYear, parseMajorToMinor, registerDocument, renderLeaseAgreementPdf, saveLeaseAgreementTerms, sha256, shareDocument,
 } from '@propertyos/domain';
-import { resolveEmailAdapter, resolveStorageAdapter } from '@propertyos/integrations';
+import { resolveStorageAdapter } from '@propertyos/integrations';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
+import { notifyLeaseResidents } from '@/lib/lease-notices';
 
 export async function saveTermsAction(_previous: unknown, formData: FormData) {
   const org = String(formData.get('org'));
@@ -159,45 +160,28 @@ export async function shareAgreementAction(_previous: unknown, formData: FormDat
       documentId,
       visibility: share ? 'resident_shared' : 'internal',
     });
-    if (!share) return { shared: false, inbox: 0, email: 'not attempted' as const };
-
-    // Who to tell: the people with a live portal link to this lease. A resident
-    // with no portal account gets no notice, and this says so rather than
-    // implying one was delivered.
-    const recipients = await tx<{ auth_user_id: string; email: string | null }[]>`
-      select pl.auth_user_id, up.email::text
-        from portal_links pl
-        left join user_profiles up on up.auth_user_id = pl.auth_user_id
-       where pl.organisation_id = ${context.organisationId}::uuid
-         and pl.lease_id = ${leaseId}::uuid
-         and pl.status = 'active'
-    `;
-
-    const { posted } = await postInAppNotice(tx, context.organisationId, {
-      recipientUserIds: recipients.map((r) => r.auth_user_id),
-      templateKey: 'lease.agreement.shared',
-      title: 'Your lease agreement is available',
-      body: 'Your landlord has shared your lease agreement. You can read and download it from your documents.',
-      linkPath: `/portal/${leaseId}`,
-    });
-
-    // Email is attempted through the adapter, and whatever it actually reports
-    // is what gets recorded and shown. A development sink is NOT a delivery.
-    const adapter = resolveEmailAdapter();
-    const addresses = recipients.map((r) => r.email).filter((e): e is string => Boolean(e));
-    let email: 'not attempted' | 'sent' | 'not delivered' | 'no address' = 'no address';
-    if (addresses.length > 0) {
-      const outcomes = await Promise.all(addresses.map((to) =>
-        adapter.send({
-          to,
-          subject: 'Your lease agreement is available',
-          body: 'Your landlord has shared your lease agreement with you. Sign in to PropertyOS to read and download it.',
-          templateKey: 'lease.agreement.shared',
-        })));
-      email = outcomes.every((o) => o.status === 'sent') ? 'sent' : 'not delivered';
+    if (!share) {
+      return { shared: false, inbox: 0, email: 'not attempted' as const, emailDetail: null };
     }
 
-    return { shared: true, inbox: posted, email };
+    // Who to tell: the people with a live portal link to this lease. A resident
+    // with no portal account gets no notice, and the result says so rather than
+    // implying one was delivered.
+    const delivery = await notifyLeaseResidents(tx, context.organisationId, {
+      leaseId,
+      templateKey: 'lease.agreement.shared',
+      title: 'Your lease agreement is available',
+      body: 'Your landlord has shared your lease agreement. You can read and download it '
+        + 'from your documents.',
+      linkPath: `/portal/${leaseId}`,
+      email: {
+        subject: 'Your lease agreement is available',
+        body: 'Your landlord has shared your lease agreement with you. '
+          + 'Sign in to PropertyOS to read and download it.',
+      },
+    });
+
+    return { shared: true, ...delivery };
   });
   if (result.ok) revalidatePath(`/app/${org}/leases/${leaseId}`);
   return result;

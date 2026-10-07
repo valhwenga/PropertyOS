@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react';
 import { Button, Card, ErrorState, StatusBadge } from '@propertyos/ui';
 import { DateField } from '@/components/date-field';
+import { DeliveryNote } from '@/components/delivery-note';
 import { FieldErrors } from '@/components/field-errors';
 import { extendLeaseAction, terminateLeaseAction } from './actions';
 
@@ -65,6 +66,22 @@ export function LifecyclePanel({
           </div>
         )}
       </div>
+
+      {/* Who was told, and whether the email actually went out. This sits outside
+          both forms on purpose: ending a lease closes it, which hides the form,
+          and the operator still needs to see what reached the resident. */}
+      {termState?.ok ? (
+        <DeliveryNote
+          inbox={termState.inbox} email={termState.email} emailDetail={termState.emailDetail}
+          nobody="The lease has ended. Nobody on it has a portal account, so no notice was sent."
+        />
+      ) : null}
+      {extState?.ok ? (
+        <DeliveryNote
+          inbox={extState.inbox} email={extState.email} emailDetail={extState.emailDetail}
+          nobody="The lease has been extended. Nobody on it has a portal account, so no notice was sent."
+        />
+      ) : null}
 
       {open === 'extend' && !ended ? (
         <Card className="p-4">

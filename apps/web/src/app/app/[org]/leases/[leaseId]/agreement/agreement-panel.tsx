@@ -9,6 +9,7 @@ import { Button, Card, ErrorState, StatusBadge } from '@propertyos/ui';
 import { minorToMajorInput } from '@propertyos/domain/money';
 import { formatDayMonthYear } from '@propertyos/domain/dates';
 import { DateField } from '@/components/date-field';
+import { DeliveryNote } from '@/components/delivery-note';
 import { generateAgreementAction, saveTermsAction, shareAgreementAction } from './actions';
 
 export interface TemplateOption {
@@ -64,16 +65,12 @@ function ShareWithResident({
       {state && !state.ok ? (
         <span className="text-xs text-critical-700">{state.message}</span>
       ) : null}
-      {/* What actually happened, in the words of what actually happened. An
-          email that the adapter did not report as sent is never called sent. */}
+      {/* What actually happened, in the words of what actually happened. */}
       {state?.ok && state.shared ? (
-        <span className="text-xs text-ink-500">
-          {state.inbox > 0
-            ? `In their inbox${state.email === 'sent' ? ' and emailed' : ''}.`
-            : 'Shared, but they have no portal account, so no notice was sent.'}
-          {state.email === 'not delivered' ? ' Email was not delivered.' : ''}
-          {state.inbox > 0 && state.email === 'no address' ? ' No email address on file.' : ''}
-        </span>
+        <DeliveryNote
+          inbox={state.inbox} email={state.email} emailDetail={state.emailDetail}
+          nobody="Shared, but nobody on this lease has a portal account, so no notice was sent."
+        />
       ) : null}
     </form>
   );
