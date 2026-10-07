@@ -1,21 +1,6 @@
 import Link from 'next/link';
+import { OperatorNav } from './operator-nav';
 import { Wordmark } from './wordmark';
-
-const NAV = [
-  { href: '', label: 'Overview' },
-  { href: '/portfolio', label: 'Portfolio' },
-  { href: '/residents', label: 'Residents' },
-  { href: '/leases', label: 'Leases' },
-  { href: '/billing', label: 'Billing' },
-  { href: '/reconciliation', label: 'Reconciliation' },
-  { href: '/deposits', label: 'Deposits' },
-  { href: '/expenses', label: 'Expenses' },
-  { href: '/maintenance', label: 'Maintenance' },
-  { href: '/documents', label: 'Documents' },
-  { href: '/reports', label: 'Reports' },
-  { href: '/onboarding', label: 'Import' },
-  { href: '/settings', label: 'Settings' },
-] as const;
 
 /**
  * The operator console's chrome: a left sidebar on a wide screen, the original
@@ -25,11 +10,13 @@ const NAV = [
  * the later ones were invisible until you dragged the bar. Down the side they
  * are all legible at once, which is what a console with this many areas needs.
  *
- * Deliberately no JavaScript: one set of markup, re-arranged by CSS at the `lg`
- * breakpoint. A collapsible drawer would need client state, and this is a
- * server component — the narrow layout is unchanged from before, so a phone
- * keeps the horizontally scrolling bar it already had rather than gaining a
- * sidebar that would eat the screen.
+ * One set of markup, re-arranged by CSS at the `lg` breakpoint. A collapsible
+ * drawer would need client state, and the narrow layout is unchanged from
+ * before, so a phone keeps the horizontally scrolling bar it already had rather
+ * than gaining a sidebar that would eat the screen.
+ *
+ * This shell stays a server component. Only the section list is a client
+ * component, because marking the current section means reading the pathname.
  */
 export function OperatorShell({
   slug, organisationName, userName, children,
@@ -72,26 +59,7 @@ export function OperatorShell({
           </div>
         </div>
 
-        <nav
-          aria-label="Sections"
-          className="overflow-x-auto px-4 lg:overflow-x-visible lg:pb-4"
-        >
-          <ul className="flex gap-1 pb-2 lg:flex-col lg:gap-0.5 lg:pb-0">
-            {NAV.map((item) => (
-              <li key={item.href}>
-                <Link
-                  href={`${base}${item.href}`}
-                  className="
-                    block whitespace-nowrap rounded-lg px-3 py-1.5 text-sm text-ink-700
-                    hover:bg-spike-50 hover:text-spike-700
-                  "
-                >
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <OperatorNav base={base} />
       </header>
 
       {/* min-w-0 matters: without it a wide table — the lease statement, for one
