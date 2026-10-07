@@ -32,6 +32,10 @@ export default async function PlatformLayout({ children }: { children: React.Rea
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden text-sm text-white/70 sm:inline">{viewer.fullName}</span>
+            <Link href="/platform/lease-templates"
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-white/90">
+              Lease templates
+            </Link>
             <Link href="/app" className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-white/90">
               Customer view
             </Link>

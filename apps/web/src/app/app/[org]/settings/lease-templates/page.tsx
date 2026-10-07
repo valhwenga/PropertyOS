@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import { Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
-import { listLeaseTemplates } from '@propertyos/domain';
+import { listLeaseTemplates, listSystemTemplates } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format';
 import { NewTemplateForm } from './new-template-form';
+import { SpikeTemplates } from './spike-templates';
 
 export const metadata = { title: 'Lease templates' };
 export const dynamic = 'force-dynamic';
@@ -15,9 +16,10 @@ export default async function LeaseTemplatesPage({
 }) {
   const { org } = await params;
   const context = await requireOperator(org);
-  const templates = await readAs(context.viewer, (tx) =>
-    listLeaseTemplates(tx, context.organisationId),
-  );
+  const [templates, spikeTemplates] = await readAs(context.viewer, async (tx) => [
+    await listLeaseTemplates(tx, context.organisationId),
+    await listSystemTemplates(tx, context.organisationId),
+  ] as const);
 
   return (
     <div className="space-y-6">
@@ -35,6 +37,8 @@ export default async function LeaseTemplatesPage({
           &ldquo;source&rdquo; so anyone reading it later knows.
         </p>
       </Card>
+
+      <SpikeTemplates org={org} templates={spikeTemplates} />
 
       {templates.length === 0 ? (
         <EmptyState

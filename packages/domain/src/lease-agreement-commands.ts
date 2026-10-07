@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { lastFour, sealField } from '@propertyos/integrations';
 import { recordAudit } from './audit';
-import { invalid, notFound } from './errors';
+import { DomainError, invalid, notFound } from './errors';
 import { requirePermission } from './permissions';
 import { buildMergeContext, renderTemplate, templatePlaceholders } from './lease-agreements';
 
@@ -478,4 +478,106 @@ export async function listLeaseAgreementGenerations(
     visibility: r.visibility as string,
     superseded: Boolean(r.superseded),
   }));
+}
+
+/** A template Spike publishes for every customer to start from. */
+export interface SystemTemplateSummary {
+  id: string;
+  name: string;
+  provenance: string;
+  summary: string;
+  version: number;
+  /** True once this organisation already has a copy, so it is not offered twice. */
+  alreadyCopied: boolean;
+}
+
+/**
+ * The published templates Spike provides.
+ *
+ * Read-only from a customer's side. RLS exposes only published rows, so a draft
+ * Spike is still writing is not visible here.
+ */
+export async function listSystemTemplates(
+  tx: Sql,
+  organisationId: string,
+): Promise<SystemTemplateSummary[]> {
+  await requirePermission(tx, organisationId, 'lease.template.manage');
+  const rows = await tx<
+    { id: string; name: string; provenance: string; summary: string;
+      version: number; already: boolean }[]
+  >`
+    select t.id, t.name, t.provenance, t.summary, v.version,
+           exists (
+             select 1 from lease_templates lt
+             where lt.organisation_id = ${organisationId}::uuid
+               and lt.source_note = 'Spike template: ' || t.name
+           ) as already
+    from system_lease_templates t
+    join lateral (
+      select version from system_lease_template_versions
+      where template_id = t.id and published_at is not null
+      order by version desc limit 1
+    ) v on true
+    where t.status = 'published'
+    order by t.name
+  `;
+  return rows.map((r) => ({
+    id: r.id, name: r.name, provenance: r.provenance, summary: r.summary,
+    version: r.version, alreadyCopied: r.already,
+  }));
+}
+
+/**
+ * Copies a Spike template into this organisation's own templates.
+ *
+ * The copy is theirs from that moment: their draft, their edits, their
+ * publication. Nothing generates an agreement from a system template directly,
+ * so a later change by Spike never silently alters wording a landlord has
+ * already adopted — which on a signed lease would be indefensible.
+ */
+export async function adoptSystemTemplate(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  params: { systemTemplateId: string },
+): Promise<{ templateId: string; name: string }> {
+  await requirePermission(tx, organisationId, 'lease.template.manage');
+
+  const [source] = await tx<
+    { name: string; layout: string; body: string; version: number }[]
+  >`
+    select t.name, t.layout::text, v.body, v.version
+    from system_lease_templates t
+    join lateral (
+      select body, version from system_lease_template_versions
+      where template_id = t.id and published_at is not null
+      order by version desc limit 1
+    ) v on true
+    where t.id = ${params.systemTemplateId}::uuid and t.status = 'published'
+  `;
+  if (!source) throw notFound('Template');
+
+  const [template] = await tx<{ id: string }[]>`
+    insert into lease_templates (organisation_id, name, layout, source_note, status, created_by)
+    values (
+      ${organisationId}, ${source.name}, ${source.layout}::app.lease_template_layout,
+      ${`Spike template: ${source.name}`}, 'draft', ${actorUserId}
+    )
+    returning id
+  `;
+  if (!template) throw new DomainError('internal', 'Template copy returned no row.');
+
+  await tx`
+    insert into lease_template_versions
+      (organisation_id, template_id, version, body, created_by)
+    values (${organisationId}, ${template.id}, 1, ${source.body}, ${actorUserId})
+  `;
+
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'lease.template.adopted', resourceType: 'lease_template', resourceId: template.id,
+    after: { name: source.name, fromSystemVersion: source.version },
+  });
+
+  return { templateId: template.id, name: source.name };
 }

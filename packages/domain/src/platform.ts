@@ -461,3 +461,126 @@ export async function platformHealth(
     undeliveredNotifications: Number(row?.undelivered_notifications ?? 0),
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * System lease templates — the ones Spike publishes to every customer.
+ *
+ * Writes here are the ONE place a platform operator legitimately changes data,
+ * because this is Spike's own content rather than a customer's. Customer tables
+ * remain closed to them, with or without a support session.
+ * ------------------------------------------------------------------ */
+
+export interface SystemTemplateRow {
+  id: string;
+  name: string;
+  provenance: string;
+  summary: string;
+  status: string;
+  latestVersion: number | null;
+  publishedVersion: number | null;
+  updatedAt: string;
+}
+
+export async function listSystemLeaseTemplates(tx: Sql): Promise<SystemTemplateRow[]> {
+  const rows = await tx<
+    { id: string; name: string; provenance: string; summary: string; status: string;
+      latest: number | null; published: number | null; updated_at: string }[]
+  >`
+    select t.id, t.name, t.provenance, t.summary, t.status::text, t.updated_at::text,
+           (select max(version) from system_lease_template_versions v where v.template_id = t.id) as latest,
+           (select max(version) from system_lease_template_versions v
+             where v.template_id = t.id and v.published_at is not null) as published
+    from system_lease_templates t
+    order by t.name
+  `;
+  return rows.map((r) => ({
+    id: r.id, name: r.name, provenance: r.provenance, summary: r.summary,
+    status: r.status, latestVersion: r.latest, publishedVersion: r.published,
+    updatedAt: r.updated_at,
+  }));
+}
+
+export async function createSystemLeaseTemplate(
+  tx: Sql,
+  actorUserId: string,
+  input: { name: string; provenance: string; summary: string; body: string },
+): Promise<{ templateId: string }> {
+  const name = input.name.trim();
+  const provenance = input.provenance.trim();
+  const body = input.body;
+  if (!name) throw invalid('Give the template a name.');
+  if (!provenance) {
+    // Not optional. A landlord adopting wording needs to know where it came
+    // from, and whether it was licensed to anyone.
+    throw invalid('Record where this wording came from. Customers see it before adopting.');
+  }
+  if (body.trim().length < 200) {
+    throw invalid('That body is too short to be a lease. Paste the full wording.');
+  }
+
+  const [template] = await tx<{ id: string }[]>`
+    insert into system_lease_templates (name, layout, provenance, summary, status, created_by)
+    values (${name}, 'inline', ${provenance}, ${input.summary.trim()}, 'draft', ${actorUserId})
+    returning id
+  `;
+  if (!template) throw new DomainError('internal', 'Template insert returned no row.');
+
+  await tx`
+    insert into system_lease_template_versions (template_id, version, body, created_by)
+    values (${template.id}, 1, ${body}, ${actorUserId})
+  `;
+  return { templateId: template.id };
+}
+
+/**
+ * Publishes the latest draft version, which makes it visible to every customer.
+ *
+ * Publication is one-way for that version: the trigger refuses any later change
+ * to it. Correcting published wording means publishing a new version, so a
+ * customer can always see which text they adopted.
+ */
+export async function publishSystemLeaseTemplate(
+  tx: Sql,
+  actorUserId: string,
+  params: { templateId: string },
+): Promise<{ version: number }> {
+  const [draft] = await tx<{ id: string; version: number }[]>`
+    select id, version from system_lease_template_versions
+    where template_id = ${params.templateId}::uuid and published_at is null
+    order by version desc limit 1
+  `;
+  if (!draft) throw invalid('There is no unpublished version to publish.');
+
+  await tx`
+    update system_lease_template_versions
+       set published_at = now(), published_by = ${actorUserId}
+     where id = ${draft.id}::uuid
+  `;
+  await tx`
+    update system_lease_templates
+       set status = 'published', updated_at = now()
+     where id = ${params.templateId}::uuid
+  `;
+  return { version: draft.version };
+}
+
+/** Adds a new draft version to an existing template. */
+export async function addSystemLeaseTemplateVersion(
+  tx: Sql,
+  actorUserId: string,
+  params: { templateId: string; body: string },
+): Promise<{ version: number }> {
+  if (params.body.trim().length < 200) {
+    throw invalid('That body is too short to be a lease. Paste the full wording.');
+  }
+  const [latest] = await tx<{ version: number }[]>`
+    select coalesce(max(version), 0) as version
+    from system_lease_template_versions where template_id = ${params.templateId}::uuid
+  `;
+  const version = (latest?.version ?? 0) + 1;
+  await tx`
+    insert into system_lease_template_versions (template_id, version, body, created_by)
+    values (${params.templateId}::uuid, ${version}, ${params.body}, ${actorUserId})
+  `;
+  return { version };
+}

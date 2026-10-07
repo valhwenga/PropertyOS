@@ -18,8 +18,8 @@ import { isCurrentSection, NAV } from './operator-sections';
 export function OperatorNav({ base }: { base: string }) {
   const pathname = usePathname() ?? '';
   return (
-    <nav aria-label="Sections" className="overflow-x-auto px-4 lg:overflow-x-visible lg:pb-4">
-      <ul className="flex gap-1 pb-2 lg:flex-col lg:gap-0.5 lg:pb-0">
+    <nav aria-label="Sections" className="overflow-x-auto px-4 md:overflow-x-visible md:pb-4">
+      <ul className="flex gap-1 pb-2 md:flex-col md:gap-0.5 md:pb-0">
         {NAV.map((item) => {
           const current = isCurrentSection(pathname, base, item.href);
           return (

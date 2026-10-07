@@ -2,8 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  createLeaseTemplate, publishLeaseTemplateVersion, saveLeaseTemplateDraft,
-  saveOrganisationProfile,
+  adoptSystemTemplate, createLeaseTemplate, publishLeaseTemplateVersion, saveLeaseTemplateDraft, saveOrganisationProfile,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
@@ -67,5 +66,24 @@ export async function saveOrganisationProfileAction(_previous: unknown, formData
     return { saved: true };
   });
   if (result.ok) revalidatePath(`/app/${org}/settings/landlord`);
+  return result;
+}
+
+/**
+ * Takes a copy of a Spike-provided template into this organisation.
+ *
+ * It becomes an ordinary draft of theirs. A later change by Spike never reaches
+ * wording a landlord has already adopted, which on a signed lease would be
+ * indefensible.
+ */
+export async function adoptSystemTemplateAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org'));
+  const systemTemplateId = String(formData.get('systemTemplateId'));
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    return adoptSystemTemplate(tx, context.organisationId, viewer.authUserId, { systemTemplateId });
+  });
+  if (result.ok) revalidatePath(`/app/${org}/settings/lease-templates`);
   return result;
 }
