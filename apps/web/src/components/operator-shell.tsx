@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AccountLink } from './account-link';
 import { OperatorNav } from './operator-nav';
 import { ThemeToggle } from './theme-toggle';
 import { Wordmark } from './wordmark';
@@ -21,9 +22,10 @@ import { Wordmark } from './wordmark';
  * component, because marking the current section means reading the pathname.
  */
 export function OperatorShell({
-  slug, organisationName, userName, children,
+  slug, organisationName, userName, unreadNotices, children,
 }: {
-  slug: string; organisationName: string; userName: string; children: React.ReactNode;
+  slug: string; organisationName: string; userName: string;
+  unreadNotices: number; children: React.ReactNode;
 }) {
   const base = `/app/${slug}`;
   return (
@@ -52,10 +54,12 @@ export function OperatorShell({
               on one line there. Stacking them at lg keeps the name whole and
               stops "Sign out" wrapping onto two lines. */}
           <div className="flex items-center gap-2 md:flex-col md:items-start md:gap-2.5">
-            <span className="hidden truncate text-sm text-ink-500 sm:inline md:max-w-full">
+            <Link href="/account"
+                  className="hidden truncate text-sm text-ink-500 hover:underline sm:inline md:max-w-full">
               {userName}
-            </span>
+            </Link>
             <div className="flex items-center gap-2">
+            <AccountLink unread={unreadNotices} compact />
             <ThemeToggle />
             <form action="/sign-out" method="post">
               <button
