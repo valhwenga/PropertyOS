@@ -15,6 +15,8 @@ export const NAV = [
   { href: '/deposits', label: 'Deposits' },
   { href: '/expenses', label: 'Expenses' },
   { href: '/maintenance', label: 'Maintenance' },
+  { href: '/inspections', label: 'Inspections' },
+  { href: '/approvals', label: 'Approvals' },
   { href: '/documents', label: 'Documents' },
   { href: '/reports', label: 'Reports' },
   { href: '/onboarding', label: 'Import' },

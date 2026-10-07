@@ -174,3 +174,49 @@ export async function loadPendingApprovals(tx: Sql, organisationId: string) {
   ]);
   return { quotes, deposits, expenses, runs };
 }
+
+/**
+ * The reconciliation worklist: money received that is not yet tied to a charge,
+ * and resident claims that are not yet verified.
+ *
+ * Both are read straight from posted records under the caller's own RLS
+ * context. Nothing here matches a bank feed — no bank import or automatic
+ * matching exists yet, and the page says so rather than implying otherwise.
+ */
+export async function loadReconciliation(tx: Sql, organisationId: string) {
+  const unmatched = await tx<
+    { receipt_id: string; receipt_number: string; received_on: string; lease_reference: string | null;
+      amount_minor: string; unapplied_minor: string; in_suspense: boolean; currency_code: string }[]
+  >`
+    select rb.receipt_id, rb.receipt_number, rb.received_on::text, rb.currency_code,
+           rb.amount_minor::text, rb.unapplied_minor::text, rb.in_suspense,
+           l.reference as lease_reference
+    from receipt_balances rb
+    left join leases l on l.id = rb.lease_id
+    where rb.organisation_id = ${organisationId}::uuid and rb.unapplied_minor > 0
+    order by rb.received_on desc, rb.receipt_number desc
+    limit 200
+  `;
+
+  const evidence = await tx<
+    { id: string; submitted_at: string; claimed_amount_minor: string; claimed_paid_at: string | null;
+      reference: string | null; status: string; lease_reference: string | null;
+      resident_name: string | null; document_id: string | null }[]
+  >`
+    select pe.id, pe.submitted_at::text, pe.claimed_amount_minor::text,
+           pe.claimed_paid_at::text, pe.reference, pe.status::text, pe.document_id,
+           l.reference as lease_reference,
+           nullif(trim(coalesce(r.first_name, '') || ' ' || coalesce(r.last_name, '')), '') as resident_name
+    from payment_evidence pe
+    left join leases l on l.id = pe.lease_id
+    left join lease_parties lp
+      on lp.lease_id = pe.lease_id and lp.role = 'primary_resident'
+    left join resident_profiles r on r.id = lp.resident_id
+    where pe.organisation_id = ${organisationId}::uuid
+      and pe.status in ('submitted', 'under_review')
+    order by pe.submitted_at desc
+    limit 200
+  `;
+
+  return { unmatched, evidence };
+}
