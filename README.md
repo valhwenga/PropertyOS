@@ -182,6 +182,13 @@ It needs a superuser connection to create that database. `scripts/preview.sh`
 records one in `.env.local` as `TEST_ADMIN_DATABASE_URL`, which the harness
 reads automatically; set that variable yourself if you do not use the script.
 
+A screenshot taken while a page is still hydrating can produce a *spurious*
+React hydration warning. Playwright hides the text caret by default, which
+injects `caret-color: transparent` into the DOM; if that lands mid-hydration,
+React reports an attribute mismatch that has nothing to do with the
+application. Screenshot after the page has settled, or pass `caret: 'initial'`.
+This cost real time once — the warning looked like a bug in a form.
+
 The browser suite expects a preview with seeded demo data already running, and
 passes against both dev mode and `--build`. On a machine that cannot download
 browsers, point Playwright at one you already have:
