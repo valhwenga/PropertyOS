@@ -107,7 +107,7 @@ export default async function ResidentLeasePage({
             Upload proof of payment
           </Link>
           <Link href={`/portal/${leaseId}/maintenance/new`}
-                className="rounded-lg border border-ink-200 bg-white px-4 py-2.5 text-sm font-medium text-ink-700">
+                className="rounded-lg border border-ink-200 bg-surface px-4 py-2.5 text-sm font-medium text-ink-700">
             Report a problem
           </Link>
         </div>
@@ -190,7 +190,7 @@ export default async function ResidentLeasePage({
               take to an advice office. */}
           <a
             href={`/portal/${leaseId}/statement.pdf`}
-            className="rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-700"
+            className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm font-medium text-ink-700"
           >
             Download PDF
           </a>

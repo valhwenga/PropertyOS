@@ -51,7 +51,7 @@ export default async function MaintenancePage({
           <>
             <Link
               href={`/app/${org}/maintenance${scope === 'open' ? '' : '?filter=open'}`}
-              className="rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700"
+              className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700"
             >
               {scope === 'open' ? 'Show all' : 'Show open only'}
             </Link>

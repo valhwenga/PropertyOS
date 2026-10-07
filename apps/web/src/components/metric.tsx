@@ -22,7 +22,7 @@ export function MetricTile({
     <Link
       href={href}
       className={[
-        'group flex flex-col gap-1 rounded-[var(--radius-card)] border bg-white p-4',
+        'group flex flex-col gap-1 rounded-[var(--radius-card)] border bg-surface p-4',
         'shadow-[var(--shadow-card)] transition-colors hover:border-spike-300',
         tone === 'attention' ? 'border-caution-700/30' : 'border-ink-100',
       ].join(' ')}

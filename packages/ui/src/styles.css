@@ -22,6 +22,13 @@
   --color-spike-secondary: #7a60d9;
   --color-spike-secondary-soft: #efeafc;
 
+  /* The card and chrome surface. Not `white`, because `text-white` on the
+     primary button must stay white when the surface goes dark. */
+  --color-surface: #ffffff;
+  /* Chrome that is dark in BOTH themes — the Spike platform header, which
+     carries white text and would otherwise invert into white-on-white. */
+  --color-chrome-900: #14121f;
+
   --color-ink-900: #14121f;
   --color-ink-700: #35314a;
   --color-ink-500: #5c5775;
@@ -85,5 +92,107 @@
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * Dark theme.
+ *
+ * Every colour utility in this app compiles to `var(--color-…)`, so redefining
+ * the tokens re-themes the whole interface. No `dark:` variant on hundreds of
+ * elements, and no component can quietly miss out.
+ *
+ * The ink scale is semantic rather than literal: ink-900 means "strongest
+ * text", ink-50 means "page background", and dark swaps those roles. That is
+ * why --color-surface and --color-chrome-900 exist — a card must follow the
+ * theme, while the platform header is dark in both and would otherwise invert
+ * into white-on-white.
+ *
+ * spike-500 is untouched: the primary button keeps the brand purple and its
+ * white label in both themes.
+ *
+ * TWO RULES, ONE PALETTE. The first is the normal path — the inline script in
+ * the root layout always writes a concrete data-theme, having resolved any
+ * stored choice against the system preference. The second covers the moments
+ * the script cannot: before it runs, and when JavaScript is off. They must stay
+ * identical, and tests/unit/theme.test.ts fails if they drift.
+ */
+@layer base {
+  :root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-surface: #16141f;
+
+  --color-ink-50:  #0f0e17;
+  --color-ink-100: #1d1a2b;
+  --color-ink-200: #302c45;
+  --color-ink-400: #908bab;
+  --color-ink-500: #aaa5c4;
+  --color-ink-700: #d7d4e5;
+  --color-ink-900: #f5f4fa;
+
+  --color-spike-50:  #241a4d;
+  --color-spike-100: #2d2160;
+  --color-spike-700: #c3b0ff;
+  --color-spike-secondary-soft: #241f3d;
+
+  --color-positive-50:  #0f2a1f;
+  --color-positive-600: #5ad49b;
+  --color-caution-50:   #2b1f06;
+  --color-caution-700:  #f0b760;
+  --color-critical-50:  #2d1016;
+  --color-critical-700: #ff8e9e;
+  --color-info-50:      #0f1f33;
+  --color-info-700:     #85b8f0;
+
+  --color-chrome-900: #0b0a12;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.7);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+  color-scheme: dark;
+
+  --color-surface: #16141f;
+
+  --color-ink-50:  #0f0e17;
+  --color-ink-100: #1d1a2b;
+  --color-ink-200: #302c45;
+  --color-ink-400: #908bab;
+  --color-ink-500: #aaa5c4;
+  --color-ink-700: #d7d4e5;
+  --color-ink-900: #f5f4fa;
+
+  --color-spike-50:  #241a4d;
+  --color-spike-100: #2d2160;
+  --color-spike-700: #c3b0ff;
+  --color-spike-secondary-soft: #241f3d;
+
+  --color-positive-50:  #0f2a1f;
+  --color-positive-600: #5ad49b;
+  --color-caution-50:   #2b1f06;
+  --color-caution-700:  #f0b760;
+  --color-critical-50:  #2d1016;
+  --color-critical-700: #ff8e9e;
+  --color-info-50:      #0f1f33;
+  --color-info-700:     #85b8f0;
+
+  --color-chrome-900: #0b0a12;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.7);
+    }
+  }
+
+  /* The glass treatment is white-tinted and has to be restated, not re-tokened. */
+  :root[data-theme='dark'] .glass {
+    background: linear-gradient(135deg, rgb(40 36 58 / 0.86), rgb(26 23 40 / 0.72));
+    border: 1px solid rgb(255 255 255 / 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) .glass {
+      background: linear-gradient(135deg, rgb(40 36 58 / 0.86), rgb(26 23 40 / 0.72));
+      border: 1px solid rgb(255 255 255 / 0.08);
+    }
   }
 }

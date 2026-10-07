@@ -55,7 +55,7 @@ export default async function OnboardingPage({
                   'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm',
                   step.kind === selected
                     ? 'border-spike-500 bg-spike-50 font-medium text-spike-700'
-                    : 'border-ink-200 bg-white text-ink-700 hover:bg-ink-50',
+                    : 'border-ink-200 bg-surface text-ink-700 hover:bg-ink-50',
                 ].join(' ')}
               >
                 <span

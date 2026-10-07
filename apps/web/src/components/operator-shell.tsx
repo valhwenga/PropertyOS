@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { OperatorNav } from './operator-nav';
+import { ThemeToggle } from './theme-toggle';
 import { Wordmark } from './wordmark';
 
 /**
@@ -28,7 +29,7 @@ export function OperatorShell({
     <div className="min-h-dvh bg-ink-50 lg:flex">
       <header
         className="
-          border-b border-ink-100 bg-white
+          border-b border-ink-100 bg-surface
           lg:sticky lg:top-0 lg:h-dvh lg:w-60 lg:shrink-0
           lg:flex lg:flex-col lg:overflow-y-auto lg:border-b-0 lg:border-r
         "
@@ -46,8 +47,15 @@ export function OperatorShell({
               {organisationName}
             </span>
           </div>
-          <div className="flex items-center gap-3 lg:justify-between">
-            <span className="hidden truncate text-sm text-ink-500 sm:inline">{userName}</span>
+          {/* The sidebar is 15rem wide, so the name and both controls do not fit
+              on one line there. Stacking them at lg keeps the name whole and
+              stops "Sign out" wrapping onto two lines. */}
+          <div className="flex items-center gap-2 lg:flex-col lg:items-start lg:gap-2.5">
+            <span className="hidden truncate text-sm text-ink-500 sm:inline lg:max-w-full">
+              {userName}
+            </span>
+            <div className="flex items-center gap-2">
+            <ThemeToggle />
             <form action="/sign-out" method="post">
               <button
                 type="submit"
@@ -56,6 +64,7 @@ export function OperatorShell({
                 Sign out
               </button>
             </form>
+            </div>
           </div>
         </div>
 

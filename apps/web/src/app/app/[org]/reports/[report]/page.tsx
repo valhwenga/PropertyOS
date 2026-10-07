@@ -62,7 +62,7 @@ export default async function ReportPage({
         description={`Within your assigned scope · generated ${formatDate(data.meta.generatedAt, context.timeZone)}`}
         actions={
           <>
-            <Link href={`/app/${org}/reports`} className="rounded-lg border border-ink-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700">
+            <Link href={`/app/${org}/reports`} className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700">
               All reports
             </Link>
             <a

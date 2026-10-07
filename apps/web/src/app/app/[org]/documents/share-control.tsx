@@ -45,7 +45,7 @@ export function ShareControl({
         defaultValue={visibility}
         disabled={pending}
         onChange={(event) => event.currentTarget.form?.requestSubmit()}
-        className="rounded-lg border border-ink-200 bg-white px-2 py-1 text-xs"
+        className="rounded-lg border border-ink-200 bg-surface px-2 py-1 text-xs"
       >
         <option value="internal">Internal only</option>
         <option value="resident_shared" disabled={!canShareToResident}>

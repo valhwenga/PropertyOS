@@ -13,7 +13,7 @@ export function Card({
         'rounded-[var(--radius-card)] shadow-[var(--shadow-card)]',
         // Financial content always sits on an opaque surface so figures stay
         // legible; the glass variant is for overview chrome only.
-        glass ? 'glass' : 'bg-white border border-ink-100',
+        glass ? 'glass' : 'bg-surface border border-ink-100',
         className,
       )}
     >
@@ -50,7 +50,7 @@ export function Button({
         'inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium',
         'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         variant === 'primary' && 'bg-spike-500 text-white hover:bg-spike-600',
-        variant === 'secondary' && 'border border-ink-200 bg-white text-ink-700 hover:bg-ink-50',
+        variant === 'secondary' && 'border border-ink-200 bg-surface text-ink-700 hover:bg-ink-50',
         variant === 'ghost' && 'text-spike-600 hover:bg-spike-50',
         variant === 'danger' && 'bg-critical-700 text-white hover:brightness-110',
         className,
@@ -131,7 +131,7 @@ export function EmptyState({
   title, description, action,
 }: { title: string; description: string; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-ink-200 bg-white px-6 py-14 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-ink-200 bg-surface px-6 py-14 text-center">
       <p className="text-base font-medium text-ink-900">{title}</p>
       <p className="max-w-md text-sm text-ink-500">{description}</p>
       {action}
@@ -157,7 +157,7 @@ export function ErrorState({ title, detail, correlationId }: {
 
 export function PermissionState({ action }: { action: string }) {
   return (
-    <div role="status" className="rounded-[var(--radius-card)] border border-ink-200 bg-white px-5 py-4">
+    <div role="status" className="rounded-[var(--radius-card)] border border-ink-200 bg-surface px-5 py-4">
       <p className="text-sm font-semibold text-ink-900">You do not have access to this</p>
       <p className="mt-1 text-sm text-ink-500">
         {action} requires a permission your roles do not include. Ask an organisation
@@ -194,7 +194,7 @@ export function DataTable({
 }: { caption: string; head: ReactNode; children: ReactNode; dense?: boolean }) {
   return (
     // Horizontal scroll is contained to the table, never the page.
-    <div className="overflow-x-auto rounded-[var(--radius-card)] border border-ink-100 bg-white">
+    <div className="overflow-x-auto rounded-[var(--radius-card)] border border-ink-100 bg-surface">
       <table className="w-full min-w-[40rem] border-collapse text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead className="bg-ink-50 text-left text-xs font-semibold uppercase tracking-wide text-ink-500">

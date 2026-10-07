@@ -15,10 +15,10 @@ export default async function PlatformLayout({ children }: { children: React.Rea
   if (!viewer.isPlatformOperator) redirect('/app');
 
   return (
-    <div className="min-h-dvh bg-ink-900">
+    <div className="min-h-dvh bg-chrome-900">
       {/* A visually distinct chrome, so an operator always knows they are in the
           platform console rather than inside a customer's account. */}
-      <header className="border-b border-white/10 bg-ink-900 text-white">
+      <header className="border-b border-white/10 bg-chrome-900 text-white">
         <div className="mx-auto flex max-w-[80rem] items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-3">
             <Link href="/platform" className="text-base text-white">
