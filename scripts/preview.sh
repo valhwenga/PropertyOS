@@ -462,19 +462,56 @@ fi
 # front and print the codes, otherwise the preview looks broken rather than
 # strict. Sign-in still verifies the code properly, replay protection included.
 step 'Enrolling second factors for the demo accounts'
-MFA_LINES=()
-for account in admin@demo.invalid finance@demo.invalid support@demo.invalid other-admin@demo.invalid; do
-  if pnpm --filter @propertyos/db exec tsx src/cli/mfa.ts enrol "$account" >/dev/null 2>&1; then :; fi
-  CODE=$(pnpm --filter @propertyos/db exec tsx src/cli/mfa.ts code "$account" 2>/dev/null | tail -1 || true)
-  MFA_LINES+=("$account ${CODE:-<run pnpm db:mfa code $account>}")
+MFA_ACCOUNTS=(admin@demo.invalid finance@demo.invalid support@demo.invalid other-admin@demo.invalid)
+for account in "${MFA_ACCOUNTS[@]}"; do
+  pnpm --filter @propertyos/db exec tsx src/cli/mfa.ts enrol "$account" >/dev/null 2>&1 || true
 done
-ok 'enrolled (codes are printed below and rotate every 30 seconds)'
+ok 'enrolled (codes are printed once the server is up, since they last 30 seconds)'
+
+# Printed only when the server is actually answering. A code lasts 30 seconds,
+# so one printed before the build output has already expired by the time anyone
+# reads it — which is what used to happen: the codes scrolled off under Next.js
+# starting up, and the preview looked like it had not printed them at all.
+print_mfa_codes() {
+  printf '\n  %sSecond-factor codes, valid ~30s (admin and finance need one)%s\n' "$DIM" "$RESET_C"
+  for account in "${MFA_ACCOUNTS[@]}"; do
+    code=$(pnpm --filter @propertyos/db exec tsx src/cli/mfa.ts code "$account" 2>/dev/null | tail -1 || true)
+    case "$code" in
+      [0-9][0-9][0-9][0-9][0-9][0-9]) printf '  %-26s %s%s%s\n' "$account" "$BOLD" "$code" "$RESET_C" ;;
+      *) printf '  %-26s %s\n' "$account" "could not be read — run: pnpm db:mfa code $account" ;;
+    esac
+  done
+  printf '\n  %sExpired? Run: pnpm db:mfa code admin@demo.invalid%s\n\n' "$DIM" "$RESET_C"
+}
+
+# Waits for the port to answer, then prints. Runs in the background so the
+# server keeps the terminal; it gives up quietly rather than holding the
+# preview open if the server never comes up.
+announce_codes_when_ready() {
+  for _ in $(seq 1 120); do
+    if node -e "
+      const net = require('node:net');
+      const s = net.connect($PORT, '127.0.0.1');
+      s.on('connect', () => { s.destroy(); process.exit(0); });
+      s.on('error', () => process.exit(1));
+      setTimeout(() => process.exit(1), 1000);
+    " >/dev/null 2>&1; then
+      print_mfa_codes
+      return 0
+    fi
+    sleep 1
+  done
+}
 
 # ------------------------------------------------------------------ 9. worker
 WORKER_PID=
+ANNOUNCER_PID=
 cleanup() {
   if [ -n "$WORKER_PID" ] && kill -0 "$WORKER_PID" 2>/dev/null; then
     kill "$WORKER_PID" 2>/dev/null || true
+  fi
+  if [ -n "$ANNOUNCER_PID" ] && kill -0 "$ANNOUNCER_PID" 2>/dev/null; then
+    kill "$ANNOUNCER_PID" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT INT TERM
@@ -509,9 +546,7 @@ ${BOLD}Spike PropertyOS — local preview${RESET_C}
   Second landlord     other-admin@demo.invalid  proves isolation: sees none of the above
   Spike support       support@demo.invalid      needs an authorised, time-limited session
 
-  ${DIM}Current second-factor codes (valid ~30s; \`pnpm db:mfa code <email>\` for a fresh one)${RESET_C}
-
-$(for line in "${MFA_LINES[@]}"; do printf '  %s\n' "$line"; done)
+  ${DIM}Second-factor codes are printed below, once the server is answering.${RESET_C}
 
   ${DIM}Worth looking at${RESET_C}
 
@@ -542,8 +577,12 @@ if [ "$MODE" = build ]; then
   step 'Building for production'
   pnpm build
   step "Starting the production server on port $PORT"
+  announce_codes_when_ready &
+  ANNOUNCER_PID=$!
   pnpm --filter @propertyos/web exec next start -p "$PORT"
 else
   step "Starting the development server on port $PORT"
+  announce_codes_when_ready &
+  ANNOUNCER_PID=$!
   pnpm --filter @propertyos/web exec next dev -p "$PORT"
 fi
