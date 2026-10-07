@@ -4,9 +4,11 @@ import {
   Card, DataTable, Money, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
 import {
-  buildStatement, DomainError, listLeaseAgreementGenerations, listLeaseTemplates,
+  buildStatement, DomainError, listLeaseAgreementGenerations, listLeaseLifecycleEvents,
+  listLeaseTemplates,
 } from '@propertyos/domain';
 import { AgreementPanel } from './agreement/agreement-panel';
+import { LifecyclePanel } from './lifecycle/lifecycle-panel';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 
@@ -54,6 +56,7 @@ export default async function LeaseDetailPage({
 
     const templates = await listLeaseTemplates(tx, context.organisationId);
     const generations = await listLeaseAgreementGenerations(tx, context.organisationId, leaseId);
+    const lifecycle = await listLeaseLifecycleEvents(tx, context.organisationId, leaseId);
     const [terms] = await tx<Record<string, string | null>[]>`
       select parking_bays, max_occupants::text, permanent_vehicles::text,
              smoking_allowed::text, pets_allowed::text, pets_detail,
@@ -68,7 +71,7 @@ export default async function LeaseDetailPage({
 
     try {
       const statement = await buildStatement(tx, context.organisationId, { leaseId, cutOff: cut });
-      return { lease, parties, statement, templates, generations, terms: terms ?? {} };
+      return { lease, parties, statement, templates, generations, lifecycle, terms: terms ?? {} };
     } catch (error) {
       if (error instanceof DomainError && error.code === 'not_found') return null;
       throw error;
@@ -264,6 +267,22 @@ export default async function LeaseDetailPage({
           allocation. Deposits and unverified payment evidence are excluded from this balance.
         </p>
       </section>
+
+      {/* The reason a term changed is part of the lease's story, so it sits
+          with the lease rather than in an audit log nobody opens. */}
+      <LifecyclePanel
+        org={org}
+        leaseId={leaseId}
+        status={data.lease.status}
+        endDateDisplay={data.lease.end_date ? formatDate(data.lease.end_date, context.timeZone) : null}
+        events={data.lifecycle.map((e) => ({
+          id: e.id, kind: e.kind, reason: e.reason, recordedBy: e.recordedBy,
+          effectiveDateDisplay: formatDate(e.effectiveDate, context.timeZone),
+          previousEndDateDisplay: e.previousEndDate
+            ? formatDate(e.previousEndDate, context.timeZone) : null,
+          recordedAtDisplay: formatDate(e.recordedAt, context.timeZone),
+        }))}
+      />
 
       <AgreementPanel
         org={org}

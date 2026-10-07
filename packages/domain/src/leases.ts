@@ -327,3 +327,175 @@ export async function expireLease(
     after: { holdover: params.holdover },
   });
 }
+
+/* ---------------------------------------------------------------- *
+ * Ending and extending a lease.
+ *
+ * Both record WHY, in the same transaction as the change. A lease is a
+ * contract: "it ended in March" is not an answer anyone can act on a year
+ * later, and the reason is usually the thing in dispute.
+ * ---------------------------------------------------------------- */
+
+export interface LeaseLifecycleEvent {
+  id: string;
+  kind: 'terminated' | 'extended';
+  reason: string;
+  effectiveDate: string;
+  previousEndDate: string | null;
+  previousStatus: string;
+  recordedAt: string;
+  recordedBy: string | null;
+}
+
+/** The lease's own history of being ended or extended, oldest last. */
+export async function listLeaseLifecycleEvents(
+  tx: Sql,
+  organisationId: string,
+  leaseId: string,
+): Promise<LeaseLifecycleEvent[]> {
+  const rows = await tx<
+    { id: string; kind: 'terminated' | 'extended'; reason: string; effective_date: string;
+      previous_end_date: string | null; previous_status: string; recorded_at: string;
+      recorded_by: string | null }[]
+  >`
+    select e.id, e.kind::text as kind, e.reason, e.effective_date::text,
+           e.previous_end_date::text, e.previous_status, e.recorded_at::text,
+           up.full_name as recorded_by
+      from lease_lifecycle_events e
+      left join user_profiles up on up.auth_user_id = e.recorded_by
+     where e.lease_id = ${leaseId}::uuid and e.organisation_id = ${organisationId}::uuid
+     order by e.recorded_at desc
+  `;
+  return rows.map((r) => ({
+    id: r.id, kind: r.kind, reason: r.reason,
+    effectiveDate: r.effective_date, previousEndDate: r.previous_end_date,
+    previousStatus: r.previous_status, recordedAt: r.recorded_at, recordedBy: r.recorded_by,
+  }));
+}
+
+const lifecycleReasonSchema = z.string().trim().min(3).max(2000);
+
+/**
+ * Ends a lease, with the reason recorded.
+ *
+ * Deliberately does NOT touch money. Charges already posted stay posted and a
+ * balance still owing stays owing — ending the agreement is not forgiveness of
+ * the debt, and a system that quietly wrote off arrears when a tenant left
+ * would be worse than useless. Deposits are handled on their own register.
+ */
+export async function terminateLease(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  input: { leaseId: string; reason: string; effectiveDate: string },
+): Promise<{ leaseId: string; status: string; effectiveDate: string }> {
+  await requirePermission(tx, organisationId, 'lease.activate');
+  const reason = lifecycleReasonSchema.parse(input.reason);
+  const effectiveDate = z.string().date().parse(input.effectiveDate);
+
+  const [lease] = await tx<
+    { id: string; status: string; end_date: string | null; start_date: string }[]
+  >`
+    select id, status::text, end_date::text, start_date::text
+      from leases
+     where id = ${input.leaseId}::uuid and organisation_id = ${organisationId}::uuid
+     for update
+  `;
+  if (!lease) throw notFound('Lease');
+  if (lease.status === 'closed' || lease.status === 'cancelled') {
+    throw invalid('That lease has already ended.');
+  }
+  if (effectiveDate < lease.start_date) {
+    throw invalid('A lease cannot end before it started.');
+  }
+
+  await tx`
+    insert into lease_lifecycle_events (
+      organisation_id, lease_id, kind, reason, effective_date,
+      previous_end_date, previous_status, recorded_by
+    ) values (
+      ${organisationId}, ${input.leaseId}, 'terminated', ${reason}, ${effectiveDate},
+      ${lease.end_date}, ${lease.status}, ${actorUserId}
+    )
+  `;
+
+  await tx`
+    update leases
+       set status = 'closed', end_date = ${effectiveDate},
+           closed_at = now(), cancellation_reason = ${reason}, updated_at = now()
+     where id = ${input.leaseId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'lease.terminated', resourceType: 'lease', resourceId: input.leaseId,
+    before: { status: lease.status, endDate: lease.end_date },
+    after: { status: 'closed', endDate: effectiveDate },
+    reason,
+  });
+
+  return { leaseId: input.leaseId, status: 'closed', effectiveDate };
+}
+
+/**
+ * Extends a lease to a later end date, with the reason recorded.
+ *
+ * Only forwards. Pulling an end date earlier is ending the lease sooner, which
+ * is a termination and has different consequences for notice and for the
+ * deposit — so it goes through that command and says so, rather than being
+ * disguised as an extension.
+ */
+export async function extendLease(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  input: { leaseId: string; newEndDate: string; reason: string },
+): Promise<{ leaseId: string; endDate: string }> {
+  await requirePermission(tx, organisationId, 'lease.activate');
+  const reason = lifecycleReasonSchema.parse(input.reason);
+  const newEndDate = z.string().date().parse(input.newEndDate);
+
+  const [lease] = await tx<
+    { id: string; status: string; end_date: string | null; start_date: string }[]
+  >`
+    select id, status::text, end_date::text, start_date::text
+      from leases
+     where id = ${input.leaseId}::uuid and organisation_id = ${organisationId}::uuid
+     for update
+  `;
+  if (!lease) throw notFound('Lease');
+  if (lease.status === 'closed' || lease.status === 'cancelled') {
+    throw invalid('That lease has ended. Extending it would rewrite history; start a new lease.');
+  }
+  if (newEndDate <= lease.start_date) {
+    throw invalid('The new end date must be after the lease started.');
+  }
+  if (lease.end_date && newEndDate <= lease.end_date) {
+    throw invalid(
+      'An extension must move the end date later. To end the lease sooner, end it and say why.',
+    );
+  }
+
+  await tx`
+    insert into lease_lifecycle_events (
+      organisation_id, lease_id, kind, reason, effective_date,
+      previous_end_date, previous_status, recorded_by
+    ) values (
+      ${organisationId}, ${input.leaseId}, 'extended', ${reason}, ${newEndDate},
+      ${lease.end_date}, ${lease.status}, ${actorUserId}
+    )
+  `;
+
+  await tx`
+    update leases set end_date = ${newEndDate}, updated_at = now()
+     where id = ${input.leaseId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'lease.extended', resourceType: 'lease', resourceId: input.leaseId,
+    before: { endDate: lease.end_date }, after: { endDate: newEndDate }, reason,
+  });
+
+  return { leaseId: input.leaseId, endDate: newEndDate };
+}
