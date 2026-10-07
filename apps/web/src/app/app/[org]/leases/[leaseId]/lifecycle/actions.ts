@@ -24,6 +24,11 @@ export async function terminateLeaseAction(_previous: unknown, formData: FormDat
     // The resident is told, because a lease ending is the sort of thing they
     // should hear from the system rather than discover. Both the notice and the
     // email carry the reason: a date with no explanation invites a phone call.
+    //
+    // This is the one notice that emails a resident who asked not to be
+    // emailed. A lease ending changes where they live and what they owe, and a
+    // preference set months earlier is not consent to miss it. The override is
+    // counted and shown to the operator, never applied quietly.
     const delivery = await notifyLeaseResidents(tx, context.organisationId, {
       leaseId,
       templateKey: 'lease.terminated',
@@ -32,6 +37,7 @@ export async function terminateLeaseAction(_previous: unknown, formData: FormDat
         + ' Any balance still owing remains payable.',
       linkPath: `/portal/${leaseId}`,
       email: {
+        overridePreference: true,
         subject: 'Your lease has been ended',
         body: [
           `Your lease ends on ${typedDate}.`,

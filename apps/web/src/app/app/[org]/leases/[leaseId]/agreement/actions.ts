@@ -161,7 +161,10 @@ export async function shareAgreementAction(_previous: unknown, formData: FormDat
       visibility: share ? 'resident_shared' : 'internal',
     });
     if (!share) {
-      return { shared: false, inbox: 0, email: 'not attempted' as const, emailDetail: null };
+      return {
+        shared: false, inbox: 0, email: 'not attempted' as const,
+        emailDetail: null, overrodePreference: 0,
+      };
     }
 
     // Who to tell: the people with a live portal link to this lease. A resident

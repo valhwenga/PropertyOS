@@ -73,6 +73,7 @@ export function LifecyclePanel({
       {termState?.ok ? (
         <DeliveryNote
           inbox={termState.inbox} email={termState.email} emailDetail={termState.emailDetail}
+          overrodePreference={termState.overrodePreference}
           nobody="The lease has ended. Nobody on it has a portal account, so no notice was sent."
         />
       ) : null}
@@ -129,6 +130,10 @@ export function LifecyclePanel({
             <p className="text-sm text-ink-700">
               Ending the lease does not clear what is owed. Charges already posted stay posted, and
               any balance remains payable. The deposit is handled on its own register.
+            </p>
+            <p className="text-sm text-ink-700">
+              Everyone on the lease is told, by inbox and by email. A resident who asked not to be
+              emailed is emailed anyway: a lease ending is not optional reading.
             </p>
             <DateField name="effectiveDate" label="Last day of the lease" required />
             <div>

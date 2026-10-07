@@ -1,11 +1,15 @@
 /**
- * Email on a lease ending or extending must never be reported more generously
- * than it happened. These cases pin that: only a provider acknowledgement for
- * every single recipient reads as "sent".
+ * The two rules behind notifying a lease's residents.
+ *
+ * First, delivery is never reported more generously than it happened: only a
+ * provider acknowledgement for every single recipient reads as "sent".
+ *
+ * Second, a resident's communication preference is respected by every notice
+ * except a lease ending, which overrides it and says so.
  */
 import { describe, expect, it } from 'vitest';
 import type { EmailOutcome } from '@propertyos/integrations';
-import { summariseEmail } from '../../apps/web/src/lib/lease-notices';
+import { chooseEmailRecipients, summariseEmail } from '../../apps/web/src/lib/lease-notices';
 
 const sent = (id: string): EmailOutcome =>
   ({ status: 'sent', provider: 'smtp', providerMessageId: id });
@@ -38,5 +42,64 @@ describe('summariseEmail', () => {
 
   it('says no address rather than claiming an attempt, when there was nobody to email', () => {
     expect(summariseEmail([])).toEqual({ email: 'no address', emailDetail: null });
+  });
+});
+
+/**
+ * A resident's communication preference is respected by every notice but one.
+ *
+ * A lease ending changes where someone lives and what they owe, so it is sent by
+ * email whatever they chose. Nothing else may do that, which is what the first
+ * case here pins.
+ */
+describe('chooseEmailRecipients', () => {
+  const wants = { authUserId: 'a', email: 'wants@demo.invalid', wantsEmail: true };
+  const optedOut = { authUserId: 'b', email: 'opted-out@demo.invalid', wantsEmail: false };
+  const noAddress = { authUserId: 'c', email: null, wantsEmail: true };
+
+  it('leaves out a resident who asked not to be emailed', () => {
+    expect(chooseEmailRecipients([wants, optedOut], false)).toEqual({
+      addresses: ['wants@demo.invalid'],
+      overrodePreference: 0,
+      optedOut: 1,
+    });
+  });
+
+  it('emails them anyway when the notice overrides, and counts whose choice that was', () => {
+    expect(chooseEmailRecipients([wants, optedOut], true)).toEqual({
+      addresses: ['wants@demo.invalid', 'opted-out@demo.invalid'],
+      overrodePreference: 1,
+      optedOut: 0,
+    });
+  });
+
+  it('does not count someone who wanted email as an override', () => {
+    expect(chooseEmailRecipients([wants], true)).toEqual({
+      addresses: ['wants@demo.invalid'],
+      overrodePreference: 0,
+      optedOut: 0,
+    });
+  });
+
+  it('cannot email a resident with no address, override or not', () => {
+    // And no address is NOT an opt-out: the operator would go looking for a
+    // preference that was never set.
+    expect(chooseEmailRecipients([noAddress], true)).toEqual({
+      addresses: [], overrodePreference: 0, optedOut: 0,
+    });
+    expect(chooseEmailRecipients([noAddress], false)).toEqual({
+      addresses: [], overrodePreference: 0, optedOut: 0,
+    });
+  });
+
+  it('counts people rather than addresses when two share one', () => {
+    // Joint tenants on one mailbox. Two preferences were overridden, even
+    // though one message goes out.
+    const joint = { authUserId: 'd', email: 'opted-out@demo.invalid', wantsEmail: false };
+    expect(chooseEmailRecipients([optedOut, joint], true)).toEqual({
+      addresses: ['opted-out@demo.invalid'],
+      overrodePreference: 2,
+      optedOut: 0,
+    });
   });
 });

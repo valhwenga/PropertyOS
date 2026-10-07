@@ -14,7 +14,14 @@ import { resolveEmailAdapter, type EmailOutcome } from '@propertyos/integrations
  * partial send are all `not delivered`, with the adapter's own reason attached
  * so the operator can see why. Nothing here reports delivery it did not get.
  */
-export type EmailStatus = 'not attempted' | 'sent' | 'not delivered' | 'no address';
+export type EmailStatus =
+  | 'not attempted'
+  | 'sent'
+  | 'not delivered'
+  /** Nobody on the lease has an address to write to. */
+  | 'no address'
+  /** They have an address, and asked not to be emailed. A different thing. */
+  | 'opted out';
 
 export interface NoticeDelivery {
   /** How many in-app notices were written. */
@@ -22,11 +29,19 @@ export interface NoticeDelivery {
   email: EmailStatus;
   /** The adapter's reason when email did not go out. Safe to show an operator. */
   emailDetail: string | null;
+  /**
+   * How many people were emailed against their recorded preference.
+   *
+   * Only an overriding notice produces a non-zero count, and the operator is
+   * told: overriding someone's choice quietly is worse than not overriding it.
+   */
+  overrodePreference: number;
 }
 
-interface LeaseRecipient {
+export interface LeaseRecipient {
   authUserId: string | null;
   email: string | null;
+  /** Whether their recorded communication preference is email. */
   wantsEmail: boolean;
 }
 
@@ -59,8 +74,8 @@ async function leaseRecipients(
   return rows.map((r) => ({
     authUserId: r.auth_user_id,
     email: r.email,
-    // The resident's recorded preference decides. 'in_app' and 'none' are
-    // choices they made; emailing anyway would override them.
+    // 'in_app' and 'none' are choices the resident made. An ordinary notice
+    // respects them; an overriding one does not, and says so.
     wantsEmail: r.preference === 'email',
   }));
 }
@@ -75,7 +90,20 @@ export async function notifyLeaseResidents(
     body: string;
     linkPath?: string | null;
     /** Omit to post to the inbox only; email then reports 'not attempted'. */
-    email?: { subject: string; body: string };
+    email?: {
+      subject: string;
+      body: string;
+      /**
+       * Email everyone on the lease regardless of their recorded preference.
+       *
+       * For the small number of notices a resident needs to receive whether or
+       * not they like email — a lease ending is the one the product has. It is
+       * not a licence to ignore the preference generally: every other notice
+       * leaves this unset, and the override is counted and shown to the
+       * operator rather than applied silently.
+       */
+      overridePreference?: boolean;
+    };
   },
 ): Promise<NoticeDelivery> {
   const recipients = await leaseRecipients(tx, organisationId, notice.leaseId);
@@ -90,14 +118,21 @@ export async function notifyLeaseResidents(
     linkPath: notice.linkPath ?? null,
   });
 
-  if (!notice.email) return { inbox: posted, email: 'not attempted', emailDetail: null };
+  if (!notice.email) {
+    return { inbox: posted, email: 'not attempted', emailDetail: null, overrodePreference: 0 };
+  }
 
-  const addresses = [...new Set(
-    recipients.filter((r) => r.wantsEmail).map((r) => r.email)
-      .filter((e): e is string => Boolean(e)),
-  )];
+  const { addresses, overrodePreference, optedOut } =
+    chooseEmailRecipients(recipients, notice.email.overridePreference === true);
   if (addresses.length === 0) {
-    return { inbox: posted, email: 'no address', emailDetail: null };
+    // Telling the operator "no email address on file" when the resident has one
+    // and chose not to be written to sends them hunting for a missing address.
+    return {
+      inbox: posted,
+      email: optedOut > 0 ? 'opted out' : 'no address',
+      emailDetail: null,
+      overrodePreference: 0,
+    };
   }
 
   const adapter = resolveEmailAdapter();
@@ -108,7 +143,7 @@ export async function notifyLeaseResidents(
     templateKey: notice.templateKey,
   })));
 
-  return { inbox: posted, ...summariseEmail(outcomes) };
+  return { inbox: posted, overrodePreference, ...summariseEmail(outcomes) };
 }
 
 /**
@@ -129,4 +164,31 @@ export function summariseEmail(
     : problem?.status === 'failed' ? problem.error
     : null;
   return { email: 'not delivered', emailDetail: detail };
+}
+
+/**
+ * Who gets the email, and whose choice that overrode.
+ *
+ * Without an override, only a resident whose recorded preference is email is
+ * written to; 'in_app' and 'none' are respected. With one — which is for a lease
+ * ending, and nothing else — everyone with an address is written to, and the
+ * number of people whose preference that overrode comes back so the operator can
+ * be told.
+ *
+ * Pure, and exported, because this is the rule most likely to be loosened by
+ * accident later.
+ */
+export function chooseEmailRecipients(
+  recipients: LeaseRecipient[],
+  override: boolean,
+): { addresses: string[]; overrodePreference: number; optedOut: number } {
+  const reachable = recipients.filter((r) => Boolean(r.email));
+  const chosen = override ? reachable : reachable.filter((r) => r.wantsEmail);
+  return {
+    addresses: [...new Set(chosen.map((r) => r.email!))],
+    // Both counted on people, not addresses: it is a person's choice at stake,
+    // and two of them can share one mailbox.
+    overrodePreference: override ? chosen.filter((r) => !r.wantsEmail).length : 0,
+    optedOut: override ? 0 : reachable.filter((r) => !r.wantsEmail).length,
+  };
 }

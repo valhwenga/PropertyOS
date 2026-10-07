@@ -69,6 +69,7 @@ function ShareWithResident({
       {state?.ok && state.shared ? (
         <DeliveryNote
           inbox={state.inbox} email={state.email} emailDetail={state.emailDetail}
+          overrodePreference={state.overrodePreference}
           nobody="Shared, but nobody on this lease has a portal account, so no notice was sent."
         />
       ) : null}
