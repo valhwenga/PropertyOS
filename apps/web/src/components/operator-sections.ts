@@ -9,6 +9,7 @@ export const NAV = [
   { href: '', label: 'Overview' },
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/residents', label: 'Residents' },
+  { href: '/applications', label: 'Applications' },
   { href: '/leases', label: 'Leases' },
   { href: '/billing', label: 'Billing' },
   { href: '/reconciliation', label: 'Reconciliation' },

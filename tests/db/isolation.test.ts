@@ -6,7 +6,7 @@
  * known-good record id from another organisation, supplied directly.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { withActor } from '@propertyos/db';
+import { withActor, withAnonymous } from '@propertyos/db';
 import {
   buildStatement, confirmReceipt, createResident, createStandaloneHouse,
   draftLease, activateLease, postCharge, parseMajorToMinor,
@@ -353,6 +353,64 @@ describe('Cross-organisation and scope isolation', () => {
     });
 
     await sql`delete from system_lease_templates where id = ${tpl!.id}::uuid`;
+  });
+
+  it('lets a stranger submit one application and read nothing at all', async () => {
+    const sql = ownerSql();
+    const [link] = await sql<{ id: string; token: string }[]>`
+      insert into application_links (organisation_id, token, label, created_by)
+      values (${orgA.organisationId}, ${'tok_' + 'a'.repeat(40)}, 'Isolation test link', ${orgA.adminUserId})
+      returning id, token
+    `;
+
+    // The applicant has no session at all: auth.uid() is null, so every policy
+    // on every table evaluates false. The insert still has to work, because the
+    // token is checked inside the function rather than by a policy.
+    const reference = await withAnonymous(async (tx) => {
+      const [row] = await tx<{ reference: string }[]>`
+        select app.submit_rental_application(
+          ${link!.token}, 'Stranger Applicant', 'stranger@example.invalid',
+          null, null, null, null, null, null, null
+        ) as reference
+      `;
+      return row!.reference;
+    });
+    expect(reference).toMatch(/^APP-\d{8}-[0-9A-F]{6}$/);
+
+    await withAnonymous(async (tx) => {
+      // Having submitted, they can read nothing — not the application they just
+      // made, not the link, not the organisation. A link that could read would
+      // turn a shared URL into a disclosure of everyone else who applied.
+      expect(await tx`select id from rental_applications`).toHaveLength(0);
+      expect(await tx`select id from application_links`).toHaveLength(0);
+      expect(await tx`select id from organisations`).toHaveLength(0);
+    });
+
+    // The other organisation cannot see it either.
+    await as(orgB.adminUserId, async (tx) => {
+      expect(await tx`
+        select id from rental_applications where reference = ${reference}
+      `).toHaveLength(0);
+    });
+
+    // Its own organisation can.
+    await as(orgA.adminUserId, async (tx) => {
+      const [row] = await tx<{ full_name: string }[]>`
+        select full_name from rental_applications where reference = ${reference}
+      `;
+      expect(row?.full_name).toBe('Stranger Applicant');
+    });
+
+    // A revoked link stops accepting, immediately.
+    await sql`update application_links set active = false where id = ${link!.id}::uuid`;
+    await expect(
+      withAnonymous((tx) => tx`
+        select app.submit_rental_application(
+          ${link!.token}, 'Too Late', 'late@example.invalid',
+          null, null, null, null, null, null, null
+        )
+      `),
+    ).rejects.toThrow(/not available/i);
   });
 
   it('revokes resident access the moment the portal link is revoked', async () => {

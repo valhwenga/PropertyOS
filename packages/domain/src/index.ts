@@ -6,6 +6,7 @@ export * from './ledger';
 export * from './numbering';
 export * from './organisations';
 export * from './portfolio';
+export * from './applications';
 export * from './notifications';
 export * from './residents';
 export * from './leases';
