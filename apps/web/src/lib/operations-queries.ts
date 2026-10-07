@@ -220,3 +220,45 @@ export async function loadReconciliation(tx: Sql, organisationId: string) {
 
   return { unmatched, evidence };
 }
+
+/**
+ * The choices a new lease needs: somewhere to put it, and someone to sign it.
+ *
+ * Units already carrying an active or holdover lease are excluded, because
+ * drafting a second lease against an occupied unit is almost always a mistake.
+ * A draft does not reserve a unit, so activation is still the check that
+ * matters — this just keeps the obvious error out of the list.
+ */
+export async function loadLeaseDraftChoices(tx: Sql, organisationId: string) {
+  const units = await tx<
+    { unit_id: string; label: string; advertised_rent_minor: string | null }[]
+  >`
+    select u.id as unit_id,
+           p.name || ' / ' || u.code as label,
+           u.advertised_rent_minor::text
+    from units u
+    join properties p on p.id = u.property_id
+    where u.organisation_id = ${organisationId}::uuid
+      and u.status = 'active'
+      -- The statuses that mean the unit is spoken for. 'notice_given' counts:
+      -- the lease is still in force until it ends.
+      and not exists (
+        select 1 from leases l
+        where l.unit_id = u.id
+          and l.status in ('active', 'awaiting_execution', 'notice_given')
+      )
+    order by p.name, u.code
+    limit 500
+  `;
+
+  const residents = await tx<{ resident_id: string; name: string }[]>`
+    select r.id as resident_id,
+           trim(coalesce(r.first_name, '') || ' ' || coalesce(r.last_name, '')) as name
+    from resident_profiles r
+    where r.organisation_id = ${organisationId}::uuid
+    order by r.last_name, r.first_name
+    limit 500
+  `;
+
+  return { units, residents };
+}
