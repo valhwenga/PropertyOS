@@ -72,7 +72,13 @@ describe('Schema invariants', () => {
           'support_sessions', 'subscriptions', 'notification_templates',
           'schema_migrations', 'webhook_events', 'job_attempts',
           'auth_mfa_factors', 'auth_mfa_used_codes', 'auth_attempts',
-          'app_privilege_exemptions', 'inspection_photos'
+          'app_privilege_exemptions', 'inspection_photos',
+          -- Lease templates Spike publishes to every customer. Platform-owned,
+          -- not customer-owned: a nullable organisation_id on the customer
+          -- table would have been the weaker way to fit them in. Their policies
+          -- are asserted directly in tests/db/isolation.test.ts — a customer
+          -- reads published rows and can write nothing.
+          'system_lease_templates', 'system_lease_template_versions'
         )
         and not exists (
           select 1 from pg_attribute a

@@ -300,6 +300,61 @@ describe('Cross-organisation and scope isolation', () => {
     expect(after!.renewal_option_months).toBe(12);
   });
 
+  it('lets any customer read a PUBLISHED Spike template, and write none of them', async () => {
+    const sql = ownerSql();
+    const [tpl] = await sql<{ id: string }[]>`
+      insert into system_lease_templates (name, layout, provenance, summary, status)
+      values ('Draft only', 'inline', 'test', 'test', 'draft')
+      returning id
+    `;
+    await sql`
+      insert into system_lease_template_versions (template_id, version, body)
+      values (${tpl!.id}::uuid, 1, 'unpublished body')
+    `;
+
+    await as(orgA.adminUserId, async (tx) => {
+      // The shipped template is published, so every customer sees it. That is
+      // the whole point of a system template.
+      const published = await tx`
+        select id from system_lease_templates where status = 'published'
+      `;
+      expect(published.length).toBeGreaterThan(0);
+
+      // A draft Spike is still writing is not visible to a customer.
+      expect(await tx`
+        select id from system_lease_templates where id = ${tpl!.id}::uuid
+      `).toHaveLength(0);
+      expect(await tx`
+        select id from system_lease_template_versions where template_id = ${tpl!.id}::uuid
+      `).toHaveLength(0);
+
+    });
+
+    // Each refused write gets its own transaction: the first error aborts the
+    // transaction it runs in, so anything after it would fail for that reason
+    // rather than for the policy, and prove nothing.
+    await expect(
+      as(orgA.adminUserId, (tx) =>
+        tx`insert into system_lease_templates (name, layout, provenance, summary)
+           values ('Mine now', 'inline', 'x', 'x')`),
+    ).rejects.toThrow(/row-level security/);
+
+    // An UPDATE matches no row rather than raising — the policy simply does not
+    // expose one to change. Zero rows affected is the guarantee worth asserting.
+    await as(orgA.adminUserId, async (tx) => {
+      expect(await tx`
+        update system_lease_templates set name = 'Hijacked'
+        where status = 'published' returning id
+      `).toHaveLength(0);
+      expect(await tx`
+        delete from system_lease_template_versions
+        where published_at is not null returning id
+      `).toHaveLength(0);
+    });
+
+    await sql`delete from system_lease_templates where id = ${tpl!.id}::uuid`;
+  });
+
   it('revokes resident access the moment the portal link is revoked', async () => {
     const residentUser = await grantPortalAccess(
       orgA.organisationId, aLease, aResident, 'Revocable User',
