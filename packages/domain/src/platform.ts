@@ -543,7 +543,7 @@ export async function publishSystemLeaseTemplate(
   tx: Sql,
   actorUserId: string,
   params: { templateId: string },
-): Promise<{ version: number }> {
+): Promise<{ version: number; notified: { organisations: number; people: number } }> {
   const [draft] = await tx<{ id: string; version: number }[]>`
     select id, version from system_lease_template_versions
     where template_id = ${params.templateId}::uuid and published_at is null
@@ -561,8 +561,41 @@ export async function publishSystemLeaseTemplate(
        set status = 'published', updated_at = now()
      where id = ${params.templateId}::uuid
   `;
-  return { version: draft.version };
+
+  const notified = await notifyAdopters(tx, params.templateId, draft.version);
+  return { version: draft.version, notified };
 }
+
+/**
+ * Tells the organisations that adopted this template that a newer version exists.
+ *
+ * It does NOT change their wording. An adopted template is a copy and stays
+ * exactly as they left it — silently editing text on a lease someone has signed
+ * would be indefensible. This is the alternative: they are told, and they decide.
+ *
+ * Delegated to app.notify_template_adopters, which runs as its owner, because a
+ * Spike operator has no read access to customer content and a query run in their
+ * context would find no adopters and silently deliver nothing. The function
+ * returns COUNTS only: the operator learns how many were told, never which
+ * customers use the template or who they are. Acting on a customer's behalf is
+ * not the same as reading their records.
+ *
+ * Only roles that can actually manage templates are told. A notice someone
+ * cannot act on is noise, and noise teaches people to ignore notices.
+ */
+async function notifyAdopters(
+  tx: Sql,
+  templateId: string,
+  version: number,
+): Promise<{ organisations: number; people: number }> {
+  const [row] = await tx<{ organisations: number; people: number }[]>`
+    select organisations, people from app.notify_template_adopters(
+      ${templateId}::uuid, ${version}::integer
+    )
+  `;
+  return { organisations: row?.organisations ?? 0, people: row?.people ?? 0 };
+}
+
 
 /** Adds a new draft version to an existing template. */
 export async function addSystemLeaseTemplateVersion(

@@ -88,6 +88,14 @@ export function PublishButton({ templateId, label }: { templateId: string; label
       {state && !state.ok ? (
         <span className="ml-2 text-xs text-critical-700">{state.message}</span>
       ) : null}
+      {state?.ok ? (
+        <span className="ml-2 text-xs text-ink-500">
+          Published v{state.version}.{' '}
+          {state.notified.people === 0
+            ? 'Nobody had adopted it, so nobody was told.'
+            : `Told ${state.notified.people} ${state.notified.people === 1 ? 'person' : 'people'} across ${state.notified.organisations} ${state.notified.organisations === 1 ? 'customer' : 'customers'}. Their wording is unchanged.`}
+        </span>
+      ) : null}
     </form>
   );
 }

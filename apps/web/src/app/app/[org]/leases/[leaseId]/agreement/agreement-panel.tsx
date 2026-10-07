@@ -58,11 +58,22 @@ function ShareWithResident({
         className="text-xs text-spike-600 hover:underline disabled:text-ink-400"
       >
         {pending
-          ? (shared ? 'Removing…' : 'Sharing…')
-          : (shared ? 'Stop sharing' : 'Share with resident')}
+          ? (shared ? 'Removing…' : 'Sending…')
+          : (shared ? 'Stop sharing' : 'Send to resident')}
       </button>
       {state && !state.ok ? (
         <span className="text-xs text-critical-700">{state.message}</span>
+      ) : null}
+      {/* What actually happened, in the words of what actually happened. An
+          email that the adapter did not report as sent is never called sent. */}
+      {state?.ok && state.shared ? (
+        <span className="text-xs text-ink-500">
+          {state.inbox > 0
+            ? `In their inbox${state.email === 'sent' ? ' and emailed' : ''}.`
+            : 'Shared, but they have no portal account, so no notice was sent.'}
+          {state.email === 'not delivered' ? ' Email was not delivered.' : ''}
+          {state.inbox > 0 && state.email === 'no address' ? ' No email address on file.' : ''}
+        </span>
       ) : null}
     </form>
   );
@@ -123,6 +134,7 @@ export function AgreementPanel({
   const [showTerms, setShowTerms] = useState(false);
 
   const publishable = templates.filter((t) => t.publishedVersion !== null);
+  const [chosenTemplate, setChosenTemplate] = useState(publishable[0]?.id ?? '');
 
   return (
     <section className="space-y-4">
@@ -194,6 +206,8 @@ export function AgreementPanel({
               </label>
               <select
                 id="templateId" name="templateId"
+                value={chosenTemplate}
+                onChange={(e) => setChosenTemplate(e.target.value)}
                 className="w-full rounded-lg border border-ink-200 px-2.5 py-1.5 text-sm"
               >
                 {publishable.map((t) => (
@@ -203,6 +217,14 @@ export function AgreementPanel({
                 ))}
               </select>
             </div>
+            {/* Preview first: it writes nothing, and a field found missing here
+                is a field fixed before a resident ever sees the lease. */}
+            <Link
+              href={`/app/${org}/leases/${leaseId}/agreement/preview?template=${chosenTemplate}`}
+              className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700"
+            >
+              Preview
+            </Link>
             <Button type="submit" variant="primary" disabled={generating}>
               {generating ? 'Generating…' : 'Generate agreement'}
             </Button>
@@ -322,7 +344,7 @@ export function AgreementPanel({
             ))}
           </ul>
           <p className="mt-3 text-xs text-ink-500">
-            Sharing puts the agreement in the resident&rsquo;s portal, where they can read and
+            Sending puts the agreement in the resident&rsquo;s portal and their inbox, where they can read and
             download it. Only the current issue can be shared, so a superseded draft never
             reaches them.
           </p>

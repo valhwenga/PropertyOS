@@ -581,3 +581,66 @@ export async function adoptSystemTemplate(
 
   return { templateId: template.id, name: source.name };
 }
+
+/** What an agreement would say, without creating anything. */
+export interface AgreementPreview {
+  leaseReference: string;
+  templateName: string;
+  version: number;
+  text: string;
+  /** Fields the template asks for that this lease cannot supply yet. */
+  missing: string[];
+  /** Placeholders that are not fields at all, usually a typo in the wording. */
+  unknown: string[];
+  /**
+   * The field values as they are STORED on a generation: sensitive ones masked.
+   * The rendered text above shows the real values, because that is the document
+   * the parties sign; this is what the record of it keeps.
+   */
+  redacted: Record<string, string>;
+}
+
+/**
+ * Renders the agreement without writing a thing.
+ *
+ * No document, no generation row, no audit of a disclosure — because nothing is
+ * disclosed to anyone but the operator already entitled to see it. It carries
+ * the same permission as generating, since it opens the same sealed identity
+ * and bank numbers to build the text.
+ *
+ * This is what makes "check before you send" possible. A lease with a missing
+ * field should be fixed before a resident ever receives it, not after.
+ */
+export async function previewLeaseAgreement(
+  tx: Sql,
+  organisationId: string,
+  input: { leaseId: string; templateId: string },
+): Promise<AgreementPreview> {
+  await requirePermission(tx, organisationId, 'lease.agreement.generate');
+
+  const [version] = await tx<{ version: number; body: string; name: string }[]>`
+    select v.version, v.body, t.name
+      from lease_template_versions v
+      join lease_templates t
+        on t.id = v.template_id and t.organisation_id = v.organisation_id
+     where v.template_id = ${input.templateId}
+       and v.organisation_id = ${organisationId}
+       and v.published_at is not null
+     order by v.version desc
+     limit 1
+  `;
+  if (!version) throw invalid('That template has no published version to preview.');
+
+  const context = await buildMergeContext(tx, organisationId, input.leaseId);
+  const rendered = renderTemplate(version.body, context.values);
+
+  return {
+    leaseReference: context.leaseReference,
+    templateName: version.name,
+    version: version.version,
+    text: rendered.text,
+    missing: rendered.missing,
+    unknown: rendered.unknown,
+    redacted: context.redacted,
+  };
+}
