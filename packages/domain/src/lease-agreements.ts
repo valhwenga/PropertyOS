@@ -54,6 +54,9 @@ export const LEASE_MERGE_FIELDS: readonly MergeField[] = [
   { key: 'landlord.next_of_kin_phone', label: 'Next of kin telephone', group: 'Landlord', example: '082 000 0000' },
   { key: 'agent.name', label: 'Managing agent', group: 'Landlord', example: 'Human Prop Pty Ltd' },
   { key: 'agent.contact', label: 'Agent contact', group: 'Landlord', example: '010 442 3341' },
+  { key: 'agent.registration_number', label: 'Agency registration number', group: 'Landlord', example: '2019/123456/07' },
+  { key: 'agent.practitioner', label: 'Responsible practitioner', group: 'Landlord', example: 'N Dlamini' },
+  { key: 'agent.certificate_number', label: 'Fidelity Fund certificate', group: 'Landlord', example: 'FFC 2026 884412' },
 
   // Tenant(s)
   { key: 'tenant.names', label: 'All tenant names', group: 'Tenant', example: 'A T Maetane and Z C Mtombo', essential: true },
@@ -79,6 +82,8 @@ export const LEASE_MERGE_FIELDS: readonly MergeField[] = [
   { key: 'term.termination_date', label: 'Termination date', group: 'Term', example: '31 October 2026', essential: true },
   { key: 'term.initial_months', label: 'Initial period, months', group: 'Term', example: '12', essential: true },
   { key: 'term.key_return_date', label: 'Key return date', group: 'Term', example: '31 October 2026' },
+  { key: 'term.deposit_refund_days', label: 'Deposit refund, days', group: 'Term', example: '7' },
+  { key: 'term.defects_notice_days', label: 'Defects notice, days', group: 'Term', example: '14' },
   { key: 'term.renewal_option_months', label: 'Renewal option, months', group: 'Term', example: '12' },
   { key: 'term.renewal_notice_months', label: 'Renewal notice, months', group: 'Term', example: '2' },
   { key: 'term.notice_days', label: 'Notice period, days', group: 'Term', example: '20' },
@@ -94,6 +99,8 @@ export const LEASE_MERGE_FIELDS: readonly MergeField[] = [
   { key: 'money.arrear_interest_annual_cap', label: 'Arrear interest cap, annual %', group: 'Money', example: '24' },
   { key: 'money.cancellation_penalty_months', label: 'Cancellation penalty, months', group: 'Money', example: '1' },
   { key: 'money.sales_commission_percent', label: 'Sales commission %', group: 'Money', example: '8' },
+  { key: 'money.maintenance_callout_fee', label: 'Maintenance call-out fee', group: 'Money', example: '450.00' },
+  { key: 'money.early_cancellation_cap', label: 'Early cancellation charge cap', group: 'Money', example: '9500.00' },
 
   // Banking
   { key: 'bank.account_holder', label: 'Account holder', group: 'Banking', example: 'M Erasmus' },
@@ -102,6 +109,13 @@ export const LEASE_MERGE_FIELDS: readonly MergeField[] = [
   { key: 'bank.account_number', label: 'Account number', group: 'Banking', example: '40 488 8321', sensitive: true },
   { key: 'bank.payment_method', label: 'Payment method', group: 'Banking', example: 'Debit order' },
   { key: 'bank.place_of_payment', label: 'Place of payment', group: 'Banking', example: 'As nominated in writing' },
+  { key: 'bank.payment_reference', label: 'Payment reference', group: 'Banking', example: 'LSE-000001' },
+  // Where the deposit goes back to. The account belongs to the tenant, so the
+  // number is sealed and the agreement shows the last four digits.
+  { key: 'refund.account_holder', label: 'Deposit refund account holder', group: 'Banking', example: 'A T Maetane' },
+  { key: 'refund.bank', label: 'Deposit refund bank', group: 'Banking', example: 'Capitec' },
+  { key: 'refund.branch_code', label: 'Deposit refund branch code', group: 'Banking', example: '470010' },
+  { key: 'refund.account_number', label: 'Deposit refund account number', group: 'Banking', example: '1234567890', sensitive: true },
 
   // House rules
   { key: 'rules.parking_bays', label: 'Parking bay(s)', group: 'Rules', example: '40' },
@@ -112,6 +126,7 @@ export const LEASE_MERGE_FIELDS: readonly MergeField[] = [
   { key: 'rules.pets_detail', label: 'Pet details', group: 'Rules', example: '' },
   { key: 'rules.surcharge', label: 'Surcharge', group: 'Rules', example: 'Electricity only' },
   { key: 'rules.special_conditions', label: 'Special conditions', group: 'Rules', example: '' },
+  { key: 'rules.named_occupants', label: 'Named occupants', group: 'Rules', example: 'Z C Mtombo, spouse' },
 
   // Legal and document
   { key: 'legal.jurisdiction_court', label: "Magistrate's court", group: 'Legal', example: 'Randburg' },
@@ -249,7 +264,9 @@ export async function buildMergeContext(
   const [profile] = await tx<Record<string, string | null>[]>`
     select legal_name, trading_name, registration_number, vat_number,
            identity_number_cipher, physical_address, postal_address, phone,
-           email::text as email, next_of_kin_name, next_of_kin_phone, agent_name, agent_contact
+           email::text as email, next_of_kin_name, next_of_kin_phone,
+           agent_name, agent_contact, agent_registration_number, agent_practitioner,
+           agent_certificate_number
       from organisation_profiles where organisation_id = ${organisationId}
   `;
 
@@ -261,7 +278,12 @@ export async function buildMergeContext(
            renewal_option_months::text, renewal_notice_months::text,
            cancellation_penalty_months::text, sales_commission_percent::text,
            payment_method::text, place_of_payment, jurisdiction_court,
-           key_return_at::text, surcharge_detail, special_conditions
+           key_return_at::text, surcharge_detail, special_conditions,
+           deposit_refund_days::text, defects_notice_days::text,
+           maintenance_callout_fee_minor::text, early_cancellation_cap_minor::text,
+           named_occupants, payment_reference,
+           refund_account_holder, refund_bank_name, refund_branch_code,
+           refund_account_number_last4
       from lease_agreement_terms where lease_id = ${leaseId}
   `;
 
@@ -347,6 +369,9 @@ export async function buildMergeContext(
     'landlord.next_of_kin_phone': profile?.next_of_kin_phone ?? '',
     'agent.name': profile?.agent_name ?? '',
     'agent.contact': profile?.agent_contact ?? '',
+    'agent.registration_number': profile?.agent_registration_number ?? '',
+    'agent.practitioner': profile?.agent_practitioner ?? '',
+    'agent.certificate_number': profile?.agent_certificate_number ?? '',
 
     'tenant.names': tenantNames.join(' and '),
     'tenant.primary_name': primary ? `${primary.first_name} ${primary.last_name}`.trim() : '',
@@ -369,6 +394,8 @@ export async function buildMergeContext(
     'term.termination_date': formatLeaseDate(lease.end_date),
     'term.initial_months': months ? String(months) : '',
     'term.key_return_date': formatLeaseDate(terms?.key_return_at ?? null),
+    'term.deposit_refund_days': terms?.deposit_refund_days ?? '',
+    'term.defects_notice_days': terms?.defects_notice_days ?? '',
     'term.renewal_option_months': terms?.renewal_option_months ?? '',
     'term.renewal_notice_months': terms?.renewal_notice_months ?? '',
     'term.notice_days': lease.notice_days === null ? '' : String(lease.notice_days),
@@ -383,6 +410,8 @@ export async function buildMergeContext(
     'money.arrear_interest_annual_cap': terms?.arrear_interest_annual_cap_percent ? String(Number(terms.arrear_interest_annual_cap_percent)) : '',
     'money.cancellation_penalty_months': terms?.cancellation_penalty_months ? String(Number(terms.cancellation_penalty_months)) : '',
     'money.sales_commission_percent': terms?.sales_commission_percent ? String(Number(terms.sales_commission_percent)) : '',
+    'money.maintenance_callout_fee': money(terms?.maintenance_callout_fee_minor),
+    'money.early_cancellation_cap': money(terms?.early_cancellation_cap_minor),
 
     'bank.account_holder': bank?.label ?? '',
     'bank.name': bank?.bank_name ?? '',
@@ -390,6 +419,17 @@ export async function buildMergeContext(
     'bank.account_number': accountNumber,
     'bank.payment_method': terms?.payment_method ? (PAYMENT_METHOD_LABEL[terms.payment_method] ?? terms.payment_method) : '',
     'bank.place_of_payment': terms?.place_of_payment ?? '',
+    'bank.payment_reference': terms?.payment_reference ?? '',
+
+    'refund.account_holder': terms?.refund_account_holder ?? '',
+    'refund.bank': terms?.refund_bank_name ?? '',
+    'refund.branch_code': terms?.refund_branch_code ?? '',
+    // The tenant's own account number. Only the last four digits are read here:
+    // the agreement identifies the account, and nothing needs the whole number
+    // to do that. Opening the sealed value is a separate, deliberate act.
+    'refund.account_number': terms?.refund_account_number_last4
+      ? `•••••• ${terms.refund_account_number_last4}`
+      : '',
 
     'rules.parking_bays': terms?.parking_bays ?? '',
     'rules.max_occupants': terms?.max_occupants ?? '',
@@ -399,6 +439,7 @@ export async function buildMergeContext(
     'rules.pets_detail': terms?.pets_detail ?? '',
     'rules.surcharge': terms?.surcharge_detail ?? '',
     'rules.special_conditions': terms?.special_conditions ?? '',
+    'rules.named_occupants': terms?.named_occupants ?? '',
 
     'legal.jurisdiction_court': terms?.jurisdiction_court ?? '',
     'doc.lease_reference': lease.reference,

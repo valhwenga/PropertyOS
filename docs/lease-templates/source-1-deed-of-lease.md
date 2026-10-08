@@ -272,9 +272,11 @@ This agreement is not legal advice. Have it reviewed by a qualified attorney bef
 
 17. DEFAULT BY LESSEE
 
-     [SEE "Clauses to decide" — the wording you sent is reproduced there in full
-     and has not been altered. It is held out of the body until you decide, because
-     published as it stands it would go to every landlord who copies this template.]
+     [REMOVED BY THE OWNER OF SPIKE, 8 October 2026. The clause is quoted in full
+     under "Clauses to decide" below so the record of what was dropped survives.
+     Arrears are dealt with in the master lease by clause 10.4 (interest),
+     clause 23 (notice and a remedy period) and clause 33 (the hypothec, by court
+     order), none of which permit self-help.]
 
 18. NOTICES
 
@@ -464,6 +466,12 @@ These three need your instruction. They are quoted from your document, unaltered
 
 ### 1. Clause 17.1 — disconnection and removal of goods without a court order
 
+**DECIDED: removed.** The owner of Spike instructed on 8 October 2026 that this
+clause be dropped. It is not in the master lease, and the drift test in
+`tests/unit/system-lease-template.test.ts` now fails any published template
+version that reintroduces service disconnection or dispenses with a court order.
+The clause is kept below only as the record of what was removed.
+
 > "the LESSOR may at it's discretion and at the expense of the LESSEE, disconnect
 > the electricity and water services … the LESSEE hereby acknowledges that LESSOR
 > may remove the contents situated at the said premises and place them in storage
@@ -480,8 +488,8 @@ consent clause does not generally cure it. **I am not your attorney and this is
 not legal advice.** But Spike would be publishing this to every landlord who
 copies the master template, which makes it your exposure as well as theirs.
 
-Three options: keep it as written, replace it with a lawful arrears process
-(demand, interest, listing, then court), or drop it. Say which and I will do it.
+Three options were offered — keep as written, replace with a lawful arrears
+process, or drop. The owner chose to drop it.
 
 ### 2. Clause 28.2.2 — removing goods under the hypothec
 
@@ -499,22 +507,19 @@ complaint count is the kind of term a tribunal tends to look hard at, and there 
 no field for the threshold. If you want it, I will add it with the count as a
 field and the notice period spelled out.
 
-## New fields this template needs
+## New fields — now built
 
-Everything above maps onto fields that already exist, with three exceptions worth
-adding before this is published:
+Every blank that could become a field has one, as of migration 0032:
+`term.deposit_refund_days`, `term.defects_notice_days`, `agent.registration_number`,
+`agent.practitioner`, `agent.certificate_number`, `bank.payment_reference`,
+`refund.account_holder`, `refund.bank`, `refund.branch_code`,
+`refund.account_number`, `money.maintenance_callout_fee`,
+`money.early_cancellation_cap` and `rules.named_occupants`.
 
-| Needed for | Suggested field |
-|---|---|
-| Deposit refund window (45 days here) | `term.deposit_refund_days` |
-| Defects notice window (2 weeks here) | `term.defects_notice_days` |
-| Complaints threshold, if clause 12 is kept | `rules.complaints_threshold` |
+`rules.complaints_threshold` was NOT built. The master follows source 2 on
+complaints, so no clause uses it, and a field nothing reads is a blank the
+operator fills in for nothing.
 
-`rules.max_occupants` currently holds a single number, so "2 adults and 2 minor
-children" became "{{rules.max_occupants}} persons". If you want adults and children
-counted separately, that is a fourth field.
-
-## Still to come
-
-Template 2. Send it and I will merge the two into one master, clause by clause,
-and show you where they conflict rather than silently picking one.
+`rules.max_occupants` holds a single number, so "2 adults and 2 minor children"
+became "{{rules.max_occupants}} persons". Splitting adults from children would be a
+further field; say the word.

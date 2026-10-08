@@ -185,6 +185,9 @@ const profileSchema = z.object({
   nextOfKinPhone: z.string().trim().max(60).optional(),
   agentName: z.string().trim().max(200).optional(),
   agentContact: z.string().trim().max(200).optional(),
+  agentRegistrationNumber: z.string().trim().max(60).optional(),
+  agentPractitioner: z.string().trim().max(160).optional(),
+  agentCertificateNumber: z.string().trim().max(60).optional(),
 });
 
 export async function saveOrganisationProfile(
@@ -203,6 +206,7 @@ export async function saveOrganisationProfile(
       organisation_id, legal_name, trading_name, registration_number, vat_number,
       identity_number_cipher, identity_number_last4, physical_address, postal_address,
       phone, email, next_of_kin_name, next_of_kin_phone, agent_name, agent_contact,
+      agent_registration_number, agent_practitioner, agent_certificate_number,
       updated_by)
     values (
       ${organisationId}, ${d.legalName ?? null}, ${d.tradingName ?? null},
@@ -211,6 +215,8 @@ export async function saveOrganisationProfile(
       ${d.physicalAddress ?? null}, ${d.postalAddress ?? null},
       ${d.phone ?? null}, ${d.email || null}, ${d.nextOfKinName ?? null},
       ${d.nextOfKinPhone ?? null}, ${d.agentName ?? null}, ${d.agentContact ?? null},
+      ${d.agentRegistrationNumber ?? null}, ${d.agentPractitioner ?? null},
+      ${d.agentCertificateNumber ?? null},
       ${actorUserId})
     on conflict (organisation_id) do update set
       legal_name = excluded.legal_name, trading_name = excluded.trading_name,
@@ -223,6 +229,9 @@ export async function saveOrganisationProfile(
       phone = excluded.phone, email = excluded.email,
       next_of_kin_name = excluded.next_of_kin_name, next_of_kin_phone = excluded.next_of_kin_phone,
       agent_name = excluded.agent_name, agent_contact = excluded.agent_contact,
+      agent_registration_number = excluded.agent_registration_number,
+      agent_practitioner = excluded.agent_practitioner,
+      agent_certificate_number = excluded.agent_certificate_number,
       updated_at = now(), updated_by = excluded.updated_by
   `;
   await recordAudit(tx, {
@@ -281,6 +290,20 @@ const termsSchema = z.object({
   keyReturnAt: z.string().trim().optional(),
   surchargeDetail: z.string().trim().max(300).optional(),
   specialConditions: z.string().trim().max(4000).optional(),
+
+  // Added for the master lease, which asks for each of these by name.
+  depositRefundDays: z.coerce.number().int().min(0).max(365).optional(),
+  defectsNoticeDays: z.coerce.number().int().min(0).max(365).optional(),
+  maintenanceCalloutFeeMinor: z.coerce.number().int().min(0).optional(),
+  earlyCancellationCapMinor: z.coerce.number().int().min(0).optional(),
+  namedOccupants: z.string().trim().max(2000).optional(),
+  paymentReference: z.string().trim().max(80).optional(),
+  refundAccountHolder: z.string().trim().max(160).optional(),
+  refundBankName: z.string().trim().max(120).optional(),
+  // Matches the column's own check, so a bad branch code is refused with a
+  // readable message rather than a constraint violation.
+  refundBranchCode: z.string().trim().regex(/^[0-9]{4,10}$/, 'A branch code is 4 to 10 digits.').optional(),
+  refundAccountNumber: z.string().trim().regex(/^[0-9 -]{4,34}$/, 'An account number is digits, spaces or dashes.').optional(),
 });
 
 export async function saveLeaseAgreementTerms(
@@ -290,6 +313,16 @@ export async function saveLeaseAgreementTerms(
   const d = termsSchema.parse(input);
   const n = (v: number | undefined) => (v === undefined ? null : v);
 
+  // The deposit refund account belongs to the TENANT. It is sealed on the way
+  // in, exactly like the landlord's account number, and only the last four
+  // digits stay readable — enough to identify the account on the agreement,
+  // not enough to pay anyone from it.
+  const refundDigits = d.refundAccountNumber?.replace(/[^0-9]/g, '') ?? '';
+  const refundCipher = refundDigits.length >= 4
+    ? sealField(refundDigits, `lease_refund_account:${d.leaseId}`)
+    : null;
+  const refundLast4 = refundCipher ? lastFour(refundDigits) : null;
+
   await tx`
     insert into lease_agreement_terms (
       lease_id, organisation_id, parking_bays, max_occupants, permanent_vehicles,
@@ -297,7 +330,11 @@ export async function saveLeaseAgreementTerms(
       inspection_fee_minor, arrear_interest_monthly_percent, arrear_interest_annual_cap_percent,
       renewal_option_months, renewal_notice_months, cancellation_penalty_months,
       sales_commission_percent, payment_method, place_of_payment, jurisdiction_court,
-      key_return_at, surcharge_detail, special_conditions, updated_by)
+      key_return_at, surcharge_detail, special_conditions,
+      deposit_refund_days, defects_notice_days, maintenance_callout_fee_minor,
+      early_cancellation_cap_minor, named_occupants, payment_reference,
+      refund_account_holder, refund_bank_name, refund_branch_code,
+      refund_account_number_cipher, refund_account_number_last4, updated_by)
     values (
       ${d.leaseId}, ${organisationId}, ${d.parkingBays ?? null}, ${n(d.maxOccupants)},
       ${n(d.permanentVehicles)}, ${d.smokingAllowed ?? null}, ${d.petsAllowed ?? null},
@@ -309,7 +346,12 @@ export async function saveLeaseAgreementTerms(
       ${d.paymentMethod ? tx`${d.paymentMethod}::app.lease_payment_method` : null},
       ${d.placeOfPayment ?? null}, ${d.jurisdictionCourt ?? null},
       ${d.keyReturnAt || null}, ${d.surchargeDetail ?? null},
-      ${d.specialConditions ?? null}, ${actorUserId})
+      ${d.specialConditions ?? null},
+      ${n(d.depositRefundDays)}, ${n(d.defectsNoticeDays)},
+      ${n(d.maintenanceCalloutFeeMinor)}, ${n(d.earlyCancellationCapMinor)},
+      ${d.namedOccupants ?? null}, ${d.paymentReference ?? null},
+      ${d.refundAccountHolder ?? null}, ${d.refundBankName ?? null},
+      ${d.refundBranchCode ?? null}, ${refundCipher}, ${refundLast4}, ${actorUserId})
     on conflict (lease_id) do update set
       parking_bays = excluded.parking_bays, max_occupants = excluded.max_occupants,
       permanent_vehicles = excluded.permanent_vehicles,
@@ -327,6 +369,22 @@ export async function saveLeaseAgreementTerms(
       jurisdiction_court = excluded.jurisdiction_court, key_return_at = excluded.key_return_at,
       surcharge_detail = excluded.surcharge_detail,
       special_conditions = excluded.special_conditions,
+      deposit_refund_days = excluded.deposit_refund_days,
+      defects_notice_days = excluded.defects_notice_days,
+      maintenance_callout_fee_minor = excluded.maintenance_callout_fee_minor,
+      early_cancellation_cap_minor = excluded.early_cancellation_cap_minor,
+      named_occupants = excluded.named_occupants,
+      payment_reference = excluded.payment_reference,
+      refund_account_holder = excluded.refund_account_holder,
+      refund_bank_name = excluded.refund_bank_name,
+      refund_branch_code = excluded.refund_branch_code,
+      -- An account number left blank on the form leaves the stored one alone.
+      -- Clearing it is a deliberate act, not a side effect of saving the page
+      -- with the field empty because the browser never showed it.
+      refund_account_number_cipher =
+        coalesce(excluded.refund_account_number_cipher, lease_agreement_terms.refund_account_number_cipher),
+      refund_account_number_last4 =
+        coalesce(excluded.refund_account_number_last4, lease_agreement_terms.refund_account_number_last4),
       updated_at = now(), updated_by = excluded.updated_by
   `;
 }

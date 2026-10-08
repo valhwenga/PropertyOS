@@ -116,3 +116,25 @@ describe('reflow', () => {
     ]);
   });
 });
+
+/**
+ * The deposit refund account is the tenant's. Nothing may put the whole number
+ * on a page, and the catalogue is where that is decided.
+ */
+describe('sensitive merge fields', () => {
+  it('marks every account and identity number sensitive', async () => {
+    const { LEASE_MERGE_FIELDS } = await import('@propertyos/domain');
+    const shouldBeSensitive = [
+      'bank.account_number',
+      'refund.account_number',
+      'landlord.identity_number',
+      'tenant.primary_identity_number',
+      'tenant.identity_numbers',
+    ];
+    for (const key of shouldBeSensitive) {
+      const field = LEASE_MERGE_FIELDS.find((f) => f.key === key);
+      expect(field, `${key} is missing from the catalogue`).toBeDefined();
+      expect(field!.sensitive, `${key} must be redacted in the stored snapshot`).toBe(true);
+    }
+  });
+});

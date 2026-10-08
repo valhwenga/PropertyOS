@@ -62,6 +62,9 @@ export async function saveOrganisationProfileAction(_previous: unknown, formData
       phone: text('phone'), email: text('email'),
       nextOfKinName: text('nextOfKinName'), nextOfKinPhone: text('nextOfKinPhone'),
       agentName: text('agentName'), agentContact: text('agentContact'),
+      agentRegistrationNumber: text('agentRegistrationNumber'),
+      agentPractitioner: text('agentPractitioner'),
+      agentCertificateNumber: text('agentCertificateNumber'),
     });
     return { saved: true };
   });

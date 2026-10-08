@@ -21,6 +21,9 @@ const FIELD_SOURCE: Record<string, string> = {
   'landlord.next_of_kin_phone': 'next_of_kin_phone',
   'agent.name': 'agent_name',
   'agent.contact': 'agent_contact',
+  'agent.registration_number': 'agent_registration_number',
+  'agent.practitioner': 'agent_practitioner',
+  'agent.certificate_number': 'agent_certificate_number',
 };
 
 export default async function LandlordPage({
@@ -37,7 +40,8 @@ export default async function LandlordPage({
     const [row] = await tx<Record<string, string | null>[]>`
       select legal_name, trading_name, registration_number, vat_number, identity_number_last4,
              physical_address, postal_address, phone, email::text as email,
-             next_of_kin_name, next_of_kin_phone, agent_name, agent_contact
+             next_of_kin_name, next_of_kin_phone, agent_name, agent_contact,
+             agent_registration_number, agent_practitioner, agent_certificate_number
         from organisation_profiles where organisation_id = ${context.organisationId}
     `;
     const all = await listLeaseTemplates(tx, context.organisationId);

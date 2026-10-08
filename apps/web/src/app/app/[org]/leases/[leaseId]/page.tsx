@@ -64,7 +64,15 @@ export default async function LeaseDetailPage({
              arrear_interest_monthly_percent::text, arrear_interest_annual_cap_percent::text,
              renewal_option_months::text, renewal_notice_months::text,
              payment_method::text, place_of_payment, jurisdiction_court,
-             key_return_at::text, surcharge_detail, special_conditions
+             key_return_at::text, surcharge_detail, special_conditions,
+             deposit_refund_days::text, defects_notice_days::text,
+             maintenance_callout_fee_minor::text, early_cancellation_cap_minor::text,
+             named_occupants, payment_reference,
+             refund_account_holder, refund_bank_name, refund_branch_code,
+             -- Only the last four digits. The sealed number is never read back
+             -- to a screen; the form shows them as a placeholder so the operator
+             -- can see an account is on file without the number being on it.
+             refund_account_number_last4
         from lease_agreement_terms
        where lease_id = ${leaseId}::uuid and organisation_id = ${context.organisationId}::uuid
     `;

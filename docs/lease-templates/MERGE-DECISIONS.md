@@ -44,8 +44,9 @@ This is the one I would not transcribe without telling you. Spoliation, the Rent
 Housing Act and PIE all point the same way, and a signature does not generally cure
 it. Source 2 was evidently written knowing this.
 
-**To overturn:** you can, but say it explicitly, because the master is published to
-every landlord who adopts it.
+**DECIDED: removed**, on the owner's instruction of 8 October 2026. The drift test
+now fails any published template version that reintroduces service disconnection
+or says a court order is unnecessary, so it cannot come back by accident.
 
 ## 3. Is the deposit held in an interest-bearing account?
 
@@ -146,15 +147,29 @@ Folded into the master, because they add substance and conflict with nothing:
 | Improvements become the landlord's, or must be removed and made good (cl. 8) | master clause 17.7A |
 | Credit bureau listing (cl. 27) | already covered by source 2 clause 31.3, with safeguards source 1 lacked |
 
-## Blanks that could become PropertyOS fields
+## Blanks that are now real fields
 
-The master uses the 45 merge fields that already exist. These are still blanks on
-the form because the system holds no data for them:
+Built in migration 0032, on the owner's instruction of 8 October 2026. Each has a
+column to live in, an input on the form, and a place in the merge catalogue, so
+it fills itself instead of being written in by hand:
 
-`term.deposit_refund_days`, `term.defects_notice_days`,
-`rules.complaints_threshold`, agent certificate details, named occupants,
-payment reference, deposit refund account, screening and call-out fees,
-early-cancellation cap.
+| Field | Where it is entered |
+|---|---|
+| `term.deposit_refund_days` | Lease → Schedule details |
+| `term.defects_notice_days` | Lease → Schedule details |
+| `money.maintenance_callout_fee` | Lease → Schedule details |
+| `money.early_cancellation_cap` | Lease → Schedule details |
+| `rules.named_occupants` | Lease → Schedule details |
+| `bank.payment_reference` | Lease → Schedule details |
+| `refund.account_holder`, `refund.bank`, `refund.branch_code`, `refund.account_number` | Lease → Schedule details |
+| `agent.registration_number`, `agent.practitioner`, `agent.certificate_number` | Settings → Landlord particulars |
 
-Say which of these you want to become real fields and I will add them to the
-catalogue and the lease forms so they fill themselves.
+The deposit refund account is the **tenant's** bank account, so the number is
+sealed with the same authenticated encryption as the landlord's and only its last
+four digits are ever shown again — on the agreement and on the form. Leaving the
+field empty keeps the stored number rather than erasing it, because the form
+never shows the whole thing back.
+
+`rules.complaints_threshold` was deliberately NOT built: the master follows source
+2 on complaints, no clause uses it, and a field nothing reads is a blank an
+operator fills in for nothing.

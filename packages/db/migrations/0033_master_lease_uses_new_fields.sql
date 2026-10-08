@@ -1,16 +1,33 @@
-# Master residential lease — merged from sources 1 and 2
+-- 0033_master_lease_uses_new_fields.sql
+-- The master lease, with every blank that had somewhere to live now filled from
+-- the data.
+--
+-- 0032 gave these fields columns, a form and a place in the merge catalogue.
+-- This publishes the version of the lease that actually uses them: the agency's
+-- registration, practitioner and Fidelity Fund certificate; the named occupants;
+-- the payment reference; the deposit refund account; the maintenance call-out
+-- fee; the early cancellation cap; and the two periods — how long a tenant has
+-- to report defects, and how long the landlord has to return the deposit.
+--
+-- The refund period is a FLOOR, not a replacement. Clause 13.4 keeps the Rental
+-- Housing Act's seven and fourteen days, and the agreed period applies only
+-- where it is shorter: a landlord typing 45 into the schedule does not buy
+-- themselves 45 days.
+--
+-- The deposit refund account is the tenant's, so the number is sealed and the
+-- agreement shows the last four digits. That is enough to identify the account
+-- and not enough to pay anyone from it.
+--
+-- Clause 17 of the first source document — the landlord cutting services,
+-- forcing entry and removing the tenant's goods without a court order — was
+-- removed on the owner's instruction of 8 October 2026 and is not in any
+-- version. The drift test fails any version that brings it back.
 
-Published by migrations `0031` and `0033`; the fields it uses were built in `0032`.
-A customer copies it into their own templates and edits it there.
-
-Conflicts between the two sources and how each was resolved: `MERGE-DECISIONS.md`.
-
-Clause 17 of source 1 — service disconnection and removal of goods without a court
-order — was removed on the owner's instruction and is in no version.
-
-**Not legal advice.** Have it reviewed by a qualified attorney before anybody signs one.
-
-```
+insert into system_lease_template_versions (template_id, version, body, published_at)
+select t.id,
+       coalesce((select max(v.version) from system_lease_template_versions v
+                  where v.template_id = t.id), 0) + 1,
+       $BODY$
 RESIDENTIAL LEASE AGREEMENT
 South Africa
 
@@ -563,4 +580,6 @@ Witness 1: ...........................................
 Witness 2: ...........................................
 
 Additional signatories or signed continuation sheet reference: ......................
-```
+$BODY$, now()
+from system_lease_templates t
+where t.name = 'Residential lease — South Africa';

@@ -132,6 +132,17 @@ export function LandlordForm({
                  placeholder="Human Prop Pty Ltd" needed={asks.has('agent.name')} />
           <Field name="agentContact" label="Agent contact" defaultValue={profile.agent_contact}
                  needed={asks.has('agent.contact')} />
+          <Field name="agentRegistrationNumber" label="Agency registration number"
+                 defaultValue={profile.agent_registration_number}
+                 placeholder="2019/123456/07"
+                 needed={asks.has('agent.registration_number')} />
+          <Field name="agentPractitioner" label="Responsible practitioner"
+                 defaultValue={profile.agent_practitioner}
+                 hint="The practitioner named on the agency's Fidelity Fund certificate."
+                 needed={asks.has('agent.practitioner')} />
+          <Field name="agentCertificateNumber" label="Fidelity Fund certificate"
+                 defaultValue={profile.agent_certificate_number}
+                 needed={asks.has('agent.certificate_number')} />
         </Section>
 
         <div>

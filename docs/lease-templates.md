@@ -73,6 +73,9 @@ test fails if this list and the code drift apart.
 | `{{landlord.next_of_kin_phone}}` | Next of kin telephone |
 | `{{agent.name}}` | Managing agent |
 | `{{agent.contact}}` | Agent contact |
+| `{{agent.registration_number}}` | Agency registration number |
+| `{{agent.practitioner}}` | Responsible practitioner |
+| `{{agent.certificate_number}}` | Fidelity Fund certificate |
 
 ### Tenant
 
@@ -107,6 +110,8 @@ test fails if this list and the code drift apart.
 | `{{term.termination_date}}` | Termination date |
 | `{{term.initial_months}}` | Initial period, months |
 | `{{term.key_return_date}}` | Key return date |
+| `{{term.deposit_refund_days}}` | Deposit refund, days |
+| `{{term.defects_notice_days}}` | Defects notice, days |
 | `{{term.renewal_option_months}}` | Renewal option, months |
 | `{{term.renewal_notice_months}}` | Renewal notice, months |
 | `{{term.notice_days}}` | Notice period, days |
@@ -125,6 +130,8 @@ test fails if this list and the code drift apart.
 | `{{money.arrear_interest_annual_cap}}` | Arrear interest cap, annual % |
 | `{{money.cancellation_penalty_months}}` | Cancellation penalty, months |
 | `{{money.sales_commission_percent}}` | Sales commission % |
+| `{{money.maintenance_callout_fee}}` | Maintenance call-out fee |
+| `{{money.early_cancellation_cap}}` | Early cancellation charge cap |
 
 ### Banking
 
@@ -136,6 +143,11 @@ test fails if this list and the code drift apart.
 | `{{bank.account_number}}` | Account number |
 | `{{bank.payment_method}}` | Payment method |
 | `{{bank.place_of_payment}}` | Place of payment |
+| `{{bank.payment_reference}}` | Payment reference |
+| `{{refund.account_holder}}` | Deposit refund account holder |
+| `{{refund.bank}}` | Deposit refund bank |
+| `{{refund.branch_code}}` | Deposit refund branch code |
+| `{{refund.account_number}}` | Deposit refund account number — masked to the last four digits |
 
 ### Rules
 
@@ -149,6 +161,7 @@ test fails if this list and the code drift apart.
 | `{{rules.pets_detail}}` | Pet details |
 | `{{rules.surcharge}}` | Surcharge |
 | `{{rules.special_conditions}}` | Special conditions |
+| `{{rules.named_occupants}}` | Named occupants and relationship to tenant |
 
 ### Legal
 

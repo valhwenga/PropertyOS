@@ -100,6 +100,30 @@ describe('the shipped residential lease template', () => {
     expect(undocumented).toEqual([]);
   });
 
+  /**
+   * The deposit refund account belongs to the tenant, so the master shows only
+   * the last four digits of it. A template that printed the whole number would
+   * put a tenant's banking details on a document that gets emailed, printed and
+   * filed.
+   */
+  it('never prints a whole deposit refund account number', () => {
+    const field = LEASE_MERGE_FIELDS.find((f) => f.key === 'refund.account_number');
+    expect(field, 'refund.account_number should be in the catalogue').toBeDefined();
+    expect(field!.sensitive, 'it must be marked sensitive so the snapshot redacts it').toBe(true);
+  });
+
+  /**
+   * The Rental Housing Act's deadlines are a ceiling, not a default a landlord
+   * can raise by typing a bigger number into the schedule.
+   */
+  it('lets an agreed refund period shorten the statutory one, never lengthen it', () => {
+    const text = body();
+    expect(text).toMatch(/\{\{term\.deposit_refund_days\}\}/);
+    expect(text, 'the shorter period wins').toMatch(/shorter period/i);
+    expect(text, 'and a longer one does not displace the Act')
+      .toMatch(/longer agreed period does not displace/i);
+  });
+
   it('says proof of payment is not payment', () => {
     // Checked on the newest version only: the phrasing is wording, not a rule
     // every version must carry in the same words.

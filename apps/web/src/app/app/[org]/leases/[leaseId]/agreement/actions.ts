@@ -73,6 +73,17 @@ export async function saveTermsAction(_previous: unknown, formData: FormData) {
       keyReturnAt: date('keyReturnAt', 'Key return date'),
       surchargeDetail: text('surchargeDetail'),
       specialConditions: text('specialConditions'),
+
+      depositRefundDays: num('depositRefundDays') as never,
+      defectsNoticeDays: num('defectsNoticeDays') as never,
+      maintenanceCalloutFeeMinor: money('maintenanceCalloutFee', 'Maintenance call-out') as never,
+      earlyCancellationCapMinor: money('earlyCancellationCap', 'Early cancellation cap') as never,
+      namedOccupants: text('namedOccupants'),
+      paymentReference: text('paymentReference'),
+      refundAccountHolder: text('refundAccountHolder'),
+      refundBankName: text('refundBankName'),
+      refundBranchCode: text('refundBranchCode'),
+      refundAccountNumber: text('refundAccountNumber'),
     });
     return { saved: true };
   });

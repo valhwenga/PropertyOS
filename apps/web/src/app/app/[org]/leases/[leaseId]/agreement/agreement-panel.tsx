@@ -295,6 +295,43 @@ export function AgreementPanel({
               </select>
             </div>
             <Field name="placeOfPayment" label="Place of payment" defaultValue={terms.place_of_payment} />
+            <Field name="paymentReference" label="Payment reference" defaultValue={terms.payment_reference}
+                   placeholder="The lease reference" />
+
+            <Field name="depositRefundDays" label="Deposit refund, days" type="number"
+                   defaultValue={terms.deposit_refund_days}
+                   hint="7 where nothing is owed, per the Rental Housing Act" />
+            <Field name="defectsNoticeDays" label="Defects notice, days" type="number"
+                   defaultValue={terms.defects_notice_days}
+                   hint="How long the tenant has to report defects at occupation" />
+            <Field name="maintenanceCalloutFee" label="Maintenance call-out (R)" type="number" step="0.01"
+                   defaultValue={minorToMajorInput(terms.maintenance_callout_fee_minor)} placeholder="0.00" />
+
+            <Field name="earlyCancellationCap" label="Early cancellation cap (R)" type="number" step="0.01"
+                   defaultValue={minorToMajorInput(terms.early_cancellation_cap_minor)} placeholder="0.00"
+                   hint="A ceiling, not a charge that is automatically reasonable" />
+
+            {/* Where the deposit goes back to. The account is the tenant's, so
+                the number is sealed on the way in and only its last four digits
+                ever come back out. */}
+            <Field name="refundAccountHolder" label="Deposit refund account holder"
+                   defaultValue={terms.refund_account_holder} />
+            <Field name="refundBankName" label="Deposit refund bank" defaultValue={terms.refund_bank_name} />
+            <Field name="refundBranchCode" label="Deposit refund branch code"
+                   defaultValue={terms.refund_branch_code} placeholder="470010" />
+            <Field name="refundAccountNumber" label="Deposit refund account number"
+                   placeholder={terms.refund_account_number_last4
+                     ? `•••••• ${terms.refund_account_number_last4}`
+                     : 'Digits only'}
+                   hint={terms.refund_account_number_last4
+                     ? 'Stored. Leave empty to keep it; type a new one to replace it.'
+                     : "The tenant's account. Stored sealed; only the last four digits are shown again."} />
+
+            <div className="sm:col-span-3">
+              <Field name="namedOccupants" label="Named occupants and relationship to tenant"
+                     defaultValue={terms.named_occupants}
+                     placeholder="Z C Mtombo, spouse" />
+            </div>
 
             <Choice name="smokingAllowed" label="Smoking" value={terms.smoking_allowed} />
             <Choice name="petsAllowed" label="Pets" value={terms.pets_allowed} />
