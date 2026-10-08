@@ -23,3 +23,4 @@ apps/web/CLAUDE.md
 # it means the working tree is dirty after whichever one you ran last. Next
 # writes it automatically, and `tsc --noEmit` passes without it.
 apps/web/next-env.d.ts
+lease-agreement-sample.pdf

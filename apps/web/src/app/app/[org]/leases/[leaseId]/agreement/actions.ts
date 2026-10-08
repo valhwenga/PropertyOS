@@ -61,6 +61,8 @@ export async function saveTermsAction(_previous: unknown, formData: FormData) {
       smokingAllowed: choice('smokingAllowed'),
       petsAllowed: choice('petsAllowed'),
       petsDetail: text('petsDetail'),
+      inspectionFeeMinor: money('inspectionFee', 'Inspection fee') as never,
+      cancellationPenaltyMonths: num('cancellationPenaltyMonths') as never,
       adminFeeMinor: money('adminFee', 'Admin fee') as never,
       creditCheckFeeMinor: money('creditCheckFee', 'Credit check fee') as never,
       arrearInterestMonthlyPercent: num('arrearInterestMonthlyPercent') as never,

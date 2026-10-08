@@ -60,7 +60,8 @@ export default async function LeaseDetailPage({
     const [terms] = await tx<Record<string, string | null>[]>`
       select parking_bays, max_occupants::text, permanent_vehicles::text,
              smoking_allowed::text, pets_allowed::text, pets_detail,
-             admin_fee_minor::text, credit_check_fee_minor::text,
+             admin_fee_minor::text, credit_check_fee_minor::text, inspection_fee_minor::text,
+             cancellation_penalty_months::text,
              arrear_interest_monthly_percent::text, arrear_interest_annual_cap_percent::text,
              renewal_option_months::text, renewal_notice_months::text,
              payment_method::text, place_of_payment, jurisdiction_court,

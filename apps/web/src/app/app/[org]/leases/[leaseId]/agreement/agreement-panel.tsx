@@ -265,6 +265,11 @@ export function AgreementPanel({
                    defaultValue={minorToMajorInput(terms.credit_check_fee_minor)} placeholder="0.00" />
             <Field name="surchargeDetail" label="Surcharge" defaultValue={terms.surcharge_detail}
                    placeholder="Electricity only" />
+            <Field name="inspectionFee" label="Inspection fee (R)" type="number" step="0.01"
+                   defaultValue={minorToMajorInput(terms.inspection_fee_minor)} placeholder="0.00" />
+            <Field name="cancellationPenaltyMonths" label="Cancellation penalty, months" type="number"
+                   step="0.5" defaultValue={terms.cancellation_penalty_months}
+                   hint="A ceiling for clause 21; the charge must still be calculated and reasonable" />
 
             <Field name="arrearInterestMonthlyPercent" label="Arrear interest, % per month" type="number"
                    defaultValue={terms.arrear_interest_monthly_percent} />
@@ -339,6 +344,8 @@ export function AgreementPanel({
 
             <Choice name="smokingAllowed" label="Smoking" value={terms.smoking_allowed} />
             <Choice name="petsAllowed" label="Pets" value={terms.pets_allowed} />
+            <Field name="petsDetail" label="Pet details" defaultValue={terms.pets_detail}
+                   placeholder="One small dog, kept indoors at night" />
 
             <div className="sm:col-span-3 space-y-1.5">
               <label htmlFor="specialConditions" className="block text-xs font-medium text-ink-700">
