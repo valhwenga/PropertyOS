@@ -35,6 +35,8 @@ Points where the two genuinely disagree, and what was done.
 | C2 | §14 *A management snapshot should be reproducible from the underlying records.* | Reports had no cut-off; reversals carried only a system timestamp, so a closed month restated when an allocation was corrected later. | **Resolved.** Business-date cut-off throughout; migration 0036 adds `allocated_on`/`reversed_on`. |
 | C3 | §8 *Keep recurring charge schedules separate from issued charge documents. Preview a billing period before posting.* | Schedules, runs and previews exist in the domain and database. No screen posts a billing run. | **Open — §5 below.** The blueprint's first deliverable requires posting one charge through the interface. |
 | C4 | §9 *Reconciliation has three distinct steps… An operator can split a receipt across several charges.* | Confirm, suggest, allocate, reverse and suspense all exist and are tested. No screen performs any of them. | **Open — §5 below.** Named by the user as the first operational finance workflow. |
+| C8 | §9 *Store bank account references securely, show verified banking details in the portal and require fresh authentication plus an audit trail for changes.* | `bank_accounts` carried `verified_at`/`verified_by` with nothing to say what "verified" meant, no change history, no screen, and no fresh-authentication mechanism existed anywhere. | **Resolved.** Migrations 0037–0038: a database-resolved freshness check, `verification_method` recorded and displayed in words, and an append-only `bank_account_changes`. |
+| C9 | §7 *Activation requires… an attached executed contract or documented exception.* | The merge catalogue marked ten fields `essential` and **nothing read the flag**. An agreement missing the tenant's identity number, the rent or the commencement date could be generated *and shared with the resident*. | **Resolved.** Migration 0039 records the essential subset per generation; sharing refuses while it is non-empty. Drafting an incomplete agreement stays possible — it is how the gaps are seen. |
 | C5 | §3 *Ownership is separate from organisation membership… A property may have several owners.* | No owner, ownership-interest or management-agreement tables. | **Open.** Blueprint puts the owner portal in Phase 2, but §18 lists the tables in the MVP schema. Deferred deliberately; recorded here rather than silently dropped. |
 | C6 | §11 *Phase 2 meter readings…* and §24 *Bank feeds: Phase 2.* | Not built. | **Agrees.** Correctly out of MVP scope. |
 | C7 | §29 Pricing, §28 budgets. | Plans and entitlements exist; no prices are published anywhere in the product. | **Agrees.** Blueprint calls these "pricing experiments, not validated competitive rates". Nothing should display them yet. |
@@ -55,6 +57,7 @@ requirements it did not reach, and so could not report on.
 | M7 | §24 *Provide a documented customer export containing properties, units, parties, leases, charges, receipts, allocations, deposits, expenses and an attachment manifest.* | **Open.** Per-report CSV export exists; a whole-customer export does not. |
 | M8 | §20 *Idempotency keys bind organisation, actor, command and payload hash.* | **Partial.** `idempotency_keys` exists and billing runs use it; ordinary commands do not. |
 | M9 | §4 *Offer configurable two person approval for larger customers.* | **Open.** Single-approver only. |
+| M10 | §19 *Require MFA for Spike administrators and finance approvers.* | **Exercised**, and now stronger: §4's *"exceptional actions require fresh authentication and an audit reason"* is enforced in the database for banking changes. Re-verification is implemented for the local auth provider only; on Supabase it refuses honestly rather than pretending. |
 
 ## 3. Where the implementation is ahead of the blueprint
 
@@ -75,10 +78,11 @@ Against the §5 MVP column.
 
 | Module | State | Evidence and what is missing |
 |---|---|---|
-| Organisation identity and access | Exercised | Sign-in, MFA, memberships, roles. Isolation suites cover two organisations and several property scopes. **Missing:** staff invitation and MFA enrolment/recovery screens. |
+| Organisation identity and access | Exercised | Sign-in, MFA, memberships, roles, and re-verification for sensitive changes. Isolation suites cover two organisations and several property scopes. **Missing:** staff invitation and MFA enrolment/recovery screens. |
+| Banking details | Exercised | Masked numbers, sealed storage, honest verification method, append-only change history, fresh authentication enforced in the database. **No bank is ever contacted** — see §6. |
 | Portfolio | Exercised | Properties, units, standalone houses; create and detail screens; every link followed by `tests/e2e/navigation.spec.ts`. **Missing:** editing a property or unit; retiring a unit. |
-| Residents | Exercised | Profiles, lease parties, invitations, detail screen. **Missing:** editing; identity capture (user's item 3). |
-| Leasing | Exercised | Draft, activate, renew, terminate, notices with honest delivery reporting, agreement generation and preview. |
+| Residents | Exercised | Profiles, lease parties, invitations, detail screen, editing and sealed identity capture, all driven through the interface. Archiving rather than deletion. |
+| Leasing | Exercised | Draft, activate, renew, terminate, notices with honest delivery reporting, agreement generation and preview. An agreement missing essential terms is a draft that cannot be sent. |
 | Rent and receivables | **Tested, not Exercised** | Charges, receipts, allocations, suspense, reversals, arrears ageing all tested in the domain. **No screen performs any of them.** The single largest MVP gap. |
 | Billing | **Tested, not Exercised** | Schedules, runs, preview, proration, idempotent posting tested. **No screen posts a run.** |
 | Deposits | **Tested, not Exercised** | Liability, interest, deductions, refund approval tested. Read-only screen. |
@@ -100,10 +104,10 @@ complete vertical workflow"*.
 
 1. ~~Specification reconciliation and the dashboard metric defect~~ — **done**
    (commit `80cd99d`).
-2. Agreement data capture: resident editing and identity capture under the
-   existing sealing mechanism, masked display, bank account management with
-   fresh authentication for sensitive changes and honest verification status,
-   required merge fields validated before an agreement is generated or sent.
+2. ~~Agreement data capture~~ — **done**. Resident editing and sealed identity
+   capture; banking details with their own permissions, masked display, change
+   history, honest verification status and fresh authentication; essential
+   merge fields validated before an agreement can be sent.
 3. Receipt and allocation workflow through the interface: confirmation,
    suggested matching, partial allocation, unapplied credit, suspense and
    controlled reversal. Closes C4 and the largest gap in §4.
@@ -124,7 +128,15 @@ instructions repeat it.
 
 - **No external service has ever been contacted.** Email, payment, signature
   and accounting adapters have never run against a real provider. §24's
-  qualification column is unanswered for every integration.
+  qualification column is unanswered for every integration. In particular
+  **PropertyOS never contacts a bank**: a bank account marked verified was
+  marked so by a person, and the screen says which of the four methods they
+  used rather than the bare word "verified".
+- **Re-verification is implemented for the local development auth provider
+  only.** Under `AUTH_PROVIDER=supabase` it refuses with an explanation rather
+  than silently granting freshness. Sensitive changes are therefore unavailable
+  on a Supabase deployment until that path is built and tested against the real
+  service.
 - **No production deployment, and no staging environment exists.** Everything
   below is from a local development container.
 - **No restore has been rehearsed**, so the §22 recovery targets are

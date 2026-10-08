@@ -156,6 +156,32 @@ export async function shareDocument(
     if (params.visibility === 'resident_shared' && !doc.lease_id) {
       throw invalid('A document can only be shared with a resident when it is linked to a lease.');
     }
+
+    // A generated lease agreement with blanks in its operative terms is not a
+    // lease. It can be produced as a draft — that is how an operator sees what
+    // is still missing — but it may not be sent to the resident, who would
+    // reasonably read it as the agreement itself.
+    //
+    // Only generations recorded AFTER this check existed carry the essential
+    // set, and a row from before reads as empty. That is honest: the interface
+    // says such an agreement predates the check rather than calling it
+    // complete.
+    const [generation] = await tx<{ essential_missing: string[] }[]>`
+      select essential_missing from lease_agreement_generations
+       where document_id = ${params.documentId}::uuid
+         and organisation_id = ${organisationId}::uuid
+       order by generated_at desc
+       limit 1
+    `;
+    if (generation && generation.essential_missing.length > 0) {
+      throw new DomainError(
+        'validation_failed',
+        'This agreement is still missing details a lease cannot do without: '
+          + `${generation.essential_missing.join(', ')}. `
+          + 'Fill them in, generate the agreement again, then share it.',
+        { essentialMissing: generation.essential_missing },
+      );
+    }
   }
 
   await tx`

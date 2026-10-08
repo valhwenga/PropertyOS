@@ -10,6 +10,11 @@ export interface Viewer {
   authUserId: string;
   /** From the verified session. Permission resolution depends on it. */
   assuranceLevel: AssuranceLevel;
+  /**
+   * When the second factor was last asserted, epoch seconds. Undefined on a
+   * single-factor session, and read everywhere as "not recently".
+   */
+  authenticatedAt?: number;
   fullName: string;
   email: string;
   isPlatformOperator: boolean;
@@ -30,9 +35,9 @@ export interface Viewer {
 export const getViewer = cache(async (): Promise<Viewer | null> => {
   const session = await currentSession();
   if (!session) return null;
-  const { authUserId, assuranceLevel } = session;
+  const { authUserId, assuranceLevel, authenticatedAt } = session;
 
-  return withActor({ authUserId, assuranceLevel }, async ({ tx }) => {
+  return withActor({ authUserId, assuranceLevel, authenticatedAt }, async ({ tx }) => {
     const [profile] = await tx<
       { full_name: string; email: string; is_platform_operator: boolean }[]
     >`
@@ -68,6 +73,7 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     return {
       authUserId,
       assuranceLevel,
+      authenticatedAt,
       fullName: profile.full_name,
       email: profile.email,
       isPlatformOperator: profile.is_platform_operator,
@@ -121,7 +127,11 @@ export async function requireOperator(slug: string): Promise<OperatorContext> {
 /** Runs a read under the caller's RLS context. */
 export async function readAs<T>(viewer: Viewer, fn: (tx: Sql) => Promise<T>): Promise<T> {
   return withActor(
-    { authUserId: viewer.authUserId, assuranceLevel: viewer.assuranceLevel },
+    {
+      authUserId: viewer.authUserId,
+      assuranceLevel: viewer.assuranceLevel,
+      authenticatedAt: viewer.authenticatedAt,
+    },
     ({ tx }) => fn(tx),
   );
 }

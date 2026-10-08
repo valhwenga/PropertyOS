@@ -166,6 +166,35 @@ export async function as<T>(authUserId: string, fn: (tx: Sql) => Promise<T>): Pr
   return withActor({ authUserId, assuranceLevel: 'aal2' }, ({ tx }) => fn(tx));
 }
 
+/**
+ * A session that proved its second factor JUST NOW.
+ *
+ * `as` deliberately supplies no authentication instant, so an ordinary test
+ * session is stale. Anything gated on fresh authentication must opt in here,
+ * which means a command that forgets its gate fails loudly in the suite rather
+ * than passing because every session happened to look fresh.
+ */
+export async function asFreshlyAuthenticated<T>(
+  authUserId: string,
+  fn: (tx: Sql) => Promise<T>,
+): Promise<T> {
+  return withActor(
+    { authUserId, assuranceLevel: 'aal2', authenticatedAt: Math.floor(Date.now() / 1000) },
+    ({ tx }) => fn(tx),
+  );
+}
+
+/** A second factor proved an hour ago: still aal2, no longer fresh. */
+export async function asStaleAuthentication<T>(
+  authUserId: string,
+  fn: (tx: Sql) => Promise<T>,
+): Promise<T> {
+  return withActor(
+    { authUserId, assuranceLevel: 'aal2', authenticatedAt: Math.floor(Date.now() / 1000) - 3600 },
+    ({ tx }) => fn(tx),
+  );
+}
+
 /** Runs a block on a password-only session, as an un-MFA'd user would. */
 export async function asSingleFactor<T>(
   authUserId: string,

@@ -12,7 +12,25 @@ import { lastFour, sealField } from '@propertyos/integrations';
 import { recordAudit } from './audit';
 import { DomainError, invalid, notFound } from './errors';
 import { requirePermission } from './permissions';
-import { buildMergeContext, renderTemplate, templatePlaceholders } from './lease-agreements';
+import {
+  LEASE_MERGE_FIELDS, buildMergeContext, renderTemplate, templatePlaceholders,
+} from './lease-agreements';
+
+/**
+ * The fields a lease cannot do without, by key.
+ *
+ * The catalogue has carried this flag since the start and nothing read it, so
+ * an agreement with no tenant name, no commencement date and no rent could be
+ * generated AND sent, showing "[money.rent]" where the rent belongs.
+ */
+const ESSENTIAL_KEYS = new Set(
+  LEASE_MERGE_FIELDS.filter((f) => f.essential).map((f) => f.key),
+);
+
+/** Human labels, because "term.effective_date" is not what an operator reads. */
+function labelsFor(keys: string[]): string[] {
+  return keys.map((k) => LEASE_MERGE_FIELDS.find((f) => f.key === k)?.label ?? k);
+}
 
 export interface LeaseTemplateSummary {
   id: string;
@@ -398,6 +416,12 @@ export interface GeneratedAgreement {
   generationId: string;
   documentId: string;
   missingFields: string[];
+  /**
+   * The subset of `missingFields` without which this is not a usable lease,
+   * as labels. Non-empty means the agreement is a draft: it exists so the gaps
+   * can be seen, and sharing it with the resident is refused.
+   */
+  essentialMissing: string[];
   unknownFields: string[];
   /** The rendered bytes, handed straight to the caller to stream or store. */
   pdf: Uint8Array;
@@ -491,13 +515,19 @@ export async function generateLeaseAgreement(
     `${version.name} v${version.version}`;
   const { documentId } = await registerPdf(pdf, filename, title, previous?.document_id);
 
+  // Only the essential fields THIS template actually asks for. A template that
+  // never mentions the VAT number is not incomplete for lacking one, and a
+  // template that never mentions the rent is a different problem from this one.
+  const essentialMissing = rendered.missing.filter((k) => ESSENTIAL_KEYS.has(k));
+
   const [generation] = await tx<{ id: string }[]>`
     insert into lease_agreement_generations (
       organisation_id, lease_id, template_version_id, document_id,
-      field_values, missing_fields, generated_by)
+      field_values, missing_fields, essential_missing, generated_by)
     values (
       ${organisationId}, ${input.leaseId}, ${version.id}, ${documentId},
-      ${tx.json(context.redacted as never)}, ${rendered.missing}, ${actorUserId})
+      ${tx.json(context.redacted as never)}, ${rendered.missing},
+      ${essentialMissing}, ${actorUserId})
     returning id
   `;
 
@@ -507,14 +537,16 @@ export async function generateLeaseAgreement(
     action: 'lease_agreement.generated', resourceType: 'lease', resourceId: input.leaseId,
     after: {
       template: version.name, templateVersion: version.version,
-      documentId, missingFields: rendered.missing,
+      documentId, missingFields: rendered.missing, essentialMissing,
       sealedFieldsOpened: ['identity numbers', 'bank account number'],
     },
   });
 
   return {
     generationId: generation!.id, documentId,
-    missingFields: rendered.missing, unknownFields: rendered.unknown,
+    missingFields: rendered.missing,
+    essentialMissing: labelsFor(essentialMissing),
+    unknownFields: rendered.unknown,
     pdf, filename,
   };
 }
@@ -522,11 +554,12 @@ export async function generateLeaseAgreement(
 export async function listLeaseAgreementGenerations(
   tx: Sql, organisationId: string, leaseId: string,
 ): Promise<{ id: string; documentId: string; templateName: string; version: number;
-             missingFields: string[]; generatedAt: string; issue: number;
+             missingFields: string[]; essentialMissing: string[];
+             generatedAt: string; issue: number;
              visibility: string; superseded: boolean }[]> {
   const rows = await tx<Record<string, unknown>[]>`
     select g.id, g.document_id, t.name as template_name, v.version,
-           g.missing_fields, g.generated_at::text as generated_at,
+           g.missing_fields, g.essential_missing, g.generated_at::text as generated_at,
            d.visibility::text as visibility,
            -- Whether a later generation replaced this one, so the panel can show
            -- which agreement is the current one.
@@ -546,6 +579,8 @@ export async function listLeaseAgreementGenerations(
     id: r.id as string, documentId: r.document_id as string,
     templateName: r.template_name as string, version: Number(r.version),
     missingFields: (r.missing_fields as string[]) ?? [],
+    // Labels, not keys: this list is read by a person deciding what to fix.
+    essentialMissing: labelsFor((r.essential_missing as string[]) ?? []),
     generatedAt: r.generated_at as string,
     issue: Number(r.issue),
     visibility: r.visibility as string,

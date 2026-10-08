@@ -57,6 +57,7 @@ export async function command<T>(
       {
         authUserId: viewer.authUserId,
         assuranceLevel: viewer.assuranceLevel,
+        authenticatedAt: viewer.authenticatedAt,
         correlationId,
       },
       ({ tx }) => fn({ tx, viewer, correlationId }),

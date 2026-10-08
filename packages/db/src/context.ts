@@ -16,6 +16,15 @@ export interface RequestActor {
    */
   assuranceLevel?: 'aal1' | 'aal2';
   /**
+   * When the second factor was last asserted, as epoch seconds.
+   *
+   * Assurance says a second factor was used at some point in this session;
+   * freshness says it was used RECENTLY. Changing where money is paid should
+   * need the latter, because an eight-hour session left open on an unattended
+   * machine is still aal2. Absent means "not recently", never "just now".
+   */
+  authenticatedAt?: number;
+  /**
    * The organisation the request is operating in. This is a *filter*, never a
    * grant: Row Level Security resolves what this user may actually see from
    * their membership rows, so supplying another organisation's id simply
@@ -54,6 +63,12 @@ export async function withActor<T>(
       sub: actor.authUserId,
       role: 'authenticated',
       aal: actor.assuranceLevel === 'aal2' ? 'aal2' : 'aal1',
+      // Supabase's claim name for the authentication instant. Omitted rather
+      // than zeroed when unknown, so the SQL side reads it as absent and
+      // treats the session as stale.
+      ...(typeof actor.authenticatedAt === 'number' && Number.isFinite(actor.authenticatedAt)
+        ? { auth_time: Math.floor(actor.authenticatedAt) }
+        : {}),
     });
     await tx`select set_config('request.jwt.claims', ${claims}, true)`;
     return fn({ tx: tx as unknown as Sql, actor });

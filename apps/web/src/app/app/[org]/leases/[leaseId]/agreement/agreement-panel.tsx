@@ -24,6 +24,8 @@ export interface PriorGeneration {
   templateName: string;
   version: number;
   missingFields: string[];
+  /** The subset without which this is not a usable lease. Blocks sharing. */
+  essentialMissing: string[];
   generatedAt: string;
   issue: number;
   visibility: string;
@@ -169,6 +171,26 @@ export function AgreementPanel({
           {genState?.ok ? (
             <div className="mb-4 space-y-2">
               <p className="text-sm font-semibold text-positive-600">Agreement generated.</p>
+              {/* Two different warnings, because they mean different things.
+                  A missing VAT number is a gap; a missing tenant identity
+                  number means this is not yet a lease and cannot be sent. */}
+              {genState.essentialMissing.length > 0 ? (
+                <Card className="border-critical-700/30 bg-critical-50 p-3">
+                  <p className="text-sm font-semibold text-critical-700">
+                    This is a draft. It cannot be sent to the resident yet.
+                  </p>
+                  <p className="mt-1 text-sm text-ink-700">
+                    A lease cannot do without the following. Fill them in, generate the
+                    agreement again, and then it can be shared.
+                  </p>
+                  <ul className="mt-2 list-disc space-y-0.5 pl-5">
+                    {genState.essentialMissing.map((f) => (
+                      <li key={f} className="text-sm text-ink-900">{f}</li>
+                    ))}
+                  </ul>
+                </Card>
+              ) : null}
+
               {genState.missingFields.length > 0 ? (
                 <Card className="border-caution-700/30 bg-caution-50 p-3">
                   <p className="text-sm font-semibold text-caution-700">
@@ -385,6 +407,9 @@ export function AgreementPanel({
                   Read the PDF
                 </Link>
                 <span className="text-ink-400">{formatDayMonthYear(g.generatedAt)}</span>
+                {g.essentialMissing.length > 0 ? (
+                  <StatusBadge tone="critical">draft — cannot be sent</StatusBadge>
+                ) : null}
                 {g.missingFields.length > 0 ? (
                   <StatusBadge tone="caution">{g.missingFields.length} incomplete</StatusBadge>
                 ) : (

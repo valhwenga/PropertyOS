@@ -146,6 +146,9 @@ export async function generateAgreementAction(_previous: unknown, formData: Form
     return {
       documentId: generated.documentId,
       missingFields: generated.missingFields,
+      // Separate from the above: these are the gaps that stop the agreement
+      // being sent at all, and the panel says so in different words.
+      essentialMissing: generated.essentialMissing,
       unknownFields: generated.unknownFields,
     };
   });

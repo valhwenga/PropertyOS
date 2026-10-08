@@ -6,6 +6,7 @@
  */
 export type DomainErrorCode =
   | 'unauthenticated'
+  | 'reauthentication_required'
   | 'forbidden'
   | 'not_found'
   | 'validation_failed'
@@ -34,6 +35,10 @@ export class DomainError extends Error {
 
 const HTTP_STATUS: Record<DomainErrorCode, number> = {
   unauthenticated: 401,
+  // 401, not 403: the caller is permitted, they just have to prove it is still
+  // them. A 403 would tell the interface to say "you do not have access", which
+  // is both wrong and unhelpful.
+  reauthentication_required: 401,
   forbidden: 403,
   not_found: 404,
   validation_failed: 422,
@@ -53,6 +58,37 @@ export const notFound = (what = 'Record') => new DomainError('not_found', `${wha
 export const invalid = (message: string, details?: Record<string, unknown>) =>
   new DomainError('validation_failed', message, details);
 export const conflict = (message: string) => new DomainError('conflict', message);
+
+/**
+ * Validates with a schema and reports failures as a domain error.
+ *
+ * Calling `.parse` directly leaks a ZodError out of the domain. The web layer
+ * happens to translate that, but the worker and any other caller do not, so the
+ * domain's error contract would depend on who called it. This keeps the
+ * contract the same for everyone, and keeps the field paths, which are what an
+ * interface needs to mark the offending input.
+ */
+export function parsed<T>(
+  schema: { parse: (value: unknown) => T },
+  value: unknown,
+  message = 'Some of those details are not valid.',
+): T {
+  try {
+    return schema.parse(value);
+  } catch (error) {
+    const issues = (error as { issues?: { path: (string | number)[]; message: string }[] }).issues;
+    if (!issues) throw error;
+    const fieldErrors: Record<string, string[]> = {};
+    for (const issue of issues) {
+      const key = issue.path.join('.') || '_';
+      (fieldErrors[key] ??= []).push(issue.message);
+    }
+    // One issue reads better as itself than as a generic sentence with a
+    // field list nobody opens.
+    const summary = issues.length === 1 ? issues[0]!.message : message;
+    throw new DomainError('validation_failed', summary, { fieldErrors });
+  }
+}
 
 /**
  * Translates a PostgreSQL error into a domain error.

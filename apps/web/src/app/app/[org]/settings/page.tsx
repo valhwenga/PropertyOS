@@ -19,6 +19,12 @@ const SECTIONS = [
       'Who the lease names as the letting party, its registration or identity number, addresses and managing agent.',
   },
   {
+    href: 'banking',
+    title: 'Banking details',
+    description:
+      'The accounts residents pay into. Numbers are masked, changes need your authenticator code, and every change is kept.',
+  },
+  {
     href: 'support-access',
     title: 'Spike support access',
     description:

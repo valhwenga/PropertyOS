@@ -9,6 +9,7 @@ export type PermissionKey =
   | 'lease.template.manage' | 'lease.agreement.generate'
   | 'billing.preview' | 'billing.post' | 'charge.adjust'
   | 'payment.record' | 'payment.allocate' | 'payment.reverse' | 'bank.import'
+  | 'bank_account.read' | 'bank_account.manage' | 'bank_account.verify'
   | 'deposit.read' | 'deposit.record' | 'deposit.refund.approve'
   | 'expense.record' | 'expense.approve'
   | 'maintenance.read' | 'maintenance.manage' | 'maintenance.quote.approve'
@@ -34,6 +35,53 @@ export async function requirePermission(
   if (!row?.allowed) {
     throw forbidden(`This action requires the "${permission}" permission.`);
   }
+}
+
+/**
+ * How recently a sensitive change must have been authenticated.
+ *
+ * Short enough that an unattended session cannot be used to redirect rent;
+ * long enough to fill in a form. The window is a constant rather than a
+ * per-call argument so every sensitive command agrees on what "recent" means.
+ */
+export const FRESH_AUTHENTICATION_SECONDS = 300;
+
+/**
+ * Demands that the caller proved their identity in the last few minutes.
+ *
+ * Assurance and freshness are different claims. `requirePermission` asks
+ * whether this person may do it at all; this asks whether the person at the
+ * keyboard right now is still them. Changing where money is paid needs both.
+ *
+ * Resolved in the database, like assurance, so there is no application path
+ * that can skip it. A session with no authentication instant at all is stale,
+ * never fresh: absent evidence is not evidence.
+ */
+export async function requireFreshAuthentication(
+  tx: Sql,
+  withinSeconds: number = FRESH_AUTHENTICATION_SECONDS,
+): Promise<void> {
+  const [row] = await tx<{ fresh: boolean }[]>`
+    select app.authentication_is_fresh(make_interval(secs => ${withinSeconds})) as fresh
+  `;
+  if (!row?.fresh) {
+    throw new DomainError(
+      'reauthentication_required',
+      'Confirm your second factor again before making this change.',
+      { withinSeconds },
+    );
+  }
+}
+
+/** Whether the session is currently fresh, for deciding what to offer. */
+export async function authenticationIsFresh(
+  tx: Sql,
+  withinSeconds: number = FRESH_AUTHENTICATION_SECONDS,
+): Promise<boolean> {
+  const [row] = await tx<{ fresh: boolean }[]>`
+    select app.authentication_is_fresh(make_interval(secs => ${withinSeconds})) as fresh
+  `;
+  return Boolean(row?.fresh);
 }
 
 export async function hasPermission(

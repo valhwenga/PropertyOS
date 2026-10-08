@@ -5,9 +5,11 @@ import {
   Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
+import { hasPermission } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadResidentDetail } from '@/lib/operations-queries';
+import { EditResidentForm, IdentityNumberForm } from './resident-forms';
 
 export const metadata = { title: 'Resident' };
 export const dynamic = 'force-dynamic';
@@ -44,9 +46,10 @@ export default async function ResidentPage({
 }) {
   const { org, residentId } = await params;
   const context = await requireOperator(org);
-  const detail = await readAs(context.viewer, (tx) =>
-    loadResidentDetail(tx, context.organisationId, residentId),
-  );
+  const { detail, canManage } = await readAs(context.viewer, async (tx) => ({
+    detail: await loadResidentDetail(tx, context.organisationId, residentId),
+    canManage: await hasPermission(tx, context.organisationId, 'resident.manage'),
+  }));
   if (!detail) notFound();
 
   const { resident, leases, portal } = detail;
@@ -106,6 +109,16 @@ export default async function ResidentPage({
           <p className="mt-4 whitespace-pre-line border-t border-ink-100 pt-4 text-sm text-ink-700">
             {resident.notes}
           </p>
+        ) : null}
+
+        {canManage ? (
+          <div className="mt-5 space-y-3 border-t border-ink-100 pt-4">
+            <EditResidentForm org={org} resident={resident} />
+            <IdentityNumberForm
+              org={org} residentId={resident.id}
+              last4={resident.identity_number_last4}
+            />
+          </div>
         ) : null}
       </Card>
 

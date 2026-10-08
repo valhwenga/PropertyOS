@@ -52,7 +52,21 @@ async function waitForNextWindow(): Promise<void> {
   await new Promise((r) => setTimeout(r, (secondsLeftInWindow() + 1) * 1000));
 }
 
-async function freshCode(email: string): Promise<string> {
+/**
+ * A code from a window this account has definitely not used yet.
+ *
+ * `freshCode` only waits when the current window is nearly over, which is right
+ * for signing in. It is wrong immediately AFTER signing in: that sign-in just
+ * consumed this window's code, and a code is single-use, so re-verifying with
+ * it is correctly refused. Anything that re-authenticates in the same test has
+ * to wait for the next window.
+ */
+export async function unusedCode(email: string): Promise<string> {
+  await waitForNextWindow();
+  return currentCode(email);
+}
+
+export async function freshCode(email: string): Promise<string> {
   if (secondsLeftInWindow() < 5) await waitForNextWindow();
   return currentCode(email);
 }

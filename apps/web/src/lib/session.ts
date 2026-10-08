@@ -34,6 +34,15 @@ interface SessionPayload {
    * stronger one.
    */
   aal: AssuranceLevel;
+  /**
+   * When identity was last proved, as epoch seconds.
+   *
+   * Separate from `exp` on purpose. A session stays valid for hours; freshness
+   * expires in minutes, and the sensitive commands that demand it send the
+   * operator back through their second factor to refresh this value alone.
+   * Absent is read as stale, never as "just now".
+   */
+  aat?: number;
   /** Bound to the authentication event, so a stale cookie cannot be replayed. */
   jti: string;
 }
@@ -55,6 +64,7 @@ function verify(token: string): SessionPayload | null {
   try {
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as SessionPayload;
     if (typeof payload.sub !== 'string' || typeof payload.exp !== 'number') return null;
+    if (payload.aat !== undefined && typeof payload.aat !== 'number') return null;
     if (payload.exp * 1000 < Date.now()) return null;
     // Fail safe: anything other than an explicit aal2 is a single-factor session.
     return { ...payload, aal: payload.aal === 'aal2' ? 'aal2' : 'aal1' };
@@ -67,10 +77,15 @@ export async function createSession(
   authUserId: string,
   assuranceLevel: AssuranceLevel = 'aal1',
 ): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
   const token = sign({
     sub: authUserId,
     aal: assuranceLevel,
-    exp: Math.floor(Date.now() / 1000) + MAX_AGE_SECONDS,
+    // Only a session that actually completed a second factor carries an
+    // authentication instant. A single-factor session has nothing to be fresh
+    // about, so the claim is omitted rather than set to now.
+    ...(assuranceLevel === 'aal2' ? { aat: now } : {}),
+    exp: now + MAX_AGE_SECONDS,
     jti: randomBytes(12).toString('base64url'),
   });
   const store = await cookies();
@@ -101,14 +116,14 @@ export async function currentAuthUserId(): Promise<string | null> {
 }
 
 export async function currentSession(): Promise<
-  { authUserId: string; assuranceLevel: AssuranceLevel } | null
+  { authUserId: string; assuranceLevel: AssuranceLevel; authenticatedAt?: number } | null
 > {
   const store = await cookies();
   const token = store.get(COOKIE)?.value;
   if (!token) return null;
   const payload = verify(token);
   if (!payload) return null;
-  return { authUserId: payload.sub, assuranceLevel: payload.aal };
+  return { authUserId: payload.sub, assuranceLevel: payload.aal, authenticatedAt: payload.aat };
 }
 
 /* ------------------------------------------------- local credential provider */
