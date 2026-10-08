@@ -1,5 +1,7 @@
 import 'server-only';
 import type { Sql } from '@propertyos/db';
+import { collectionTotals } from '@propertyos/domain';
+import type { CollectionTotals } from '@propertyos/domain';
 
 /**
  * Read models for the operator experience.
@@ -12,8 +14,11 @@ import type { Sql } from '@propertyos/db';
 export interface DashboardMetrics {
   periodStart: string;
   periodEnd: string;
-  rentBilledMinor: string;
-  rentCollectedMinor: string;
+  /**
+   * Collection for the period, from the one shared definition. Two labelled
+   * measures — rent, and every billed category — never blended into one.
+   */
+  collection: CollectionTotals;
   receivableMinor: string;
   arrearsMinor: string;
   occupiedUnits: number;
@@ -36,34 +41,19 @@ export async function loadDashboard(
   const [y, m] = periodStart.split('-').map(Number) as [number, number];
   const periodEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 
+  // The collection figures come from the shared definition the reports use, so
+  // the overview and the collection report cannot drift apart again.
+  const collection = await collectionTotals(tx, organisationId, { periodStart, periodEnd });
+
   const [row] = await tx<
     {
-      rent_billed: string; rent_collected: string; receivable: string; arrears: string;
+      receivable: string; arrears: string;
       occupied_units: string; rentable_units: string; expiring_leases: string;
       unmatched_receipts: string; suspense: string; unverified_evidence: string;
       maintenance_attention: string; pending_approvals: string; has_activity: boolean;
     }[]
   >`
     select
-      -- Rent billed: posted rent charges less rent credits, in the period.
-      coalesce((
-        select sum(cl.amount_minor) from charge_lines cl
-        join charge_documents cd on cd.id = cl.document_id
-        where cl.organisation_id = ${organisationId}::uuid
-          and cd.status = 'posted' and cl.category = 'rent'
-          and cd.issue_date between ${periodStart}::date and ${periodEnd}::date
-      ), 0)::text as rent_billed,
-
-      -- Collected: allocations APPLIED to charges issued in this period.
-      coalesce((
-        select sum(pa.amount_minor) from payment_allocations pa
-        join charge_lines cl on cl.id = pa.charge_line_id
-        join charge_documents cd on cd.id = cl.document_id
-        where pa.organisation_id = ${organisationId}::uuid
-          and pa.reversed_at is null
-          and cd.issue_date between ${periodStart}::date and ${periodEnd}::date
-      ), 0)::text as rent_collected,
-
       coalesce((
         select sum(b.outstanding_minor) from charge_line_balances b
         where b.organisation_id = ${organisationId}::uuid and b.outstanding_minor > 0
@@ -122,8 +112,7 @@ export async function loadDashboard(
   return {
     periodStart,
     periodEnd,
-    rentBilledMinor: row!.rent_billed,
-    rentCollectedMinor: row!.rent_collected,
+    collection,
     receivableMinor: row!.receivable,
     arrearsMinor: row!.arrears,
     occupiedUnits: Number(row!.occupied_units),

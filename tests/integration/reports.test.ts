@@ -639,22 +639,30 @@ describe('Dashboard metrics reconcile to their records', () => {
   afterAll(async () => { await closeOwner(); });
 
   it('"rent billed" equals the collection report it links to', async () => {
-    // The dashboard tile and the report are written as separate queries. Both
-    // are recomputed here from the raw charge lines, so a drift between the
-    // headline and the records behind it fails the build.
+    // The overview tile and the report now read one shared definition, but the
+    // figure is still recomputed here from the raw charge lines so that
+    // definition cannot drift away from the records behind it.
+    //
+    // Note which total is compared with which raw sum. An earlier version of
+    // this test matched a RENT-only raw sum against the report's ALL-CATEGORY
+    // total and passed, because every charge in this fixture happens to be
+    // rent. That is exactly how the measure confusion survived.
     const report = await as(org.adminUserId, (tx) =>
       collectionReport(tx, org.organisationId, { periodStart: '2026-01-01', periodEnd: '2026-01-31' }),
     );
-    const [raw] = await ownerSql()<{ billed: string }[]>`
-      select coalesce(sum(cl.amount_minor), 0)::text as billed
+    const [raw] = await ownerSql()<{ rent: string; all_categories: string }[]>`
+      select
+        coalesce(sum(cl.amount_minor) filter (where cl.category = 'rent'), 0)::text as rent,
+        coalesce(sum(cl.amount_minor), 0)::text as all_categories
       from charge_lines cl
       join charge_documents cd on cd.id = cl.document_id
       where cl.organisation_id = ${org.organisationId}
-        and cd.status = 'posted' and cl.category = 'rent'
-        and cd.issue_date between '2026-01-01' and '2026-01-31'
+        and cd.status = 'posted'
+        and coalesce(cd.period_start, cd.issue_date) between '2026-01-01' and '2026-01-31'
     `;
-    expect(report.totalBilledMinor).toBe(BigInt(raw!.billed));
-    expect(report.totalBilledMinor).toBe(R('9000'));
+    expect(report.totals.rent.billedMinor).toBe(BigInt(raw!.rent));
+    expect(report.totals.total.billedMinor).toBe(BigInt(raw!.all_categories));
+    expect(report.totals.rent.billedMinor).toBe(R('9000'));
   });
 
   it('"outstanding receivable" equals the arrears report it links to', async () => {

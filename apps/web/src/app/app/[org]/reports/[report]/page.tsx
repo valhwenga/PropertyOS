@@ -171,35 +171,95 @@ export default async function ReportPage({
 
       {data.kind === 'collection' ? (
         <>
+          {/* Two labelled measures. Rent collection is the one a landlord
+              means; the all-category rate includes utilities and recoveries.
+              They are never averaged together into a single "collection". */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {([
+              { title: 'Rent', m: data.totals.rent, note: 'Rent charges only. Deposits and utilities excluded.' },
+              { title: 'All charges', m: data.totals.total, note: 'Rent, utilities, recoveries and every other billed category.' },
+            ] as const).map(({ title, m, note }) => (
+              <Card key={title} className="p-4">
+                <p className="text-sm font-semibold text-ink-900">{title}</p>
+                <div className="mt-3 grid grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Billed</p>
+                    <p className="mt-1 text-xl font-semibold"><Money minor={m.billedMinor} currency={currency} /></p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Collected</p>
+                    <p className="mt-1 text-xl font-semibold"><Money minor={m.collectedMinor} currency={currency} /></p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Rate</p>
+                    <p className="mt-1 text-xl font-semibold">
+                      {m.ratePercent === null ? '—' : `${m.ratePercent.toFixed(2)}%`}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-ink-400">
+                  {m.ratePercent === null ? 'Nothing was billed for this period.' : note}
+                </p>
+              </Card>
+            ))}
+          </div>
+
+          {/* Cash is a different question from collection, so it is reported
+              separately rather than folded into the rate above. */}
           <div className="grid gap-3 sm:grid-cols-3">
             <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Billed</p>
-              <p className="mt-1 text-2xl font-semibold"><Money minor={data.totalBilledMinor} currency={currency} /></p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Collected</p>
-              <p className="mt-1 text-2xl font-semibold"><Money minor={data.totalCollectedMinor} currency={currency} /></p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Collection rate</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Cash banked</p>
               <p className="mt-1 text-2xl font-semibold">
-                {data.collectionRatePercent === null ? '—' : `${data.collectionRatePercent}%`}
+                <Money minor={data.totals.receiptsBankedMinor} currency={currency} />
               </p>
-              {data.collectionRatePercent === null ? (
-                <p className="mt-1 text-xs text-ink-400">Nothing was billed in this period.</p>
-              ) : null}
+              <p className="mt-1 text-xs text-ink-400">Confirmed receipts received in this period.</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">
+                Applied to earlier periods
+              </p>
+              <p className="mt-1 text-2xl font-semibold">
+                <Money minor={data.totals.priorPeriodCollectedMinor} currency={currency} />
+              </p>
+              <p className="mt-1 text-xs text-ink-400">Allocated this period against older arrears.</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Unapplied credit</p>
+              <p className="mt-1 text-2xl font-semibold">
+                <Money minor={data.totals.unappliedCreditMinor} currency={currency} />
+              </p>
+              <p className="mt-1 text-xs text-ink-400">
+                Confirmed money not yet allocated. Not counted as collected.
+              </p>
             </Card>
           </div>
+
           <DataTable
             caption="Collection by lease"
-            head={<tr><Th>Resident</Th><Th>Unit</Th><Th numeric>Billed</Th><Th numeric>Collected</Th><Th numeric>Outstanding</Th></tr>}
+            head={(
+              <tr>
+                <Th>Resident</Th><Th>Unit</Th>
+                <Th numeric>Rent billed</Th><Th numeric>Rent collected</Th>
+                <Th numeric>All billed</Th><Th numeric>All collected</Th>
+                <Th numeric>Outstanding</Th>
+              </tr>
+            )}
           >
-            {data.rows.map((r, i) => (
-              <tr key={`${r.leaseReference}-${i}`}>
-                <Td>{r.residentName ?? r.leaseReference}</Td>
+            {data.rows.map((r) => (
+              <tr key={r.leaseId}>
+                <Td>
+                  <Link
+                    href={`/app/${org}/leases/${r.leaseId}`}
+                    className="font-medium text-spike-600 hover:underline"
+                  >
+                    {r.residentName ?? r.leaseReference}
+                  </Link>
+                </Td>
                 <Td className="text-ink-500">{r.unitLabel}</Td>
-                <Td numeric><Money minor={r.billedMinor} currency={currency} /></Td>
-                <Td numeric><Money minor={r.collectedMinor} currency={currency} /></Td>
+                <Td numeric><Money minor={r.rentBilledMinor} currency={currency} /></Td>
+                <Td numeric><Money minor={r.rentCollectedMinor} currency={currency} /></Td>
+                <Td numeric className="text-ink-500"><Money minor={r.billedMinor} currency={currency} /></Td>
+                <Td numeric className="text-ink-500"><Money minor={r.collectedMinor} currency={currency} /></Td>
                 <Td numeric><Money minor={r.outstandingMinor} currency={currency} emphasise={r.outstandingMinor > 0n} /></Td>
               </tr>
             ))}

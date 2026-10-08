@@ -78,15 +78,20 @@ export async function GET(
       }
       case 'collection': {
         const r = await collectionReport(tx, organisation.id, { periodStart, periodEnd });
+        // Rent and all-category columns are exported separately. A single
+        // "collected" column would leave the accountant to guess which it was.
         return toCsv(r.meta, [
           { key: 'residentName', label: 'Resident' },
           { key: 'leaseReference', label: 'Lease' },
           { key: 'unitLabel', label: 'Unit' },
-          { key: 'billed', label: 'Billed' },
-          { key: 'collected', label: 'Collected' },
+          { key: 'rentBilled', label: 'Rent billed' },
+          { key: 'rentCollected', label: 'Rent collected' },
+          { key: 'billed', label: 'All charges billed' },
+          { key: 'collected', label: 'All charges collected' },
           { key: 'outstanding', label: 'Outstanding' },
         ], r.rows.map((row) => ({
           ...row,
+          rentBilled: money(row.rentBilledMinor), rentCollected: money(row.rentCollectedMinor),
           billed: money(row.billedMinor), collected: money(row.collectedMinor),
           outstanding: money(row.outstandingMinor),
         })));

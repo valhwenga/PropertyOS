@@ -19,6 +19,7 @@ export * from './maintenance';
 export * from './inspections';
 export * from './documents';
 export * from './invitations';
+export * from './collection-metrics';
 export * from './reports';
 export * from './platform';
 export * from './csv';

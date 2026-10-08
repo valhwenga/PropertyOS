@@ -183,11 +183,11 @@ export async function allocateReceipt(
       const [allocation] = await tx<{ id: string }[]>`
         insert into payment_allocations (
           organisation_id, receipt_id, charge_line_id, amount_minor, currency_code,
-          journal_id, applied_policy, allocated_by
+          journal_id, applied_policy, allocated_by, allocated_on
         ) values (
           ${organisationId}, ${input.receiptId}, ${request.chargeLineId},
           ${request.amountMinor.toString()}, ${receipt.currency_code},
-          ${journalId}, ${policy}, ${actorUserId}
+          ${journalId}, ${policy}, ${actorUserId}, ${input.postingDate}
         )
         returning id
       `;
@@ -291,7 +291,8 @@ export async function reverseAllocation(
   }
   await tx`
     update payment_allocations
-    set reversed_at = now(), reversed_by = ${actorUserId}, reversal_reason = ${params.reason}
+    set reversed_at = now(), reversed_on = ${params.postingDate}::date,
+        reversed_by = ${actorUserId}, reversal_reason = ${params.reason}
     where id = ${params.allocationId}::uuid
   `;
   await recordAudit(tx, {

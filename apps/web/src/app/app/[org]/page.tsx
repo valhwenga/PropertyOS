@@ -74,32 +74,59 @@ async function Metrics({
     ? null
     : Math.round((metrics.occupiedUnits / metrics.rentableUnits) * 100);
 
-  const collectionPercent = BigInt(metrics.rentBilledMinor) === 0n
-    ? null
-    : Number((BigInt(metrics.rentCollectedMinor) * 100n) / BigInt(metrics.rentBilledMinor));
+  // Both rates are already computed by the shared definition. Nothing is
+  // recalculated here: a percentage worked out in a React component is a second
+  // definition of collection, and two definitions is how this went wrong before.
+  const { rent, total } = metrics.collection;
+  const rate = (p: number | null, what: string): string =>
+    p === null ? `No ${what} billed for this period` : `${p.toFixed(2)}% of ${what} billed`;
 
   return (
     <div className="space-y-6">
       {/* Money. Every tile links to the records it was computed from, with the
-          same period filter applied. */}
+          same period filter applied. Rent and all-category collection are shown
+          as two separate measures, because a resident who pays the water bill
+          but not the rent must not read as having paid. */}
       <section aria-labelledby="money-heading" className="space-y-3">
         <h2 id="money-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
-          Money this period
+          Billed and collected for {periodStart.slice(0, 7)}
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MoneyMetric
-            label="Rent billed" minor={metrics.rentBilledMinor} currency={context.currencyCode}
+            label="Rent billed" minor={rent.billedMinor.toString()} currency={context.currencyCode}
             href={`${base}/billing?period=${periodStart}`}
             qualification="Posted rent charges less rent credits. Excludes deposits and utilities."
           />
           <MoneyMetric
-            label="Collected" minor={metrics.rentCollectedMinor} currency={context.currencyCode}
+            label="Rent collected" minor={rent.collectedMinor.toString()} currency={context.currencyCode}
+            href={`${base}/reports/collection?from=${periodStart}&to=${metrics.collection.periodEnd}`}
+            qualification={rate(rent.ratePercent, 'rent')}
+          />
+          <MoneyMetric
+            label="Total billed" minor={total.billedMinor.toString()} currency={context.currencyCode}
+            href={`${base}/billing?period=${periodStart}`}
+            qualification="Rent, utilities and every other charge raised for this period."
+          />
+          <MoneyMetric
+            label="Total collected" minor={total.collectedMinor.toString()} currency={context.currencyCode}
+            href={`${base}/reports/collection?from=${periodStart}&to=${metrics.collection.periodEnd}`}
+            qualification={rate(total.ratePercent, 'charges')}
+          />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MoneyMetric
+            label="Cash banked" minor={metrics.collection.receiptsBankedMinor.toString()}
+            currency={context.currencyCode}
             href={`${base}/reconciliation?period=${periodStart}`}
-            qualification={
-              collectionPercent === null
-                ? 'No rent billed in this period'
-                : `${collectionPercent}% of rent billed in this period`
-            }
+            qualification="Confirmed receipts received in this period, whatever they paid for."
+          />
+          <MoneyMetric
+            label="Applied to earlier periods"
+            minor={metrics.collection.priorPeriodCollectedMinor.toString()}
+            currency={context.currencyCode}
+            href={`${base}/reports/arrears`}
+            qualification="Allocated this period against arrears billed before it."
           />
           <MoneyMetric
             label="Outstanding receivable" minor={metrics.receivableMinor} currency={context.currencyCode}
@@ -113,6 +140,12 @@ async function Metrics({
             tone={BigInt(metrics.arrearsMinor) > 0n ? 'attention' : 'default'}
           />
         </div>
+
+        <p className="text-xs text-ink-400">
+          Collected means money allocated to charges billed for this period. Cash banked is a
+          different measure: it includes payments that cleared earlier arrears and money still
+          unapplied. Stated as at {formatDate(metrics.collection.asOf, context.timeZone)}.
+        </p>
       </section>
 
       {/* Action queues. */}

@@ -1,5 +1,9 @@
 import type { Sql } from '@propertyos/db';
 import type { Minor } from './money';
+import {
+  COLLECTION_QUALIFICATIONS, collectionByLease, collectionTotals,
+} from './collection-metrics';
+import type { CollectionTotals } from './collection-metrics';
 import { requirePermission } from './permissions';
 
 /**
@@ -224,79 +228,82 @@ export async function arrearsAgeing(
 /* ---------------------------------------------------------- collection report */
 
 export interface CollectionRow {
+  leaseId: string;
   leaseReference: string;
   residentName: string | null;
   unitLabel: string;
+  /** Rent only — the measure a landlord means by "did they pay the rent". */
+  rentBilledMinor: Minor;
+  rentCollectedMinor: Minor;
+  /** Every billed category: rent, utilities and recoveries together. */
   billedMinor: Minor;
   collectedMinor: Minor;
   outstandingMinor: Minor;
 }
 
+/**
+ * Collection for a period, per lease and in total.
+ *
+ * Both are read from `collection-metrics`, which is also what the operator
+ * overview reads. Before that module existed this report and the dashboard
+ * disagreed about the same month, because each had written its own SQL.
+ *
+ * Two rates are reported, labelled, and never blended: rent collection, and
+ * collection across every billed category. A separate cash figure states what
+ * was actually banked in the period, which is a different question again.
+ */
 export async function collectionReport(
   tx: Sql,
   organisationId: string,
   filters: ReportFilters & { periodStart: string; periodEnd: string },
 ): Promise<{
   meta: ReportMeta; rows: CollectionRow[];
+  totals: CollectionTotals;
   totalBilledMinor: Minor; totalCollectedMinor: Minor; collectionRatePercent: number | null;
 }> {
   await requirePermission(tx, organisationId, 'report.read');
 
-  const rows = await tx<
-    { reference: string; resident_name: string | null; unit_label: string;
-      billed: string; collected: string; currency_code: string }[]
-  >`
-    select l.reference, l.currency_code,
-      (rp.first_name || ' ' || rp.last_name) as resident_name,
-      p.name || ' / ' || u.code as unit_label,
-      coalesce(sum(cl.amount_minor), 0)::text as billed,
-      coalesce(sum((
-        select coalesce(sum(pa.amount_minor), 0) from payment_allocations pa
-        where pa.charge_line_id = cl.id and pa.reversed_at is null
-      )), 0)::text as collected
-    from charge_lines cl
-    join charge_documents cd on cd.id = cl.document_id
-    join leases l on l.id = cl.lease_id
-    join properties p on p.id = l.property_id
-    join units u on u.id = l.unit_id
-    left join lease_parties lp on lp.lease_id = l.id and lp.role = 'primary_resident' and lp.removed_on is null
-    left join resident_profiles rp on rp.id = lp.resident_id
-    where cl.organisation_id = ${organisationId}::uuid
-      and cd.status = 'posted'
-      and cd.issue_date between ${filters.periodStart}::date and ${filters.periodEnd}::date
-      ${filters.propertyIds?.length ? tx`and l.property_id = any(${filters.propertyIds}::uuid[])` : tx``}
-    group by l.reference, l.currency_code, rp.first_name, rp.last_name, p.name, u.code
-    order by p.name, u.code
-  `;
+  const scope = {
+    periodStart: filters.periodStart,
+    periodEnd: filters.periodEnd,
+    asOf: filters.asAt,
+    propertyIds: filters.propertyIds,
+  };
+  const [totals, leases] = await Promise.all([
+    collectionTotals(tx, organisationId, scope),
+    collectionByLease(tx, organisationId, scope),
+  ]);
 
-  const mapped: CollectionRow[] = rows.map((r) => ({
-    leaseReference: r.reference,
-    residentName: r.resident_name,
-    unitLabel: r.unit_label,
-    billedMinor: BigInt(r.billed),
-    collectedMinor: BigInt(r.collected),
-    outstandingMinor: BigInt(r.billed) - BigInt(r.collected),
+  const rows: CollectionRow[] = leases.map((l) => ({
+    leaseId: l.leaseId,
+    leaseReference: l.leaseReference,
+    residentName: l.residentName,
+    unitLabel: l.unitLabel,
+    rentBilledMinor: l.rent.billedMinor,
+    rentCollectedMinor: l.rent.collectedMinor,
+    billedMinor: l.total.billedMinor,
+    collectedMinor: l.total.collectedMinor,
+    outstandingMinor: l.total.outstandingMinor,
   }));
-
-  const billed = mapped.reduce((s, r) => s + r.billedMinor, 0n);
-  const collected = mapped.reduce((s, r) => s + r.collectedMinor, 0n);
 
   return {
     meta: {
       name: 'Collection report',
       generatedAt: new Date().toISOString(),
       filters,
-      currencyCode: rows[0]?.currency_code ?? 'ZAR',
+      currencyCode: totals.currencyCode,
       qualifications: [
-        'Collected means receipts ALLOCATED to charges issued in this period.',
-        'A receipt held as unapplied credit is not counted as collected.',
-        'Payments against prior-period arrears are excluded; see the arrears ageing report.',
+        ...COLLECTION_QUALIFICATIONS,
+        `Stated as at ${totals.asOf}.`,
+        'Payments against earlier periods are reported separately, not as this period\'s collection.',
       ],
     },
-    rows: mapped,
-    totalBilledMinor: billed,
-    totalCollectedMinor: collected,
-    collectionRatePercent: billed === 0n ? null : Number((collected * 10000n) / billed) / 100,
+    rows,
+    totals,
+    // Kept as the all-category headline the export and existing callers read.
+    totalBilledMinor: totals.total.billedMinor,
+    totalCollectedMinor: totals.total.collectedMinor,
+    collectionRatePercent: totals.total.ratePercent,
   };
 }
 
