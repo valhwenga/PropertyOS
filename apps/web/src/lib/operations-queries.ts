@@ -117,6 +117,40 @@ export async function loadDocuments(tx: Sql, organisationId: string) {
   `;
 }
 
+/**
+ * One document by id, for its own page.
+ *
+ * Scoped by organisation in the statement as well as by policy, and returns
+ * undefined rather than throwing: the caller turns a miss into a 404, so a
+ * document in another organisation is indistinguishable from one that does not
+ * exist.
+ */
+export async function loadDocument(tx: Sql, organisationId: string, documentId: string) {
+  const [row] = await tx<
+    { id: string; title: string; classification: string; visibility: string; scan_status: string;
+      scan_detail: string | null; quarantined: boolean; byte_size: string; content_type: string;
+      uploaded_at: string; uploader: string | null; lease_id: string | null;
+      lease_reference: string | null; property_name: string | null; superseded: boolean }[]
+  >`
+    select d.id, d.title, d.classification, d.visibility::text, d.scan_status::text,
+           d.scan_detail, d.quarantined, d.byte_size::text, d.content_type, d.uploaded_at::text,
+           up.full_name as uploader, d.lease_id, l.reference as lease_reference,
+           p.name as property_name,
+           exists (
+             select 1 from documents newer
+              where newer.supersedes_document_id = d.id and newer.deleted_at is null
+           ) as superseded
+    from documents d
+    left join user_profiles up on up.auth_user_id = d.uploaded_by
+    left join leases l on l.id = d.lease_id
+    left join properties p on p.id = d.property_id
+    where d.id = ${documentId}::uuid
+      and d.organisation_id = ${organisationId}::uuid
+      and d.deleted_at is null
+  `;
+  return row;
+}
+
 export async function loadInspections(tx: Sql, organisationId: string) {
   return tx<
     { id: string; inspection_type: string; status: string; performed_on: string | null;
@@ -229,6 +263,157 @@ export async function loadReconciliation(tx: Sql, organisationId: string) {
  * A draft does not reserve a unit, so activation is still the check that
  * matters — this just keeps the obvious error out of the list.
  */
+/**
+ * Every unit an operator could log a request against, with its property and the
+ * lease in force if there is one.
+ *
+ * Unlike the lease draft picker this includes OCCUPIED units — in fact those are
+ * the ones most requests are about. The lease is carried along so a ticket logged
+ * on an occupied unit is linked to the tenancy without the operator having to
+ * know the lease reference.
+ */
+/**
+ * One property, its units, and what is happening on each.
+ *
+ * Both this and `loadResidentDetail` exist because the Portfolio and Residents
+ * tables have always linked every row to a detail page that was never built:
+ * clicking any property or any resident name produced a 404. The lists show a
+ * summary, so a landlord needs somewhere to look when the summary raises a
+ * question.
+ *
+ * Scoped by organisation in the statement as well as by policy, and returns
+ * undefined for a miss so the caller renders the same 404 as for a property that
+ * does not exist.
+ */
+export async function loadPropertyDetail(tx: Sql, organisationId: string, propertyId: string) {
+  const [property] = await tx<
+    { id: string; name: string; code: string; property_type: string; status: string;
+      address_line1: string | null; address_line2: string | null; suburb: string | null;
+      city: string | null; province: string | null; postal_code: string | null;
+      municipal_account_ref: string | null }[]
+  >`
+    select id, name, code, property_type, status, address_line1, address_line2,
+           suburb, city, province, postal_code, municipal_account_ref
+      from properties
+     where id = ${propertyId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+  if (!property) return undefined;
+
+  const units = await tx<
+    { id: string; code: string; description: string | null; rentable_type: string;
+      bedrooms: number | null; bathrooms: string | null; floor_area_sqm: string | null;
+      advertised_rent_minor: string | null; status: string;
+      lease_id: string | null; lease_reference: string | null; lease_status: string | null;
+      rent_minor: string | null; resident_name: string | null }[]
+  >`
+    select u.id, u.code, u.description, u.rentable_type, u.bedrooms,
+           u.bathrooms::text, u.floor_area_sqm::text, u.advertised_rent_minor::text, u.status,
+           l.id as lease_id, l.reference as lease_reference, l.status::text as lease_status,
+           l.rent_minor::text,
+           trim(coalesce(r.first_name, '') || ' ' || coalesce(r.last_name, '')) as resident_name
+      from units u
+      left join leases l
+        on l.unit_id = u.id and l.status in ('active', 'notice_given', 'awaiting_execution')
+      left join lease_parties lp
+        on lp.lease_id = l.id and lp.role = 'primary_resident' and lp.removed_on is null
+      left join resident_profiles r on r.id = lp.resident_id
+     where u.organisation_id = ${organisationId}::uuid and u.property_id = ${propertyId}::uuid
+     order by u.code
+     limit 500
+  `;
+
+  const tickets = await tx<
+    { id: string; reference: string; status: string; urgency: string; category: string;
+      unit_code: string | null; created_at: string }[]
+  >`
+    select t.id, t.reference, t.status::text, coalesce(t.triaged_urgency, t.urgency)::text as urgency,
+           t.category::text, u.code as unit_code, t.created_at::text
+      from maintenance_tickets t
+      left join units u on u.id = t.unit_id
+     where t.organisation_id = ${organisationId}::uuid and t.property_id = ${propertyId}::uuid
+       and t.status not in ('resolved', 'closed', 'cancelled')
+     order by t.created_at desc
+     limit 20
+  `;
+
+  return { property, units, tickets };
+}
+
+/** One resident, their leases, and their portal access. */
+export async function loadResidentDetail(tx: Sql, organisationId: string, residentId: string) {
+  const [resident] = await tx<
+    { id: string; first_name: string; last_name: string; email: string | null;
+      phone: string | null; status: string; communication_preference: string;
+      identity_number_last4: string | null; date_of_birth: string | null;
+      notes: string | null; created_at: string }[]
+  >`
+    select id, first_name, last_name, email::text, phone, status::text,
+           communication_preference, identity_number_last4, date_of_birth::text,
+           notes, created_at::text
+      from resident_profiles
+     where id = ${residentId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+  if (!resident) return undefined;
+
+  const leases = await tx<
+    { id: string; reference: string; status: string; role: string; unit_label: string;
+      start_date: string; end_date: string | null; rent_minor: string }[]
+  >`
+    select l.id, l.reference, l.status::text, lp.role::text,
+           p.name || ' / ' || u.code as unit_label,
+           l.start_date::text, l.end_date::text, l.rent_minor::text
+      from lease_parties lp
+      join leases l on l.id = lp.lease_id
+      join units u on u.id = l.unit_id
+      join properties p on p.id = u.property_id
+     where lp.organisation_id = ${organisationId}::uuid
+       and lp.resident_id = ${residentId}::uuid
+       and lp.removed_on is null
+     order by l.start_date desc
+     limit 100
+  `;
+
+  const portal = await tx<
+    { lease_reference: string; status: string; invited_email: string;
+      invited_at: string; accepted_at: string | null; expires_at: string }[]
+  >`
+    select l.reference as lease_reference, pl.status::text, pl.invited_email::text,
+           pl.invited_at::text, pl.accepted_at::text, pl.expires_at::text
+      from portal_links pl
+      join leases l on l.id = pl.lease_id
+     where pl.organisation_id = ${organisationId}::uuid
+       and pl.resident_id = ${residentId}::uuid
+     order by pl.invited_at desc
+     limit 20
+  `;
+
+  return { resident, leases, portal };
+}
+
+export async function loadTicketUnitChoices(tx: Sql, organisationId: string) {
+  return tx<
+    { unit_id: string; property_id: string; label: string;
+      lease_id: string | null; resident_id: string | null; resident_name: string | null }[]
+  >`
+    select u.id as unit_id, u.property_id,
+           p.name || ' / ' || u.code as label,
+           l.id as lease_id,
+           lp.resident_id,
+           trim(coalesce(r.first_name, '') || ' ' || coalesce(r.last_name, '')) as resident_name
+      from units u
+      join properties p on p.id = u.property_id
+      left join leases l
+        on l.unit_id = u.id and l.status in ('active', 'notice_given', 'awaiting_execution')
+      left join lease_parties lp
+        on lp.lease_id = l.id and lp.role = 'primary_resident' and lp.removed_on is null
+      left join resident_profiles r on r.id = lp.resident_id
+     where u.organisation_id = ${organisationId}::uuid
+       and u.status = 'active'
+     order by p.name, u.code
+     limit 500
+  `;
+}
+
 export async function loadLeaseDraftChoices(tx: Sql, organisationId: string) {
   const units = await tx<
     { unit_id: string; label: string; advertised_rent_minor: string | null }[]

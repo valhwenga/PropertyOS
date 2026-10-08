@@ -353,7 +353,12 @@ export async function generateLeaseAgreement(
   organisationId: string,
   actorUserId: string,
   input: { leaseId: string; templateId: string },
-  render: (body: string, missing: string[], reference: string) => Uint8Array,
+  render: (
+    body: string,
+    missing: string[],
+    reference: string,
+    summary: { label: string; value: string }[],
+  ) => Uint8Array,
   registerPdf: (
     bytes: Uint8Array,
     filename: string,
@@ -381,8 +386,13 @@ export async function generateLeaseAgreement(
   }
 
   const context = await buildMergeContext(tx, organisationId, input.leaseId);
-  const rendered = renderTemplate(version.body, context.values);
-  const pdf = render(rendered.text, rendered.missing, context.leaseReference);
+  // Marked for the PDF, which sets each merged value in bold; stripped for
+  // everything that keeps or shows the text, so a control character never
+  // reaches a record, a screen or a search.
+  const rendered = renderTemplate(version.body, context.values, { markValues: true });
+  const pdf = render(
+    rendered.text, rendered.missing, context.leaseReference, scheduleRows(context.values),
+  );
 
   // Which agreement this one replaces, if any.
   //
@@ -557,10 +567,18 @@ export async function adoptSystemTemplate(
   `;
   if (!source) throw notFound('Template');
 
+  // A template name is unique within an organisation, and taking a second copy
+  // is a legitimate thing to do: the first copy has your edits on it, and the
+  // newest Spike version is something you want to read alongside them rather
+  // than instead of them. Copying under the same name used to hit the unique
+  // constraint and surface as "something went wrong", with no hint that the
+  // name was the problem.
+  const name = await freeTemplateName(tx, organisationId, source.name);
+
   const [template] = await tx<{ id: string }[]>`
     insert into lease_templates (organisation_id, name, layout, source_note, status, created_by)
     values (
-      ${organisationId}, ${source.name}, ${source.layout}::app.lease_template_layout,
+      ${organisationId}, ${name}, ${source.layout}::app.lease_template_layout,
       ${`Spike template: ${source.name}`}, 'draft', ${actorUserId}
     )
     returning id
@@ -576,10 +594,36 @@ export async function adoptSystemTemplate(
   await recordAudit(tx, {
     organisationId, actorUserId,
     action: 'lease.template.adopted', resourceType: 'lease_template', resourceId: template.id,
-    after: { name: source.name, fromSystemVersion: source.version },
+    after: { name, fromSystemVersion: source.version },
   });
 
-  return { templateId: template.id, name: source.name };
+  return { templateId: template.id, name };
+}
+
+/**
+ * A name for this copy that is not already taken in the organisation.
+ *
+ * "Residential lease — South Africa", then "… (copy 2)", "… (copy 3)". Numbered
+ * from the names actually present rather than from a count, so deleting copy 2
+ * and copying again gives copy 2 back instead of leaving a hole.
+ */
+async function freeTemplateName(tx: Sql, organisationId: string, base: string): Promise<string> {
+  const rows = await tx<{ name: string }[]>`
+    select name from lease_templates
+     where organisation_id = ${organisationId}::uuid
+       and (name = ${base} or name like ${`${base} (copy %)`})
+  `;
+  const taken = new Set(rows.map((r) => r.name));
+  if (!taken.has(base)) return base;
+  // The ceiling is a guard, not a limit anyone should reach: a hundred copies of
+  // one template is a mistake, and failing loudly beats looping forever.
+  for (let n = 2; n <= 100; n += 1) {
+    const candidate = `${base} (copy ${n})`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  throw invalid(
+    `There are already 100 copies of "${base}". Delete some before taking another.`,
+  );
 }
 
 /** What an agreement would say, without creating anything. */
@@ -643,4 +687,27 @@ export async function previewLeaseAgreement(
     unknown: rendered.unknown,
     redacted: context.redacted,
   };
+}
+
+/**
+ * The terms that go in the schedule on the first page.
+ *
+ * Taken from the same merged values the body is rendered from, so the schedule
+ * cannot say one thing and clause 4 another. A value the lease does not have is
+ * left out rather than shown blank: an empty row in a schedule reads like a term
+ * that was agreed to be nothing.
+ */
+function scheduleRows(values: Record<string, string>): { label: string; value: string }[] {
+  const rows: { label: string; key: string }[] = [
+    { label: 'Landlord', key: 'landlord.name' },
+    { label: 'Tenant', key: 'tenant.names' },
+    { label: 'Property', key: 'property.full_address' },
+    { label: 'Commencement', key: 'term.effective_date' },
+    { label: 'Termination', key: 'term.termination_date' },
+    { label: 'Monthly rental', key: 'money.rent' },
+    { label: 'Deposit', key: 'money.deposit' },
+  ];
+  return rows
+    .map((row) => ({ label: row.label, value: values[row.key] ?? '' }))
+    .filter((row) => row.value.trim() !== '');
 }

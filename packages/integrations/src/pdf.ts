@@ -48,15 +48,36 @@ const HELVETICA_WIDTHS: Record<string, number> = {
   u: 556, v: 500, w: 722, x: 500, y: 500, z: 500, '{': 334, '|': 260, '}': 334,
 };
 
-/** Approximate text width in points. Good enough to right-align a money column. */
+/**
+ * Helvetica-Bold, from the same Adobe metrics as the table above.
+ *
+ * It used to be approximated as Helvetica x 1.06, which is wrong in both
+ * directions: a bold digit is exactly as wide as a regular one, while a bold 'i'
+ * is a third wider. The error only mattered once bold and regular had to sit on
+ * one line — a lease agreement setting its merged values in bold — where every
+ * overestimate opened a gap before the next word, as in "Thandiwe Mokoena ." and
+ * every underestimate ran the two together.
+ */
+const HELVETICA_BOLD_WIDTHS: Record<string, number> = {
+  ' ': 278, '!': 333, '"': 474, '#': 556, '$': 556, '%': 889, '&': 722, "'": 238,
+  '(': 333, ')': 333, '*': 389, '+': 584, ',': 278, '-': 333, '.': 278, '/': 278,
+  '0': 556, '1': 556, '2': 556, '3': 556, '4': 556, '5': 556, '6': 556, '7': 556,
+  '8': 556, '9': 556, ':': 333, ';': 333, '<': 584, '=': 584, '>': 584, '?': 611,
+  '@': 975, A: 722, B: 722, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722,
+  I: 278, J: 556, K: 722, L: 611, M: 833, N: 722, O: 778, P: 667, Q: 778, R: 722,
+  S: 667, T: 611, U: 722, V: 667, W: 944, X: 667, Y: 667, Z: 611,
+  '[': 333, '\\': 278, ']': 333, '^': 584, _: 556, '`': 333,
+  a: 556, b: 611, c: 556, d: 611, e: 556, f: 333, g: 611, h: 611, i: 278, j: 278,
+  k: 556, l: 278, m: 889, n: 611, o: 611, p: 611, q: 611, r: 389, s: 556, t: 333,
+  u: 611, v: 556, w: 778, x: 556, y: 556, z: 500, '{': 389, '|': 280, '}': 389,
+};
+
+/** Text width in points, from the font's own metrics. */
 export function measureText(text: string, font: FontName, size: number): number {
   if (font === 'Courier') return text.length * 0.6 * size;
-  const bold = font === 'Helvetica-Bold';
+  const widths = font === 'Helvetica-Bold' ? HELVETICA_BOLD_WIDTHS : HELVETICA_WIDTHS;
   let units = 0;
-  for (const char of text) {
-    const base = HELVETICA_WIDTHS[char] ?? 556;
-    units += bold ? Math.round(base * 1.06) : base;
-  }
+  for (const char of text) units += widths[char] ?? (font === 'Helvetica-Bold' ? 611 : 556);
   return (units / 1000) * size;
 }
 

@@ -98,13 +98,14 @@ export async function generateAgreementAction(_previous: unknown, formData: Form
 
     const generated = await generateLeaseAgreement(
       tx, context.organisationId, viewer.authUserId, { leaseId, templateId },
-      (body, missing, reference) =>
+      (body, missing, reference, summary) =>
         renderLeaseAgreementPdf(body, {
           title: 'Lease Agreement',
           organisationName: context.organisationName,
           leaseReference: reference,
           generatedOn: formatDayMonthYear(new Date()),
           missingFields: missing,
+          summary,
         }),
       async (bytes, filename, title, supersedesDocumentId) => {
         const registered = await registerDocument(

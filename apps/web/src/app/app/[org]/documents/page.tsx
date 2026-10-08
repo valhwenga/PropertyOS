@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
 import { UploadForm } from './upload-form';
 import { ShareControl } from './share-control';
@@ -80,15 +81,20 @@ export default async function DocumentsPage({ params }: { params: Promise<{ org:
             return (
               <tr key={d.id} className="hover:bg-ink-50">
                 <Td>
-                  <a
-                    href={`/app/${org}/documents/${d.id}/download`}
-                    className="font-medium text-spike-600 hover:underline aria-disabled:pointer-events-none aria-disabled:text-ink-400"
-                    aria-disabled={d.quarantined}
+                  {/* The title opens the document's own page rather than
+                      downloading it. A quarantined file used to link straight at
+                      the download, disabled only by a CSS rule and an
+                      aria-disabled attribute — so the link still worked from the
+                      keyboard and still answered 403. Its page explains why
+                      instead. */}
+                  <Link
+                    href={`/app/${org}/documents/${d.id}`}
+                    className="font-medium text-spike-600 hover:underline"
                   >
                     {d.title}
-                  </a>
+                  </Link>
                   {d.quarantined ? (
-                    <span className="block text-xs text-ink-400">Download blocked while quarantined</span>
+                    <span className="block text-xs text-ink-400">Quarantined — cannot be downloaded</span>
                   ) : null}
                 </Td>
                 <Td className="capitalize text-ink-500">{d.classification.replace(/_/g, ' ')}</Td>

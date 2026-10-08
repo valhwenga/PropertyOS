@@ -12,6 +12,7 @@
  *    than left for someone to notice.
  */
 import { PdfDocument, type PdfPage, measureText } from '@propertyos/integrations';
+import { VALUE_MARK_START, VALUE_MARK_END } from './lease-agreements';
 
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
@@ -29,6 +30,99 @@ export interface LeaseAgreementPdfContext {
   missingFields: string[];
   /** Shown in the footer. A draft until the parties have signed it. */
   statusNote?: string;
+  /**
+   * The key terms, for the schedule on the first page.
+   *
+   * A lease is read twice: once in full before signing, and many times
+   * afterwards to settle one question — when does it end, what is the rent, who
+   * is on it. The schedule answers those without anyone hunting through the
+   * clauses, and it is drawn from the same merged values as the body, so it
+   * cannot disagree with the agreement it sits in front of.
+   */
+  summary?: { label: string; value: string }[];
+}
+
+/** A stretch of text, and whether it came from this lease rather than the template. */
+interface Run { text: string; value: boolean }
+
+/** Splits a line on the value markers into runs. */
+function runsOf(line: string): Run[] {
+  const runs: Run[] = [];
+  let rest = line;
+  while (rest.length > 0) {
+    const start = rest.indexOf(VALUE_MARK_START);
+    if (start === -1) { runs.push({ text: rest, value: false }); break; }
+    if (start > 0) runs.push({ text: rest.slice(0, start), value: false });
+    const end = rest.indexOf(VALUE_MARK_END, start + 1);
+    if (end === -1) {
+      // An unterminated mark can only mean a value containing a newline. Treat
+      // the remainder as the value rather than printing a control character.
+      runs.push({ text: rest.slice(start + 1), value: true });
+      break;
+    }
+    runs.push({ text: rest.slice(start + 1, end), value: true });
+    rest = rest.slice(end + 1);
+  }
+  return runs.filter((r) => r.text.length > 0);
+}
+
+/**
+ * Greedy wrap over runs, so a value in bold wraps like any other words and keeps
+ * its weight across the line break.
+ *
+ * Measured per run against the font it will actually be drawn in: bold glyphs
+ * are wider, and wrapping everything as regular put bold text past the margin.
+ */
+function wrapRuns(runs: Run[], size: number, width: number): Run[][] {
+  const lines: Run[][] = [];
+  let line: Run[] = [];
+  let used = 0;
+
+  const push = (): void => { if (line.length > 0) { lines.push(line); line = []; used = 0; } };
+
+  for (const run of runs) {
+    const font = run.value ? 'Helvetica-Bold' as const : 'Helvetica' as const;
+    // Keep the spaces: they belong between words, and dropping them around a
+    // value ran it into the word before it.
+    const pieces = run.text.split(/(\s+)/).filter((t) => t !== '');
+    for (const piece of pieces) {
+      const isSpace = /^\s+$/.test(piece);
+      const w = measureText(piece, font, size);
+      if (used + w > width && !(isSpace && used === 0)) {
+        if (isSpace) continue;           // never start a line with a space
+        if (used > 0) push();
+        if (w > width) {
+          // A single word wider than the column still has to go somewhere.
+          let chunk = '';
+          for (const ch of piece) {
+            if (measureText(chunk + ch, font, size) > width) {
+              lines.push([{ text: chunk, value: run.value }]);
+              chunk = ch;
+            } else chunk += ch;
+          }
+          line = [{ text: chunk, value: run.value }];
+          used = measureText(chunk, font, size);
+          continue;
+        }
+      }
+      const last = line[line.length - 1];
+      if (last && last.value === run.value) last.text += piece;
+      else line.push({ text: piece, value: run.value });
+      used += w;
+    }
+  }
+  push();
+  return lines.length > 0 ? lines : [[]];
+}
+
+/** Draws one wrapped line, run by run, and returns where it ended. */
+function drawRuns(page: PdfPage, runs: Run[], x: number, y: number, size: number): void {
+  let cursor = x;
+  for (const run of runs) {
+    const font = run.value ? 'Helvetica-Bold' as const : 'Helvetica' as const;
+    page.text(run.text, cursor, y, { font, size });
+    cursor += measureText(run.text, font, size);
+  }
 }
 
 /** Greedy wrap against the real glyph widths the PDF writer measures with. */
@@ -58,6 +152,46 @@ function wrap(text: string, font: 'Helvetica' | 'Helvetica-Bold', size: number, 
 
 const HEADING = /^(\d+(?:\.\d+)*)[.)]?\s+(\S.*)$/;
 const ALL_CAPS_HEADING = /^[A-Z][A-Z0-9 ,'’&/()-]{3,}$/;
+
+/**
+ * An indented `label<gap>value` row, where the gap is two or more spaces used as
+ * a column separator — "Name        {{landlord.name}}".
+ *
+ * Two spaces is what tells these apart from a clause that simply ran onto the
+ * next line: prose wraps with single spaces, a column is aligned with several.
+ */
+const LABEL_ROW = /^[ \t]+(\S.*?)[ \t]{2,}(\S.*)$/;
+
+/**
+ * Rejoins a clause that the template's author hard-wrapped.
+ *
+ * Lease templates are written in a text box, so their paragraphs arrive broken
+ * at whatever column the author was working to and indented underneath. Printing
+ * those breaks verbatim gives a page of short ragged lines that stops looking
+ * like a legal document, and re-wraps badly at any other page width. So a line
+ * that is indented, is not a column row, and follows a clause is folded back
+ * into the clause, and the renderer wraps the whole paragraph itself.
+ *
+ * Blank lines, headings and column rows all end a paragraph, so nothing is
+ * glued to something it was never part of.
+ */
+export function reflow(body: string): string[] {
+  const out: string[] = [];
+  for (const raw of body.split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    const indented = /^[ \t]+\S/.test(line);
+    const previous = out[out.length - 1];
+    const continues = indented
+      && !LABEL_ROW.test(line)
+      && previous !== undefined
+      && previous.trim() !== ''
+      && !LABEL_ROW.test(previous)
+      && HEADING.test(previous.trim());
+    if (continues) out[out.length - 1] = `${previous} ${line.trim()}`;
+    else out.push(line);
+  }
+  return out;
+}
 
 export function renderLeaseAgreementPdf(body: string, context: LeaseAgreementPdfContext): Uint8Array {
   const document = new PdfDocument({
@@ -91,35 +225,81 @@ export function renderLeaseAgreementPdf(body: string, context: LeaseAgreementPdf
 
   const columnWidth = PAGE_WIDTH - MARGIN_X * 2;
 
-  for (const rawLine of body.split('\n')) {
-    const line = rawLine.replace(/\s+$/, '');
-    if (line.trim() === '') { y += LINE_HEIGHT * 0.6; continue; }
+  // The schedule: the handful of terms anyone opening this document later is
+  // actually looking for, with the values in bold.
+  const summary = (context.summary ?? []).filter((row) => row.value.trim() !== '');
+  if (summary.length > 0) {
+    const labelWidth = 132;
+    const valueWidth = columnWidth - labelWidth - 20;
+    const rows = summary.map((row) => ({
+      label: row.label,
+      lines: wrap(row.value, 'Helvetica-Bold', BODY_SIZE, valueWidth),
+    }));
+    const height = rows.reduce((total, r) => total + LINE_HEIGHT * r.lines.length, 0) + 26;
+
+    page.rect(MARGIN_X, y, columnWidth, height, { fill: 0.97 });
+    page.text('SCHEDULE', MARGIN_X + 10, y + 12, { font: 'Helvetica-Bold', size: BODY_SIZE });
+    let rowY = y + 12 + LINE_HEIGHT + 2;
+    for (const row of rows) {
+      page.text(row.label, MARGIN_X + 10, rowY, { size: BODY_SIZE, colour: 0.4 });
+      row.lines.forEach((line, i) => page.text(
+        line, MARGIN_X + 10 + labelWidth, rowY + i * LINE_HEIGHT,
+        { font: 'Helvetica-Bold', size: BODY_SIZE },
+      ));
+      rowY += LINE_HEIGHT * row.lines.length;
+    }
+    y += height + 18;
+  }
+
+  for (const line of reflow(body)) {
+    if (runsOf(line).map((r) => r.text).join('').trim() === '') {
+      y += LINE_HEIGHT * 0.6;
+      continue;
+    }
+
+    const column = LABEL_ROW.exec(line);
+    if (column) {
+      const [, label, value] = column;
+      const labelX = MARGIN_X + 26;
+      const valueX = labelX + 148;
+      const wrapped = wrapRuns(runsOf(value!), BODY_SIZE, PAGE_WIDTH - MARGIN_X - valueX);
+      room(LINE_HEIGHT * wrapped.length);
+      page.text(runsOf(label!).map((r) => r.text).join(''), labelX, y, { size: BODY_SIZE, colour: 0.35 });
+      wrapped.forEach((runs, i) => drawRuns(page, runs, valueX, y + i * LINE_HEIGHT, BODY_SIZE));
+      y += LINE_HEIGHT * wrapped.length;
+      continue;
+    }
 
     const numbered = HEADING.exec(line.trim());
     if (numbered) {
       // Clause number in the gutter, body hanging beside it.
       const [, number, rest] = numbered;
       const indent = Math.min(46, 16 + number!.split('.').length * 10);
-      const wrapped = wrap(rest!, 'Helvetica', BODY_SIZE, columnWidth - indent);
+      const wrapped = wrapRuns(runsOf(rest!), BODY_SIZE, columnWidth - indent);
       room(LINE_HEIGHT * wrapped.length + 6);
       page.text(number!, MARGIN_X, y, { font: 'Helvetica-Bold', size: BODY_SIZE });
-      wrapped.forEach((w, i) => page.text(w, MARGIN_X + indent, y + i * LINE_HEIGHT, { size: BODY_SIZE }));
+      wrapped.forEach((runs, i) =>
+        drawRuns(page, runs, MARGIN_X + indent, y + i * LINE_HEIGHT, BODY_SIZE));
       y += LINE_HEIGHT * wrapped.length + 5;
       continue;
     }
 
-    if (ALL_CAPS_HEADING.test(line.trim()) && line.trim().length < 70) {
-      room(LINE_HEIGHT * 2);
-      y += 6;
-      page.text(line.trim(), MARGIN_X, y, { font: 'Helvetica-Bold', size: BODY_SIZE + 0.5 });
-      y += LINE_HEIGHT + 2;
+    // A section heading is the template's own words, so it is tested and drawn
+    // without the markers rather than with them.
+    const plain = runsOf(line.trim()).map((r) => r.text).join('');
+    if (ALL_CAPS_HEADING.test(plain) && plain.length < 70) {
+      room(LINE_HEIGHT * 2.6);
+      y += 10;
+      page.text(plain, MARGIN_X, y, { font: 'Helvetica-Bold', size: BODY_SIZE + 1 });
+      y += LINE_HEIGHT - 3;
+      page.line(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y, { colour: 0.8 });
+      y += 9;
       continue;
     }
 
-    const wrapped = wrap(line, 'Helvetica', BODY_SIZE, columnWidth);
-    for (const w of wrapped) {
+    for (const runs of wrapRuns(runsOf(line), BODY_SIZE, columnWidth)) {
       room(LINE_HEIGHT);
-      page.text(w, MARGIN_X, y, { size: BODY_SIZE });
+      drawRuns(page, runs, MARGIN_X, y, BODY_SIZE);
       y += LINE_HEIGHT;
     }
   }

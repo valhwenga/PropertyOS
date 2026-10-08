@@ -190,7 +190,7 @@ export function AgreementPanel({
                 className="inline-block text-sm font-medium text-spike-600 hover:underline"
                 href={`/app/${org}/documents/${genState.documentId}`}
               >
-                Open the document →
+                Read the PDF →
               </Link>
             </div>
           ) : null}
@@ -328,6 +328,14 @@ export function AgreementPanel({
                 <Link className="text-spike-600 hover:underline" href={`/app/${org}/documents/${g.documentId}`}>
                   Issue {g.issue} · {g.templateName} v{g.version}
                 </Link>
+                {/* The generated PDF opens on its own page, where it can be read
+                    before it is sent rather than only downloaded. */}
+                <Link
+                  className="text-xs text-spike-600 hover:underline"
+                  href={`/app/${org}/documents/${g.documentId}`}
+                >
+                  Read the PDF
+                </Link>
                 <span className="text-ink-400">{formatDayMonthYear(g.generatedAt)}</span>
                 {g.missingFields.length > 0 ? (
                   <StatusBadge tone="caution">{g.missingFields.length} incomplete</StatusBadge>
@@ -342,9 +350,10 @@ export function AgreementPanel({
             ))}
           </ul>
           <p className="mt-3 text-xs text-ink-500">
-            Sending puts the agreement in the resident&rsquo;s portal and their inbox, where they can read and
-            download it. Only the current issue can be shared, so a superseded draft never
-            reaches them.
+            Read the PDF before sending it: what is in the document is what the tenant gets.
+            Sending puts the agreement in the resident&rsquo;s portal and their inbox, where they can
+            read and download it. Only the current issue can be shared, so a superseded draft
+            never reaches them.
           </p>
         </Card>
       ) : null}

@@ -133,14 +133,49 @@ export interface RenderResult {
 }
 
 /**
+ * Invisible markers around a merged value, so a renderer can tell the parts that
+ * came from this lease apart from the template's own wording.
+ *
+ * The PDF sets everything between them in bold: the names, the identity and
+ * account numbers, the address, the amounts and the dates — the details a person
+ * checks before signing, and the only parts of the page that differ from every
+ * other agreement made from the same template.
+ *
+ * Device control characters, chosen because they cannot occur in a lease: a
+ * template containing one would have to have been authored with a hex editor.
+ * `stripValueMarks` removes them for anything that is not the PDF.
+ */
+export const VALUE_MARK_START = '\u0011';
+export const VALUE_MARK_END = '\u0012';
+
+/** Plain text, with the marks removed. Safe on text that has none. */
+export function stripValueMarks(text: string): string {
+  return text.split(VALUE_MARK_START).join('').split(VALUE_MARK_END).join('');
+}
+
+/**
  * Substitutes placeholders, and reports rather than hides what it could not
  * fill. An unresolved placeholder is left visibly in the text as its own name
  * so a proofreader sees it; it is never replaced with an empty string.
+ *
+ * `markValues` wraps each substitution — including the `[name]` left behind for
+ * one that could not be filled, which is exactly the thing a proofreader most
+ * needs to see.
  */
-export function renderTemplate(body: string, values: Record<string, string>): RenderResult {
+export function renderTemplate(
+  body: string,
+  values: Record<string, string>,
+  options: { markValues?: boolean } = {},
+): RenderResult {
   const missing = new Set<string>();
   const unknown = new Set<string>();
-  const text = body.replace(PLACEHOLDER, (whole, rawKey: string) => {
+  // A template that already contains a mark would let its author forge emphasis
+  // inside the merged values. There is no legitimate reason for one to be there.
+  const source = options.markValues ? stripValueMarks(body) : body;
+  const mark = (value: string): string =>
+    options.markValues ? `${VALUE_MARK_START}${value}${VALUE_MARK_END}` : value;
+
+  const text = source.replace(PLACEHOLDER, (whole, rawKey: string) => {
     const key = rawKey.toLowerCase();
     if (!FIELD_BY_KEY.has(key)) {
       unknown.add(key);
@@ -149,9 +184,9 @@ export function renderTemplate(body: string, values: Record<string, string>): Re
     const value = values[key];
     if (value === undefined || value.trim() === '') {
       missing.add(key);
-      return `[${key}]`;
+      return mark(`[${key}]`);
     }
-    return value;
+    return mark(value);
   });
   return { text, missing: [...missing].sort(), unknown: [...unknown].sort() };
 }
