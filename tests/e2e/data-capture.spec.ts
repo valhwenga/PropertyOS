@@ -27,6 +27,25 @@ async function visibleText(page: import('@playwright/test').Page): Promise<strin
   });
 }
 
+/**
+ * Opens an actual resident, not the "Add resident" link.
+ *
+ * `a[href*="/residents/"]` matches `/residents/new` too, and following that
+ * lands on an empty creation form where nothing the test is looking for exists.
+ * Matching a UUID is what distinguishes a record from a route.
+ */
+async function openFirstResident(page: import('@playwright/test').Page): Promise<void> {
+  const link = page.locator('a[href*="/residents/"]:not([href$="/new"])').first();
+  await expect(link).toBeVisible({ timeout: 15_000 });
+  await link.click();
+  await page.waitForLoadState('domcontentloaded');
+  // The identity control, which exists only on a resident's own page. Matched
+  // by role so it cannot also match the "Identity number" field label.
+  await expect(
+    page.getByRole('button', { name: /(Capture|Replace) (an|the) identity number/ }),
+  ).toBeVisible({ timeout: 15_000 });
+}
+
 test.describe('resident data capture', () => {
   test.describe.configure({ timeout: 180_000 });
 
@@ -41,13 +60,20 @@ test.describe('resident data capture', () => {
     const org = await page.locator('a[href^="/app/"]').first().getAttribute('href');
 
     await page.goto(`${org}/residents`, { waitUntil: 'domcontentloaded' });
-    const firstResident = page.locator('a[href*="/residents/"]').first();
-    await firstResident.click();
-    await page.waitForLoadState('domcontentloaded');
+    await openFirstResident(page);
 
     /* ------------------------------------------------------------ editing */
 
     await page.getByRole('button', { name: 'Edit this resident' }).click();
+
+    // §3: suspension is not deletion. Archiving is offered; deleting is not.
+    // Asserted here rather than in a test of its own, because each sign-in
+    // consumes a single-use authentication code and a second one would spend
+    // thirty seconds waiting for a window it is allowed to use.
+    await expect(page.getByLabel('Status')).toBeVisible();
+    await expect(page.getByRole('option', { name: 'Archived' })).toBeAttached();
+    await expect(page.getByRole('button', { name: /delete/i })).toHaveCount(0);
+
     const phone = `082 ${String(Date.now()).slice(-7)}`;
     await page.getByLabel('Phone').fill(phone);
     await page.getByRole('button', { name: 'Save changes' }).click();
@@ -76,19 +102,4 @@ test.describe('resident data capture', () => {
     expect(afterReload).toContain('••••••• 0085');
   });
 
-  test('the resident edit form offers archiving rather than deletion', async ({ page }) => {
-    // §3: suspension is not deletion. A delete button on this screen would be
-    // the wrong affordance, so its absence is asserted rather than assumed.
-    await signIn(page, ADMIN);
-    await page.goto('/app');
-    const org = await page.locator('a[href^="/app/"]').first().getAttribute('href');
-    await page.goto(`${org}/residents`, { waitUntil: 'domcontentloaded' });
-    await page.locator('a[href*="/residents/"]').first().click();
-    await page.waitForLoadState('domcontentloaded');
-
-    await page.getByRole('button', { name: 'Edit this resident' }).click();
-    await expect(page.getByLabel('Status')).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Archived' })).toBeAttached();
-    await expect(page.getByRole('button', { name: /delete/i })).toHaveCount(0);
-  });
 });
