@@ -79,6 +79,7 @@ export async function saveTermsAction(_previous: unknown, formData: FormData) {
       maintenanceCalloutFeeMinor: money('maintenanceCalloutFee', 'Maintenance call-out') as never,
       earlyCancellationCapMinor: money('earlyCancellationCap', 'Early cancellation cap') as never,
       namedOccupants: text('namedOccupants'),
+      complaintsThreshold: num('complaintsThreshold') as never,
       paymentReference: text('paymentReference'),
       refundAccountHolder: text('refundAccountHolder'),
       refundBankName: text('refundBankName'),

@@ -162,6 +162,7 @@ test fails if this list and the code drift apart.
 | `{{rules.surcharge}}` | Surcharge |
 | `{{rules.special_conditions}}` | Special conditions |
 | `{{rules.named_occupants}}` | Named occupants and relationship to tenant |
+| `{{rules.complaints_threshold}}` | Substantiated complaints that count as a material breach |
 
 ### Legal
 

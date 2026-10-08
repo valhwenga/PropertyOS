@@ -124,6 +124,23 @@ describe('the shipped residential lease template', () => {
       .toMatch(/longer agreed period does not displace/i);
   });
 
+  /**
+   * The complaints clause was asked for and built. What it must never become is
+   * the source document's version: three complaints and the lease ends on the
+   * spot. Reaching the threshold is a material breach, and clause 23 is where
+   * the notice and the remedy period live.
+   */
+  it('routes the complaints threshold through the breach clause, not around it', () => {
+    const text = body();
+    expect(text).toMatch(/\{\{rules\.complaints_threshold\}\}/);
+    expect(text, 'the threshold is a material breach for clause 23')
+      .toMatch(/material breach for the purposes of clause 23/i);
+    expect(text, 'and never a power to cancel on the spot')
+      .toMatch(/does not permit cancellation with immediate effect/i);
+    // An anonymous complaint is not evidence of anything.
+    expect(text).toMatch(/anonymous complaint/i);
+  });
+
   it('says proof of payment is not payment', () => {
     // Checked on the newest version only: the phrasing is wording, not a rule
     // every version must carry in the same words.

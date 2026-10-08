@@ -67,7 +67,7 @@ export default async function LeaseDetailPage({
              key_return_at::text, surcharge_detail, special_conditions,
              deposit_refund_days::text, defects_notice_days::text,
              maintenance_callout_fee_minor::text, early_cancellation_cap_minor::text,
-             named_occupants, payment_reference,
+             named_occupants, payment_reference, complaints_threshold::text,
              refund_account_holder, refund_bank_name, refund_branch_code,
              -- Only the last four digits. The sealed number is never read back
              -- to a screen; the form shows them as a placeholder so the operator

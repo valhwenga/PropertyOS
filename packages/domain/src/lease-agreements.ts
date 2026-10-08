@@ -127,6 +127,7 @@ export const LEASE_MERGE_FIELDS: readonly MergeField[] = [
   { key: 'rules.surcharge', label: 'Surcharge', group: 'Rules', example: 'Electricity only' },
   { key: 'rules.special_conditions', label: 'Special conditions', group: 'Rules', example: '' },
   { key: 'rules.named_occupants', label: 'Named occupants', group: 'Rules', example: 'Z C Mtombo, spouse' },
+  { key: 'rules.complaints_threshold', label: 'Complaints threshold', group: 'Rules', example: '3' },
 
   // Legal and document
   { key: 'legal.jurisdiction_court', label: "Magistrate's court", group: 'Legal', example: 'Randburg' },
@@ -281,7 +282,7 @@ export async function buildMergeContext(
            key_return_at::text, surcharge_detail, special_conditions,
            deposit_refund_days::text, defects_notice_days::text,
            maintenance_callout_fee_minor::text, early_cancellation_cap_minor::text,
-           named_occupants, payment_reference,
+           named_occupants, payment_reference, complaints_threshold::text,
            refund_account_holder, refund_bank_name, refund_branch_code,
            refund_account_number_last4
       from lease_agreement_terms where lease_id = ${leaseId}
@@ -440,6 +441,7 @@ export async function buildMergeContext(
     'rules.surcharge': terms?.surcharge_detail ?? '',
     'rules.special_conditions': terms?.special_conditions ?? '',
     'rules.named_occupants': terms?.named_occupants ?? '',
+    'rules.complaints_threshold': terms?.complaints_threshold ?? '',
 
     'legal.jurisdiction_court': terms?.jurisdiction_court ?? '',
     'doc.lease_reference': lease.reference,

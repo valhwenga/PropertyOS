@@ -1,16 +1,36 @@
-# Master residential lease — merged from sources 1 and 2
+-- 0035_master_lease_complaints_clause.sql
+-- The complaints clause, on the owner's instruction, with the threshold as a
+-- field.
+--
+-- The first source document said: more than 3 written complaints from any person
+-- in the same complex, and the landlord may terminate with immediate effect. The
+-- number is now per lease (0034), because 3 is wrong for a freestanding house and
+-- wrong for a block of two hundred flats, and blank switches the clause off.
+--
+-- One deviation from the source wording, stated plainly so it is not mistaken
+-- for a transcription error: reaching the threshold is a MATERIAL BREACH under
+-- clause 23, not a power to cancel with immediate effect. Clause 23 is where the
+-- written notice and the remedy period live, and the Consumer Protection Act
+-- requires them for a lease it governs. A clause that skipped them would be the
+-- first thing a tribunal struck out, and it would take the rest of the
+-- cancellation with it.
+--
+-- Clause 9.4 says what makes a complaint count: in writing, from someone named
+-- who lives in or manages property in the neighbourhood, about specific conduct
+-- on a stated date, copied to the tenant with a chance to answer, and not
+-- remedied afterwards. Several complaints about one incident count once.
+-- Anonymous complaints do not count. Without that, "three complaints" is three
+-- phone calls from one angry neighbour.
+--
+-- Clause 9.6 keeps the landlord's ability to go to court at once over conduct
+-- that is dangerous or unlawful. The threshold is for the accumulating nuisance
+-- it was written for, not for an emergency.
 
-Published by migrations `0031`, `0033` and `0035`; its fields were built in `0032` and `0034`.
-A customer copies it into their own templates and edits it there.
-
-Conflicts between the two sources and how each was resolved: `MERGE-DECISIONS.md`.
-
-Clause 17 of source 1 — service disconnection and removal of goods without a court
-order — was removed on the owner's instruction and is in no version.
-
-**Not legal advice.** Have it reviewed by a qualified attorney before anybody signs one.
-
-```
+insert into system_lease_template_versions (template_id, version, body, published_at)
+select t.id,
+       coalesce((select max(v.version) from system_lease_template_versions v
+                  where v.template_id = t.id), 0) + 1,
+       $BODY$
 RESIDENTIAL LEASE AGREEMENT
 South Africa
 
@@ -572,4 +592,6 @@ Witness 1: ...........................................
 Witness 2: ...........................................
 
 Additional signatories or signed continuation sheet reference: ......................
-```
+$BODY$, now()
+from system_lease_templates t
+where t.name = 'Residential lease — South Africa';

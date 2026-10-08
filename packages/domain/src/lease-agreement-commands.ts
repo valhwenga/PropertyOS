@@ -297,6 +297,9 @@ const termsSchema = z.object({
   maintenanceCalloutFeeMinor: z.coerce.number().int().min(0).optional(),
   earlyCancellationCapMinor: z.coerce.number().int().min(0).optional(),
   namedOccupants: z.string().trim().max(2000).optional(),
+  // 1 and up: a threshold of nought would make every tenancy breachable on day
+  // one, and leaving it empty is how a landlord says the clause does not apply.
+  complaintsThreshold: z.coerce.number().int().min(1).max(50).optional(),
   paymentReference: z.string().trim().max(80).optional(),
   refundAccountHolder: z.string().trim().max(160).optional(),
   refundBankName: z.string().trim().max(120).optional(),
@@ -332,7 +335,7 @@ export async function saveLeaseAgreementTerms(
       sales_commission_percent, payment_method, place_of_payment, jurisdiction_court,
       key_return_at, surcharge_detail, special_conditions,
       deposit_refund_days, defects_notice_days, maintenance_callout_fee_minor,
-      early_cancellation_cap_minor, named_occupants, payment_reference,
+      early_cancellation_cap_minor, named_occupants, payment_reference, complaints_threshold,
       refund_account_holder, refund_bank_name, refund_branch_code,
       refund_account_number_cipher, refund_account_number_last4, updated_by)
     values (
@@ -350,6 +353,7 @@ export async function saveLeaseAgreementTerms(
       ${n(d.depositRefundDays)}, ${n(d.defectsNoticeDays)},
       ${n(d.maintenanceCalloutFeeMinor)}, ${n(d.earlyCancellationCapMinor)},
       ${d.namedOccupants ?? null}, ${d.paymentReference ?? null},
+      ${n(d.complaintsThreshold)},
       ${d.refundAccountHolder ?? null}, ${d.refundBankName ?? null},
       ${d.refundBranchCode ?? null}, ${refundCipher}, ${refundLast4}, ${actorUserId})
     on conflict (lease_id) do update set
@@ -375,6 +379,7 @@ export async function saveLeaseAgreementTerms(
       early_cancellation_cap_minor = excluded.early_cancellation_cap_minor,
       named_occupants = excluded.named_occupants,
       payment_reference = excluded.payment_reference,
+      complaints_threshold = excluded.complaints_threshold,
       refund_account_holder = excluded.refund_account_holder,
       refund_bank_name = excluded.refund_bank_name,
       refund_branch_code = excluded.refund_branch_code,

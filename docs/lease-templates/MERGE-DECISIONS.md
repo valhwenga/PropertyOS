@@ -103,8 +103,25 @@ remove it.
   complex lets the landlord terminate with immediate effect.
 - **Source 2, clauses 9.2 and 23:** a fine or rule breach must be lawful, evidenced,
   attributable and open to challenge; cancellation needs notice and a remedy period.
-- **Master: follows source 2.** A complaint count from unnamed neighbours is not a
-  finding of fact, and "immediate effect" bypasses the remedy period.
+- **DECIDED: the clause is in, on the owner's instruction of 8 October 2026**, as
+  master clauses 9.3 to 9.6, with the count as `rules.complaints_threshold` — per
+  lease, because 3 is wrong for a freestanding house and wrong for a block of two
+  hundred flats. Blank switches the clause off.
+
+  One deviation from the source wording, deliberate and tested: reaching the
+  threshold is a **material breach under clause 23**, not a power to cancel with
+  immediate effect. Clause 23 holds the written notice and the remedy period the
+  CPA requires, and a clause that skipped them would be struck out and take the
+  cancellation with it.
+
+  Clause 9.4 says what makes a complaint count: written, from someone named who
+  lives in or manages property nearby, about specific conduct on a stated date,
+  copied to the tenant with a chance to answer, and not remedied afterwards.
+  Several complaints about one incident count once; anonymous ones never count.
+  Without that, "three complaints" is three phone calls from one angry neighbour.
+
+  Clause 9.6 keeps the landlord's right to go to court at once over conduct that
+  is dangerous or unlawful.
 
 ## 9. Renewal
 
@@ -170,6 +187,6 @@ four digits are ever shown again — on the agreement and on the form. Leaving t
 field empty keeps the stored number rather than erasing it, because the form
 never shows the whole thing back.
 
-`rules.complaints_threshold` was deliberately NOT built: the master follows source
-2 on complaints, no clause uses it, and a field nothing reads is a blank an
-operator fills in for nothing.
+`rules.complaints_threshold` was added on 8 October 2026 with the complaints
+clause that reads it — see decision 8. It is entered on Lease → Schedule details,
+and left blank the clause does not apply.

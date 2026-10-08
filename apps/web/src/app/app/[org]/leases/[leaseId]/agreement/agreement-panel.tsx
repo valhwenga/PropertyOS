@@ -327,6 +327,10 @@ export function AgreementPanel({
                      ? 'Stored. Leave empty to keep it; type a new one to replace it.'
                      : "The tenant's account. Stored sealed; only the last four digits are shown again."} />
 
+            <Field name="complaintsThreshold" label="Complaints threshold" type="number"
+                   defaultValue={terms.complaints_threshold}
+                   hint="Substantiated complaints that count as a breach. Empty switches the clause off." />
+
             <div className="sm:col-span-3">
               <Field name="namedOccupants" label="Named occupants and relationship to tenant"
                      defaultValue={terms.named_occupants}
