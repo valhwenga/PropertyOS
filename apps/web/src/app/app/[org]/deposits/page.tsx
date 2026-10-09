@@ -1,77 +1,143 @@
-import { DataTable, EmptyState, Money, PageHeader, Td, Th } from '@propertyos/ui';
-import { depositRegister } from '@propertyos/domain';
+import Link from 'next/link';
+import {
+  Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th,
+} from '@propertyos/ui';
+import { hasPermission, listDepositAccounts, sumMinor } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
+import { loadLeaseChoices } from '@/lib/operations-queries';
+import { RecordDepositForm } from './deposit-forms';
 
 export const metadata = { title: 'Deposits' };
 export const dynamic = 'force-dynamic';
 
+const HOLDER_LABEL: Record<string, string> = {
+  landlord: 'Landlord',
+  agency_trust: 'Agency trust',
+  third_party_custodian: 'Custodian',
+};
+
 /**
- * Deposit liabilities.
+ * Deposits held, as an operational list.
  *
  * A deposit is money held for the resident, not income. It is never netted off
  * the rent receivable, which is why this is its own register rather than a
  * column on a statement.
+ *
+ * The accountant's version of this — with interest, deductions and refunds
+ * broken out and its qualifications attached — is the deposit register under
+ * Reports. This one is for doing the work: what is held, what is short, and
+ * which deposits need attention.
  */
 export default async function DepositsPage({ params }: { params: Promise<{ org: string }> }) {
   const { org } = await params;
   const context = await requireOperator(org);
-  const data = await readAs(context.viewer, (tx) =>
-    depositRegister(tx, context.organisationId));
-  const currency = data.meta.currencyCode;
+
+  const { accounts, leases, canRecord } = await readAs(context.viewer, async (tx) => ({
+    accounts: await listDepositAccounts(tx, context.organisationId),
+    leases: await loadLeaseChoices(tx, context.organisationId),
+    canRecord: await hasPermission(tx, context.organisationId, 'deposit.record'),
+  }));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const currency = accounts[0]?.currencyCode ?? context.currencyCode;
+  const totalHeld = sumMinor(accounts.map((a) => a.heldMinor));
+  const totalShort = sumMinor(accounts.map((a) => a.shortfallMinor));
+  const leaseChoices = leases.map((l) => ({ id: l.id, label: `${l.reference} — ${l.label}` }));
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Deposits"
-        description="Deposits held against each lease, with what is required, what is held, interest credited, and anything deducted or refunded."
+        description="Money held on behalf of residents, what each lease requires, and anything short."
+        actions={
+          canRecord ? (
+            <RecordDepositForm org={org} leases={leaseChoices} today={today} />
+          ) : undefined
+        }
       />
 
-      <div className="rounded-[var(--radius-card)] border border-ink-100 bg-surface p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Total held</p>
-        <p className="mt-1 text-3xl font-semibold tracking-tight">
-          <Money minor={data.totalHeldMinor} currency={currency} />
-        </p>
-        <p className="mt-2 text-sm text-ink-500">
-          Held on behalf of residents. This is a liability and does not reduce any rent receivable.
-        </p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Total held</p>
+          <p className="mt-1 text-3xl font-semibold tracking-tight">
+            <Money minor={totalHeld} currency={currency} />
+          </p>
+          <p className="mt-2 text-sm text-ink-500">
+            A liability. It does not reduce any rent receivable.
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Short of required</p>
+          <p className="mt-1 text-3xl font-semibold tracking-tight">
+            <Money minor={totalShort} currency={currency} emphasise={totalShort > 0n} />
+          </p>
+          <p className="mt-2 text-sm text-ink-500">
+            Not arrears. A deposit shortfall is never billed as rent.
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Open accounts</p>
+          <p className="mt-1 text-3xl font-semibold tracking-tight">
+            {accounts.filter((a) => a.status === 'open').length}
+          </p>
+          <p className="mt-2 text-sm text-ink-500">
+            <Link href={`/app/${org}/reports/deposits`} className="text-spike-600 hover:underline">
+              The accountant&rsquo;s register →
+            </Link>
+          </p>
+        </Card>
       </div>
 
-      {data.rows.length === 0 ? (
+      {accounts.length === 0 ? (
         <EmptyState
           title="No deposits recorded"
-          description="Deposit liabilities appear here once a deposit is received against a lease."
+          description="Record a deposit when the money actually arrives. Until then the lease simply shows what it requires."
+          action={
+            canRecord ? (
+              <RecordDepositForm org={org} leases={leaseChoices} today={today} />
+            ) : undefined
+          }
         />
       ) : (
         <DataTable
-          caption="Deposit register"
+          caption="Deposits held"
           head={
             <tr>
-              <Th>Resident</Th><Th>Unit</Th><Th>Holder</Th>
-              <Th numeric>Required</Th><Th numeric>Held</Th><Th numeric>Interest</Th>
-              <Th numeric>Deductions</Th><Th numeric>Refunded</Th>
+              <Th>Resident</Th><Th>Unit</Th><Th>Lease</Th><Th>Held by</Th>
+              <Th numeric>Required</Th><Th numeric>Held</Th><Th numeric>Short</Th><Th>Status</Th>
             </tr>
           }
         >
-          {data.rows.map((r, i) => (
-            <tr key={`${r.leaseReference}-${i}`}>
-              <Td>{r.residentName ?? r.leaseReference}</Td>
-              <Td className="text-ink-500">{r.unitLabel}</Td>
-              <Td className="capitalize">{r.holder.replace(/_/g, ' ')}</Td>
-              <Td numeric><Money minor={r.requiredMinor} currency={currency} /></Td>
-              <Td numeric><Money minor={r.heldMinor} currency={currency} emphasise /></Td>
-              <Td numeric><Money minor={r.interestCreditedMinor} currency={currency} /></Td>
-              <Td numeric><Money minor={r.deductionsMinor} currency={currency} /></Td>
-              <Td numeric><Money minor={r.refundedMinor} currency={currency} /></Td>
+          {accounts.map((a) => (
+            <tr key={a.id} className="hover:bg-ink-50">
+              <Td>
+                <Link
+                  href={`/app/${org}/deposits/${a.id}`}
+                  className="font-medium text-spike-600 hover:underline"
+                >
+                  {a.residentName ?? a.leaseReference}
+                </Link>
+              </Td>
+              <Td className="text-ink-500">{a.unitLabel}</Td>
+              <Td className="tabular text-ink-500">{a.leaseReference}</Td>
+              <Td className="text-ink-500">{HOLDER_LABEL[a.holder] ?? a.holder}</Td>
+              <Td numeric><Money minor={a.requiredMinor} currency={a.currencyCode} /></Td>
+              <Td numeric><Money minor={a.heldMinor} currency={a.currencyCode} emphasise /></Td>
+              <Td numeric>
+                <Money
+                  minor={a.shortfallMinor} currency={a.currencyCode}
+                  emphasise={a.shortfallMinor > 0n}
+                />
+              </Td>
+              <Td>
+                <StatusBadge tone={a.status === 'open' ? 'positive' : 'neutral'}>
+                  {a.status}
+                </StatusBadge>
+              </Td>
             </tr>
           ))}
         </DataTable>
       )}
-
-      {data.meta.qualifications.length > 0 ? (
-        <ul className="space-y-1 text-xs text-ink-500">
-          {data.meta.qualifications.map((q) => <li key={q}>{q}</li>)}
-        </ul>
-      ) : null}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import {
   Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
-import { DomainError, formatMinor, hasPermission, previewBillingRun } from '@propertyos/domain';
+import { DomainError, formatMoney, hasPermission, previewBillingRun } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadBillingRun } from '@/lib/operations-queries';
@@ -225,7 +225,7 @@ export default async function BillingRunPage({
           previewVersion={run.preview_version}
           defaultIssueDate={run.period_start}
           lineCount={current.billableLineCount}
-          totalLabel={formatMinor(current.totalMinor, current.currencyCode)}
+          totalLabel={formatMoney(current.totalMinor, current.currencyCode)}
         />
       ) : null}
 

@@ -21,6 +21,7 @@ export * from './documents';
 export * from './invitations';
 export * from './bank-accounts';
 export * from './collection-metrics';
+export * from './deposits';
 export * from './reports';
 export * from './platform';
 export * from './csv';

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { formatMinor, requirePermission, toCsv } from '@propertyos/domain';
+import { formatMinor, formatMoney, requirePermission, toCsv } from '@propertyos/domain';
 import { getViewer, readAs } from '@/lib/auth';
 import { loadBillingRun } from '@/lib/operations-queries';
 
@@ -57,7 +57,7 @@ export async function GET(
         `Billing run ${runId}, preview version ${run.preview_version}.`,
         `Prepared by ${run.created_by_name ?? 'unknown'} on ${run.created_at}.`,
         `Posted by ${run.posted_by_name ?? 'unknown'} on ${run.posted_at ?? 'unknown'}.`,
-        `${documents.length} charge documents totalling ${formatMinor(total, currency)}.`,
+        `${documents.length} charge documents totalling ${formatMoney(total, currency)}.`,
         'Within the requester\'s own scope: another operator may see a different set.',
         'Posted charges are immutable. A correction appears as a separate credit note, '
           + 'not as a change to the figures here.',

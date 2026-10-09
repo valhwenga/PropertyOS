@@ -608,3 +608,41 @@ export async function loadBillingRun(tx: Sql, organisationId: string, runId: str
 
   return { run, documents };
 }
+
+/**
+ * Documents on a lease that could serve as evidence for a deposit movement.
+ *
+ * Quarantined files are excluded: a deduction may not rest on a document the
+ * product has not confirmed is safe to open.
+ */
+export async function loadLeaseEvidenceChoices(
+  tx: Sql, organisationId: string, leaseId: string,
+) {
+  return tx<{ id: string; title: string; classification: string; uploaded_at: string }[]>`
+    select id, title, classification::text, uploaded_at::text as uploaded_at
+      from documents
+     where organisation_id = ${organisationId}::uuid
+       and lease_id = ${leaseId}::uuid
+       and not quarantined
+       and deleted_at is null
+     order by uploaded_at desc
+     limit 100
+  `;
+}
+
+/**
+ * Colleagues who could have requested a deposit payout.
+ *
+ * The signed-in user is deliberately included: they may legitimately be named
+ * as the requester of something somebody else approves. What they cannot do is
+ * approve their own, which the domain and the database both refuse.
+ */
+export async function loadColleagues(tx: Sql, organisationId: string) {
+  return tx<{ auth_user_id: string; full_name: string; email: string }[]>`
+    select m.auth_user_id, p.full_name, p.email::text as email
+      from memberships m
+      join user_profiles p on p.auth_user_id = m.auth_user_id
+     where m.organisation_id = ${organisationId}::uuid and m.status = 'active'
+     order by p.full_name
+  `;
+}
