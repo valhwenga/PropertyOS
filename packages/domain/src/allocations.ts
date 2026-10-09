@@ -271,6 +271,12 @@ export async function reverseAllocation(
   actorUserId: string,
   params: { allocationId: string; reason: string; postingDate: string },
 ): Promise<void> {
+  // Reversing an allocation moves a resident's balance, so it needs the
+  // reversal permission in its own right. It had none: `reverseReceipt` checked
+  // before calling in, which protected that path and left this one open to
+  // anyone who could reach the function. A permission enforced by one caller is
+  // not an access control.
+  await requirePermission(tx, organisationId, 'payment.reverse');
   if (params.reason.trim().length < 5) throw invalid('A reversal requires a reason.');
   const [allocation] = await tx<{ id: string; journal_id: string | null; reversed_at: string | null }[]>`
     select id, journal_id, reversed_at from payment_allocations

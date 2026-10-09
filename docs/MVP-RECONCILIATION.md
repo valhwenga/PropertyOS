@@ -34,7 +34,7 @@ Points where the two genuinely disagree, and what was done.
 | C1 | §14 *Rent billed: posted rent charges less rent credits.* *Current period collection: receipts allocated to current period rent over net rent billed.* | The overview divided allocations against **all** charges by **rent** billed; the collection report filtered neither side. | **Resolved.** One shared definition in `packages/domain/src/collection-metrics.ts`; both screens read it, two labelled measures, neither blended. |
 | C2 | §14 *A management snapshot should be reproducible from the underlying records.* | Reports had no cut-off; reversals carried only a system timestamp, so a closed month restated when an allocation was corrected later. | **Resolved.** Business-date cut-off throughout; migration 0036 adds `allocated_on`/`reversed_on`. |
 | C3 | §8 *Keep recurring charge schedules separate from issued charge documents. Preview a billing period before posting.* | Schedules, runs and previews exist in the domain and database. No screen posts a billing run. | **Open — §5 below.** The blueprint's first deliverable requires posting one charge through the interface. |
-| C4 | §9 *Reconciliation has three distinct steps… An operator can split a receipt across several charges.* | Confirm, suggest, allocate, reverse and suspense all exist and are tested. No screen performs any of them. | **Open — §5 below.** Named by the user as the first operational finance workflow. |
+| C4 | §9 *Reconciliation has three distinct steps… An operator can split a receipt across several charges.* | Confirm, suggest, allocate, reverse and suspense all existed and were tested, with no screen performing any of them. The middle step had no command at all: money in suspense could only leave by being reversed. Reviewing a resident's proof of payment had no command either. | **Resolved.** `identifySuspenseReceipt` and `reviewPaymentEvidence` added; the whole workflow is driven through `/reconciliation` and verified in the browser. |
 | C8 | §9 *Store bank account references securely, show verified banking details in the portal and require fresh authentication plus an audit trail for changes.* | `bank_accounts` carried `verified_at`/`verified_by` with nothing to say what "verified" meant, no change history, no screen, and no fresh-authentication mechanism existed anywhere. | **Resolved.** Migrations 0037–0038: a database-resolved freshness check, `verification_method` recorded and displayed in words, and an append-only `bank_account_changes`. |
 | C9 | §7 *Activation requires… an attached executed contract or documented exception.* | The merge catalogue marked ten fields `essential` and **nothing read the flag**. An agreement missing the tenant's identity number, the rent or the commencement date could be generated *and shared with the resident*. | **Resolved.** Migration 0039 records the essential subset per generation; sharing refuses while it is non-empty. Drafting an incomplete agreement stays possible — it is how the gaps are seen. |
 | C5 | §3 *Ownership is separate from organisation membership… A property may have several owners.* | No owner, ownership-interest or management-agreement tables. | **Open.** Blueprint puts the owner portal in Phase 2, but §18 lists the tables in the MVP schema. Deferred deliberately; recorded here rather than silently dropped. |
@@ -57,6 +57,7 @@ requirements it did not reach, and so could not report on.
 | M7 | §24 *Provide a documented customer export containing properties, units, parties, leases, charges, receipts, allocations, deposits, expenses and an attachment manifest.* | **Open.** Per-report CSV export exists; a whole-customer export does not. |
 | M8 | §20 *Idempotency keys bind organisation, actor, command and payload hash.* | **Partial.** `idempotency_keys` exists and billing runs use it; ordinary commands do not. |
 | M9 | §4 *Offer configurable two person approval for larger customers.* | **Open.** Single-approver only. |
+| M11 | §9 *A suggested match is not automatically final.* | **Exercised.** Suggesting and applying are separate actions; the suggestion fills the form and the operator confirms or changes it. The stored policy records `manual` whenever a person confirmed the amounts, because the applied policy affects arrears ageing. |
 | M10 | §19 *Require MFA for Spike administrators and finance approvers.* | **Exercised**, and now stronger: §4's *"exceptional actions require fresh authentication and an audit reason"* is enforced in the database for banking changes. Re-verification is implemented for the local auth provider only; on Supabase it refuses honestly rather than pretending. |
 
 ## 3. Where the implementation is ahead of the blueprint
@@ -83,7 +84,7 @@ Against the §5 MVP column.
 | Portfolio | Exercised | Properties, units, standalone houses; create and detail screens; every link followed by `tests/e2e/navigation.spec.ts`. **Missing:** editing a property or unit; retiring a unit. |
 | Residents | Exercised | Profiles, lease parties, invitations, detail screen, editing and sealed identity capture, all driven through the interface. Archiving rather than deletion. |
 | Leasing | Exercised | Draft, activate, renew, terminate, notices with honest delivery reporting, agreement generation and preview. An agreement missing essential terms is a draft that cannot be sent. |
-| Rent and receivables | **Tested, not Exercised** | Charges, receipts, allocations, suspense, reversals, arrears ageing all tested in the domain. **No screen performs any of them.** The single largest MVP gap. |
+| Rent and receivables | Exercised | Recording money received, holding it in suspense, identifying the payer, suggested matching, operator-overridden partial allocation, unapplied credit and controlled reversal — all driven through the interface. Reviewing a resident's payment claim records a decision and moves no balance. |
 | Billing | **Tested, not Exercised** | Schedules, runs, preview, proration, idempotent posting tested. **No screen posts a run.** |
 | Deposits | **Tested, not Exercised** | Liability, interest, deductions, refund approval tested. Read-only screen. |
 | Utilities | Tested | Fixed and manual line items via charges. No dedicated screen. |
@@ -108,9 +109,9 @@ complete vertical workflow"*.
    capture; banking details with their own permissions, masked display, change
    history, honest verification status and fresh authentication; essential
    merge fields validated before an agreement can be sent.
-3. Receipt and allocation workflow through the interface: confirmation,
-   suggested matching, partial allocation, unapplied credit, suspense and
-   controlled reversal. Closes C4 and the largest gap in §4.
+3. ~~Receipt and allocation workflow through the interface~~ — **done**.
+   Confirmation, suggested matching, partial allocation, unapplied credit,
+   suspense identification and controlled reversal. Closes C4.
 4. Monthly billing workflow through the interface: preview, exceptions,
    validation, approval, posting. Closes C3.
 5. The rest of the MVP: approvals that act, deposits, bank statement import,
@@ -126,6 +127,9 @@ complete vertical workflow"*.
 Stated plainly, because the blueprint asks for exactly this and the user's
 instructions repeat it.
 
+- **No bank feed and no statement import.** Every receipt in the product was
+  entered by a person who saw the money in the account. Nothing invents a
+  receipt, and nothing turns a resident's claim into one.
 - **No external service has ever been contacted.** Email, payment, signature
   and accounting adapters have never run against a real provider. §24's
   qualification column is unanswered for every integration. In particular

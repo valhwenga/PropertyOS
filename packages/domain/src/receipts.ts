@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { reverseAllocation } from './allocations';
 import { recordAudit, emitEvent } from './audit';
-import { DomainError, fromDatabaseError, invalid, notFound } from './errors';
+import { DomainError, fromDatabaseError, invalid, notFound, parsed } from './errors';
 import { postJournal, reverseJournal } from './ledger';
 import type { Minor } from './money';
 import { nextDocumentNumber } from './numbering';
@@ -230,4 +230,168 @@ export async function reverseReceipt(
     reason: params.reason,
   });
   return { reversalJournalId };
+}
+
+/* --------------------------------------------------------- suspense and evidence */
+
+/**
+ * Identifies whose money a suspense receipt is.
+ *
+ * §9 names three distinct steps — recognise the receipt, identify the lease
+ * account, then allocate to open charges — and this is the middle one, which
+ * had no command at all. Money that arrived without an identifiable payer sat
+ * in suspense with no way out but a reversal.
+ *
+ * The movement is suspense to unapplied receipts, posted as its own journal on
+ * its own date. It is NOT an allocation: identifying whose money it is says
+ * nothing about which charges it pays, and the resident's balance does not move
+ * until someone allocates it.
+ */
+export async function identifySuspenseReceipt(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  params: { receiptId: string; leaseId: string; reason: string; postingDate: string },
+): Promise<{ journalId: string }> {
+  await requirePermission(tx, organisationId, 'payment.record');
+  const reason = parsed(z.string().trim().min(5, 'Say how this payer was identified.').max(500), params.reason);
+
+  const [receipt] = await tx<
+    { id: string; book_id: string; currency_code: string; amount_minor: string;
+      receipt_number: string; status: string; in_suspense: boolean; lease_id: string | null }[]
+  >`
+    select id, book_id, currency_code, amount_minor::text, receipt_number, status,
+           in_suspense, lease_id
+      from receipts
+     where id = ${params.receiptId}::uuid and organisation_id = ${organisationId}::uuid
+     for update
+  `;
+  if (!receipt) throw notFound('Receipt');
+  if (receipt.status !== 'confirmed') {
+    throw new DomainError('conflict', 'Only a confirmed receipt can be identified.');
+  }
+  if (!receipt.in_suspense) {
+    throw new DomainError(
+      'conflict',
+      'This receipt is already assigned to a lease. Reverse it if it went to the wrong one.',
+    );
+  }
+
+  const [lease] = await tx<{ id: string; property_id: string; currency_code: string }[]>`
+    select id, property_id, currency_code from leases
+     where id = ${params.leaseId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+  if (!lease) throw notFound('Lease');
+  if (lease.currency_code !== receipt.currency_code) {
+    throw invalid('That lease is billed in a different currency from this receipt.');
+  }
+
+  const amount = BigInt(receipt.amount_minor);
+  const journalId = await postJournal(tx, {
+    organisationId,
+    bookId: receipt.book_id,
+    currencyCode: receipt.currency_code,
+    postingDate: params.postingDate,
+    source: 'receipt',
+    description: `${receipt.receipt_number} — payer identified`,
+    sourceTable: 'receipts',
+    postedBy: actorUserId,
+    lines: [
+      { accountRole: 'suspense', debitMinor: amount, leaseId: lease.id, propertyId: lease.property_id, memo: receipt.receipt_number },
+      { accountRole: 'unapplied_receipts', creditMinor: amount, leaseId: lease.id, propertyId: lease.property_id, memo: receipt.receipt_number },
+    ],
+  });
+
+  await tx`
+    update receipts
+       set lease_id = ${params.leaseId}, in_suspense = false,
+           notes = coalesce(notes || E'\n', '') || ${`Identified: ${reason}`}
+     where id = ${params.receiptId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'receipt.identified', resourceType: 'receipt', resourceId: params.receiptId,
+    reason,
+    before: { inSuspense: true, leaseId: null },
+    after: { inSuspense: false, leaseId: params.leaseId, journalId },
+  });
+  return { journalId };
+}
+
+/**
+ * Records the outcome of reviewing a resident's proof of payment.
+ *
+ * This is the one command in the module that must NOT move money, and the
+ * invariant the whole product is held to: an uploaded proof of payment is
+ * evidence awaiting verification and never reduces a balance.
+ *
+ * Accepting it therefore records a DECISION, optionally pointing at the receipt
+ * an operator already created from verified bank funds. It does not create that
+ * receipt, because the only thing that may create one is confirmed money in the
+ * account. If an operator accepts evidence with no receipt behind it, the
+ * resident still owes what they owed; the review simply says the claim looked
+ * genuine.
+ */
+export async function reviewPaymentEvidence(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  params: {
+    evidenceId: string;
+    outcome: 'accepted' | 'rejected' | 'under_review';
+    note?: string;
+    /** A receipt already confirmed from real funds, if one matches. */
+    receiptId?: string;
+  },
+): Promise<void> {
+  await requirePermission(tx, organisationId, 'payment.record');
+  const outcome = parsed(z.enum(['accepted', 'rejected', 'under_review']), params.outcome);
+  const note = params.note ? parsed(z.string().trim().max(1000), params.note) : null;
+  if (outcome === 'rejected' && !note) {
+    throw invalid('Say why this proof of payment was rejected. The resident is told the reason.');
+  }
+
+  const [evidence] = await tx<{ id: string; lease_id: string; status: string }[]>`
+    select id, lease_id, status::text from payment_evidence
+     where id = ${params.evidenceId}::uuid and organisation_id = ${organisationId}::uuid
+     for update
+  `;
+  if (!evidence) throw notFound('Payment evidence');
+
+  // A receipt may be linked only if it is real, confirmed, and belongs to the
+  // same lease. Pointing evidence at someone else's receipt would make a claim
+  // look settled by money that was never theirs.
+  if (params.receiptId) {
+    const [receipt] = await tx<{ id: string; status: string; lease_id: string | null }[]>`
+      select id, status::text, lease_id from receipts
+       where id = ${params.receiptId}::uuid and organisation_id = ${organisationId}::uuid
+    `;
+    if (!receipt) throw notFound('Receipt');
+    if (receipt.status !== 'confirmed') {
+      throw new DomainError('conflict', 'Only a confirmed receipt can be linked to proof of payment.');
+    }
+    if (receipt.lease_id !== evidence.lease_id) {
+      throw invalid('That receipt belongs to a different lease.');
+    }
+  }
+
+  await tx`
+    update payment_evidence
+       set status = ${outcome}::app.evidence_status,
+           reviewed_by = ${actorUserId}, reviewed_at = now(),
+           review_note = ${note},
+           receipt_id = ${params.receiptId ?? null}
+     where id = ${params.evidenceId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'payment_evidence.reviewed', resourceType: 'payment_evidence',
+    resourceId: params.evidenceId,
+    before: { status: evidence.status },
+    // Recorded explicitly: reviewing evidence never posts a journal, and the
+    // audit trail should say so rather than leave it to be inferred.
+    after: { status: outcome, receiptId: params.receiptId ?? null, ledgerEffect: 'none' },
+  });
 }

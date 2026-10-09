@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
-import { loadReconciliation } from '@/lib/operations-queries';
+import { loadLeaseChoices, loadReconciliation } from '@/lib/operations-queries';
+import { RecordReceiptForm, ReviewEvidenceForm } from './record-receipt-form';
 
 export const metadata = { title: 'Reconciliation' };
 export const dynamic = 'force-dynamic';
@@ -28,8 +29,11 @@ export default async function ReconciliationPage({
   const { org } = await params;
   const { filter } = await searchParams;
   const context = await requireOperator(org);
-  const { unmatched, evidence } = await readAs(context.viewer, (tx) =>
-    loadReconciliation(tx, context.organisationId));
+  const { unmatched, evidence, leases } = await readAs(context.viewer, async (tx) => ({
+    ...(await loadReconciliation(tx, context.organisationId)),
+    leases: await loadLeaseChoices(tx, context.organisationId),
+  }));
+  const today = new Date().toISOString().slice(0, 10);
 
   const showUnmatched = filter !== 'evidence';
   const showEvidence = filter !== 'unmatched';
@@ -39,6 +43,7 @@ export default async function ReconciliationPage({
       <PageHeader
         title="Reconciliation"
         description="Receipts not yet applied to a charge, and resident payment claims not yet verified."
+        actions={<RecordReceiptForm org={org} leases={leases} today={today} />}
       />
 
       {filter ? (
@@ -64,6 +69,7 @@ export default async function ReconciliationPage({
                 <tr>
                   <Th>Received</Th><Th>Receipt</Th><Th>Lease</Th>
                   <Th>State</Th><Th numeric>Received</Th><Th numeric>Unapplied</Th>
+                  <Th><span className="sr-only">Action</span></Th>
                 </tr>
               }
             >
@@ -72,7 +78,14 @@ export default async function ReconciliationPage({
                   <Td className="whitespace-nowrap text-ink-500">
                     {formatDate(r.received_on, context.timeZone)}
                   </Td>
-                  <Td className="tabular">{r.receipt_number}</Td>
+                  <Td className="tabular">
+                    <Link
+                      href={`/app/${org}/reconciliation/${r.receipt_id}`}
+                      className="font-medium text-spike-600 hover:underline"
+                    >
+                      {r.receipt_number}
+                    </Link>
+                  </Td>
                   <Td>{r.lease_reference ?? '—'}</Td>
                   <Td>
                     {r.in_suspense ? (
@@ -82,6 +95,14 @@ export default async function ReconciliationPage({
                   <Td numeric><Money minor={BigInt(r.amount_minor)} currency={r.currency_code} /></Td>
                   <Td numeric>
                     <Money minor={BigInt(r.unapplied_minor)} currency={r.currency_code} emphasise />
+                  </Td>
+                  <Td>
+                    <Link
+                      href={`/app/${org}/reconciliation/${r.receipt_id}`}
+                      className="text-sm font-medium text-spike-600 hover:underline"
+                    >
+                      {r.in_suspense ? 'Identify →' : 'Apply →'}
+                    </Link>
                   </Td>
                 </tr>
               ))}
@@ -111,6 +132,7 @@ export default async function ReconciliationPage({
                 <tr>
                   <Th>Submitted</Th><Th>Resident</Th><Th>Lease</Th>
                   <Th>Reference</Th><Th>Claimed paid</Th><Th numeric>Claimed</Th>
+                  <Th><span className="sr-only">Action</span></Th>
                 </tr>
               }
             >
@@ -130,6 +152,11 @@ export default async function ReconciliationPage({
                   <Td numeric>
                     <Money minor={BigInt(e.claimed_amount_minor)} currency={context.currencyCode} />
                   </Td>
+                  <Td>
+                    <ReviewEvidenceForm
+                      org={org} evidenceId={e.id} leaseReference={e.lease_reference}
+                    />
+                  </Td>
                 </tr>
               ))}
             </DataTable>
@@ -140,9 +167,10 @@ export default async function ReconciliationPage({
       <Card className="p-4">
         <p className="text-sm font-medium text-ink-900">No bank feed is connected</p>
         <p className="mt-1 text-sm text-ink-500">
-          Importing a bank statement and matching transactions automatically is not built. The
-          lists above come from records already posted in PropertyOS. Verifying a claim and
-          allocating a receipt are done from the lease itself.
+          Importing a bank statement and matching transactions automatically is not built, so
+          every receipt here was entered by a person who saw the money in the account. That is
+          deliberate: nothing in PropertyOS invents a receipt, and nothing turns a resident&rsquo;s
+          claim into one.
         </p>
       </Card>
     </div>

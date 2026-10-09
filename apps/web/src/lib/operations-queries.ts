@@ -447,3 +447,104 @@ export async function loadLeaseDraftChoices(tx: Sql, organisationId: string) {
 
   return { units, residents };
 }
+
+/**
+ * One receipt and everything an operator needs to apply it.
+ *
+ * The blueprint's reconciliation layout (§15) is bank lines on one side and
+ * candidate charges on the other, so this returns the receipt, what is left on
+ * it, the open charges on its lease in the order the allocation policy would
+ * take them, and the allocations already made — including reversed ones, which
+ * stay visible because a reversal is part of the history rather than a deletion.
+ */
+export async function loadReceiptForAllocation(
+  tx: Sql, organisationId: string, receiptId: string,
+) {
+  const [receipt] = await tx<
+    { id: string; receipt_number: string; received_on: string; amount_minor: string;
+      unapplied_minor: string; allocated_minor: string; in_suspense: boolean;
+      currency_code: string; status: string; method: string; payer_reference: string | null;
+      fee_minor: string; notes: string | null;
+      lease_id: string | null; lease_reference: string | null;
+      resident_name: string | null; unit_label: string | null }[]
+  >`
+    select r.id, r.receipt_number, r.received_on::text, r.amount_minor::text,
+           r.currency_code, r.status::text, r.method, r.payer_reference,
+           r.fee_minor::text, r.notes, r.in_suspense, r.lease_id,
+           coalesce(rb.unapplied_minor, 0)::text as unapplied_minor,
+           coalesce(rb.allocated_minor, 0)::text as allocated_minor,
+           l.reference as lease_reference,
+           nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), '')
+             as resident_name,
+           case when p.name is null then null else p.name || ' / ' || u.code end as unit_label
+      from receipts r
+      left join receipt_balances rb on rb.receipt_id = r.id
+      left join leases l on l.id = r.lease_id
+      left join properties p on p.id = l.property_id
+      left join units u on u.id = l.unit_id
+      left join lease_parties lp
+        on lp.lease_id = l.id and lp.role = 'primary_resident' and lp.removed_on is null
+      left join resident_profiles rp on rp.id = lp.resident_id
+     where r.id = ${receiptId}::uuid and r.organisation_id = ${organisationId}::uuid
+  `;
+  if (!receipt) return undefined;
+
+  // Ordered exactly as `suggestAllocation` would take them, so the suggestion
+  // and the list an operator reads cannot disagree about what "oldest" means.
+  const openCharges = receipt.lease_id
+    ? await tx<
+        { charge_line_id: string; description: string; category: string; due_date: string;
+          amount_minor: string; allocated_minor: string; outstanding_minor: string }[]
+      >`
+        select charge_line_id, description, category, due_date::text,
+               amount_minor::text, allocated_minor::text, outstanding_minor::text
+          from charge_line_balances
+         where organisation_id = ${organisationId}::uuid
+           and lease_id = ${receipt.lease_id}::uuid
+           and outstanding_minor > 0
+         order by due_date asc, charge_line_id asc
+      `
+    : [];
+
+  const allocations = await tx<
+    { id: string; amount_minor: string; allocated_on: string; applied_policy: string;
+      reversed_on: string | null; reversal_reason: string | null;
+      description: string; due_date: string; category: string }[]
+  >`
+    select pa.id, pa.amount_minor::text, pa.allocated_on::text, pa.applied_policy,
+           pa.reversed_on::text, pa.reversal_reason,
+           cl.description, cl.due_date::text, cl.category
+      from payment_allocations pa
+      join charge_lines cl on cl.id = pa.charge_line_id
+     where pa.receipt_id = ${receiptId}::uuid and pa.organisation_id = ${organisationId}::uuid
+     order by pa.allocated_at desc
+  `;
+
+  return { receipt, openCharges, allocations };
+}
+
+/** Leases a suspense receipt could belong to, newest activity first. */
+export async function loadLeaseChoices(tx: Sql, organisationId: string) {
+  return tx<
+    { id: string; reference: string; label: string; outstanding_minor: string }[]
+  >`
+    select l.id, l.reference,
+           p.name || ' / ' || u.code || ' — ' ||
+             coalesce(nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), ''),
+                      'no resident on file') as label,
+           coalesce((
+             select sum(b.outstanding_minor) from charge_line_balances b
+              where b.lease_id = l.id and b.outstanding_minor > 0
+           ), 0)::text as outstanding_minor
+      from leases l
+      join properties p on p.id = l.property_id
+      join units u on u.id = l.unit_id
+      left join lease_parties lp
+        on lp.lease_id = l.id and lp.role = 'primary_resident' and lp.removed_on is null
+      left join resident_profiles rp on rp.id = lp.resident_id
+     where l.organisation_id = ${organisationId}::uuid
+       and l.status in ('active', 'notice_given', 'expired')
+     order by p.name, u.code
+     limit 500
+  `;
+}
