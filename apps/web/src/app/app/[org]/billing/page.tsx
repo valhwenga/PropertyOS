@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
-import { previewBillingRun, DomainError } from '@propertyos/domain';
+import { previewBillingRun, DomainError, hasPermission } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
+import { loadBillingRuns } from '@/lib/operations-queries';
+import { PrepareRunForm } from './billing-forms';
 
 export const metadata = { title: 'Billing' };
 export const dynamic = 'force-dynamic';
@@ -19,10 +21,10 @@ function currentPeriodStart(): string {
  * billed, and what it refuses to touch — before anyone commits a figure to a
  * resident's account.
  *
- * Posting a run is a financial write with its own approval and idempotency
- * rules. It is deliberately not wired to a button here; see the note at the
- * foot of the page, which says so rather than letting the screen imply
- * otherwise.
+ * Posting is a separate act on a separate screen, under a separate permission.
+ * Preparing a run from this preview records what the period would raise and
+ * pins it to a preview version; approving and posting that run is the financial
+ * write, and the domain refuses it if the data has moved since.
  */
 export default async function BillingPage({
   params, searchParams,
@@ -38,14 +40,21 @@ export default async function BillingPage({
     ? period!
     : /^\d{4}-\d{2}$/.test(period ?? '') ? `${period}-01` : currentPeriodStart();
 
-  const result = await readAs(context.viewer, async (tx) => {
-    try {
-      return { ok: true as const, preview: await previewBillingRun(tx, context.organisationId, { periodStart }) };
-    } catch (error) {
-      if (error instanceof DomainError) return { ok: false as const, message: error.message };
-      throw error;
-    }
-  });
+  const { result, runs, canPrepare } = await readAs(context.viewer, async (tx) => ({
+    result: await (async () => {
+      try {
+        return {
+          ok: true as const,
+          preview: await previewBillingRun(tx, context.organisationId, { periodStart }),
+        };
+      } catch (error) {
+        if (error instanceof DomainError) return { ok: false as const, message: error.message };
+        throw error;
+      }
+    })(),
+    runs: await loadBillingRuns(tx, context.organisationId),
+    canPrepare: await hasPermission(tx, context.organisationId, 'billing.preview'),
+  }));
 
   if (!result.ok) {
     return (
@@ -68,6 +77,13 @@ export default async function BillingPage({
       <PageHeader
         title="Billing"
         description={`What a run would raise for ${formatDate(preview.periodStart, context.timeZone)} to ${formatDate(preview.periodEnd, context.timeZone)}. Nothing on this page posts a charge.`}
+        actions={
+          canPrepare && preview.billableLineCount > 0 ? (
+            <PrepareRunForm
+              org={org} periodStart={preview.periodStart} blockingCount={blocking.length}
+            />
+          ) : undefined
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -164,16 +180,68 @@ export default async function BillingPage({
       )}
 
       <Card className="p-4">
-        <p className="text-sm font-medium text-ink-900">Posting a run is not available from this screen</p>
+        <p className="text-sm font-medium text-ink-900">Nothing on this page posts a charge</p>
         <p className="mt-1 text-sm text-ink-500">
-          This page previews only. Raising these charges against residents&rsquo; accounts is a
-          financial write with its own validation and approval, and it is not wired to a button
-          here. The figures above are computed from live schedules, not from stored demo totals.
+          The figures above are computed from live schedules, not from stored totals. Preparing a
+          run records them as a numbered batch with its own validation report; approving and
+          posting that batch is a separate act on its own screen, under a separate permission.
         </p>
         <Link href={`/app/${org}/reports/collection`} className="mt-2 inline-block text-sm text-spike-700">
           See what has actually been billed and collected →
         </Link>
       </Card>
+
+      <section aria-labelledby="runs" className="space-y-3">
+        <h2 id="runs" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+          Billing runs
+        </h2>
+        {runs.length === 0 ? (
+          <Card className="px-5 py-8 text-center text-sm text-ink-500">
+            No run has been prepared yet. A run is the record that a period was billed: who
+            prepared it, who posted it, and what it raised.
+          </Card>
+        ) : (
+          <DataTable
+            caption="Billing runs"
+            head={
+              <tr>
+                <Th>Period</Th><Th>Status</Th><Th>Prepared by</Th>
+                <Th>Posted by</Th><Th numeric>Charges</Th><Th numeric>Total</Th>
+              </tr>
+            }
+          >
+            {runs.map((r) => (
+              <tr key={r.id} className="hover:bg-ink-50">
+                <Td>
+                  <Link
+                    href={`/app/${org}/billing/${r.id}`}
+                    className="font-medium text-spike-600 hover:underline"
+                  >
+                    {r.period_start.slice(0, 7)}
+                  </Link>
+                </Td>
+                <Td>
+                  <StatusBadge
+                    tone={
+                      r.status === 'posted' ? 'positive'
+                        : r.status === 'validated' ? 'info'
+                          : r.status === 'failed' ? 'critical' : 'caution'
+                    }
+                  >
+                    {r.status}
+                  </StatusBadge>
+                </Td>
+                <Td className="text-ink-500">{r.created_by_name ?? '—'}</Td>
+                <Td className="text-ink-500">{r.posted_by_name ?? '—'}</Td>
+                <Td numeric className="tabular text-ink-500">{r.line_count}</Td>
+                <Td numeric>
+                  <Money minor={BigInt(r.totals_minor)} currency={context.currencyCode} />
+                </Td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
+      </section>
     </div>
   );
 }

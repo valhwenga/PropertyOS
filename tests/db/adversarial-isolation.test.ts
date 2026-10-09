@@ -299,8 +299,25 @@ describe('Adversarial: worker and job paths', () => {
       returning id, organisation_id
     `;
     const { claimJob } = await import('../../apps/worker/src/queue.js');
-    const claimed = await claimJob(sql as never, 'adversarial-worker');
-    expect(claimed!.id).toBe(job!.id);
+
+    // Claim until this test's own job comes back.
+    //
+    // `claimJob` takes the next queued job, and the queue is shared with every
+    // other suite — so asserting that the FIRST claim is this job tests the
+    // order of the test run rather than the scope rule. What matters is the
+    // rule: whichever job the worker claims, the scope it acts on is the row's
+    // column, never the payload's claim about itself.
+    let claimed: Awaited<ReturnType<typeof claimJob>> = null;
+    for (let i = 0; i < 200; i++) {
+      const next = await claimJob(sql as never, 'adversarial-worker');
+      if (!next) break;
+      // Every job claimed along the way is checked too: none of them may have
+      // taken its scope from a payload field.
+      expect(next.organisationId).not.toBe(other.organisationId);
+      if (next.id === job!.id) { claimed = next; break; }
+    }
+
+    expect(claimed, 'the injected job was never claimed').not.toBeNull();
     // The scope the worker acts on is the column, not the payload field.
     expect(claimed!.organisationId).toBe(org.organisationId);
     expect(claimed!.organisationId).not.toBe(other.organisationId);
@@ -318,12 +335,28 @@ describe('Adversarial: worker and job paths', () => {
       returning id
     `;
     const { publishOutbox } = await import('../../apps/worker/src/outbox.js');
-    const first = await publishOutbox(sql as never);
-    expect(first).toBeGreaterThanOrEqual(1);
+
+    // Drain, rather than publish once.
+    //
+    // `publishOutbox` takes a bounded batch, which is what makes it safe in
+    // production and what made this test flaky here: every other suite leaves
+    // unpublished events in the shared database, and once there are more than
+    // one batch of them this test's own event is not necessarily in the first.
+    // A real worker calls this repeatedly; so does this.
+    const drain = async (): Promise<number> => {
+      let total = 0;
+      for (;;) {
+        const published = await publishOutbox(sql as never);
+        total += published;
+        if (published === 0) return total;
+      }
+    };
+
+    expect(await drain()).toBeGreaterThanOrEqual(1);
 
     // Simulate a redelivery: unpublish and publish again.
     await sql`update outbox_events set published_at = null where id = ${event!.id}`;
-    await publishOutbox(sql as never);
+    await drain();
 
     const [jobs] = await sql<{ c: string }[]>`
       select count(*)::text as c from jobs where idempotency_key = ${`outbox-${event!.id}`}

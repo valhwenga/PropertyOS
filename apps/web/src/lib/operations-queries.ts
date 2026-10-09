@@ -548,3 +548,63 @@ export async function loadLeaseChoices(tx: Sql, organisationId: string) {
      limit 500
   `;
 }
+
+/**
+ * Billing runs for an organisation, newest first.
+ *
+ * A run is the record that a period was billed: who prepared it, who posted it
+ * and what it raised. §15 asks for a downloadable batch summary, which is this
+ * plus its documents.
+ */
+export async function loadBillingRuns(tx: Sql, organisationId: string, limit = 24) {
+  return tx<
+    { id: string; period_start: string; period_end: string; status: string;
+      totals_minor: string; line_count: number; exception_count: number;
+      preview_version: number; created_at: string; posted_at: string | null;
+      created_by_name: string | null; posted_by_name: string | null }[]
+  >`
+    select r.id, r.period_start::text, r.period_end::text, r.status::text,
+           r.totals_minor::text, r.line_count, r.exception_count, r.preview_version,
+           r.created_at::text, r.posted_at::text,
+           creator.full_name as created_by_name,
+           poster.full_name as posted_by_name
+      from billing_runs r
+      left join user_profiles creator on creator.auth_user_id = r.created_by
+      left join user_profiles poster on poster.auth_user_id = r.posted_by
+     where r.organisation_id = ${organisationId}::uuid
+     order by r.period_start desc, r.created_at desc
+     limit ${limit}
+  `;
+}
+
+/** One run, with the charge documents it actually raised. */
+export async function loadBillingRun(tx: Sql, organisationId: string, runId: string) {
+  const [run] = await loadBillingRuns(tx, organisationId, 500).then((rows) =>
+    rows.filter((r) => r.id === runId),
+  );
+  if (!run) return undefined;
+
+  const documents = await tx<
+    { id: string; document_number: string; lease_reference: string; unit_label: string;
+      resident_name: string | null; total_minor: string; issue_date: string; due_date: string;
+      currency_code: string }[]
+  >`
+    select cd.id, cd.document_number, cd.total_minor::text, cd.currency_code,
+           cd.issue_date::text, cd.due_date::text,
+           l.reference as lease_reference,
+           p.name || ' / ' || u.code as unit_label,
+           nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), '')
+             as resident_name
+      from charge_documents cd
+      join leases l on l.id = cd.lease_id
+      join properties p on p.id = l.property_id
+      join units u on u.id = l.unit_id
+      left join lease_parties lp
+        on lp.lease_id = l.id and lp.role = 'primary_resident' and lp.removed_on is null
+      left join resident_profiles rp on rp.id = lp.resident_id
+     where cd.billing_run_id = ${runId}::uuid and cd.organisation_id = ${organisationId}::uuid
+     order by p.name, u.code, cd.document_number
+  `;
+
+  return { run, documents };
+}

@@ -141,6 +141,16 @@ export function fromDatabaseError(error: unknown): DomainError {
     if (message.includes('exceeds receipt')) return new DomainError('over_allocation', message);
     if (message.includes('exceeds charge line')) return new DomainError('over_allocation', message);
     if (message.includes('does not balance')) return new DomainError('internal', message);
+    // Raised when billing a past period with today's date: the invoices carry
+    // due dates inside that month, and a charge cannot be issued after it
+    // falls due. The raw constraint name tells an operator nothing.
+    if (e.constraint_name === 'charge_documents_dates') {
+      return new DomainError(
+        'validation_failed',
+        'A charge cannot be issued after the date it falls due. When billing a past period, '
+          + 'date the invoices within that period rather than today.',
+      );
+    }
     return new DomainError('validation_failed', message);
   }
 

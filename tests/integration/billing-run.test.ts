@@ -8,7 +8,9 @@ import {
   parseMajorToMinor, postBillingRun, previewBillingRun, saveBillingPreview,
   assertBookBalances, buildStatement,
 } from '@propertyos/domain';
-import { as, closeOwner, createOrganisation, ownerSql, type OrganisationFixture } from '../support/factories.js';
+import {
+  addMember, as, closeOwner, createOrganisation, ownerSql, type OrganisationFixture,
+} from '../support/factories.js';
 
 const R = (v: string) => parseMajorToMinor(v, 'ZAR');
 
@@ -176,6 +178,108 @@ describe('Monthly billing run', () => {
     // Byte for byte identical: one charge per schedule and period.
     expect(after[0]).toEqual(before[0]);
     await as(org.adminUserId, (tx) => assertBookBalances(tx, org.bookId));
+  });
+
+  /* ------------------------------------------- preparing is not approving */
+
+  it('lets a finance preparer prepare a run but not post it', async () => {
+    // §4: a preparer proposes, an approver posts. The separation is the whole
+    // point of having two permissions, and it is worth asserting rather than
+    // assuming, because preparing and posting sit one button apart on screen.
+    const preparer = await addMember(org.organisationId, 'Prep Arer', ['finance_preparer']);
+
+    const preview = await as(preparer, (tx) =>
+      previewBillingRun(tx, org.organisationId, { periodStart: '2026-04-01' }),
+    );
+    const saved = await as(preparer, (tx) =>
+      saveBillingPreview(tx, org.organisationId, preparer, preview),
+    );
+    expect(saved.runId).toBeTruthy();
+
+    await expect(
+      as(preparer, (tx) =>
+        postBillingRun(tx, org.organisationId, preparer, {
+          runId: saved.runId, previewVersion: saved.previewVersion,
+          idempotencyKey: `billing-run:${saved.runId}:v${saved.previewVersion}`,
+          issueDate: '2026-04-01',
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+
+    // Nothing was raised by the refused attempt.
+    const [count] = await ownerSql()<{ count: string }[]>`
+      select count(*)::text as count from charge_documents
+       where billing_run_id = ${saved.runId}
+    `;
+    expect(count!.count).toBe('0');
+  });
+
+  it('repeats the stored result when the same approval is submitted twice', async () => {
+    // Deliberately placed before the test that leaves an unscheduled active
+    // lease in the fixture: that lease blocks every later period, so a run
+    // prepared after it cannot be posted at all.
+    //
+    // The interface derives the idempotency key from the run and the preview
+    // version, so a double-click, a retried request and a refreshed tab all
+    // carry the same key. The second submission must report what the first
+    // produced rather than raising a second set of charges.
+    const preview = await as(org.adminUserId, (tx) =>
+      previewBillingRun(tx, org.organisationId, { periodStart: '2026-05-01' }),
+    );
+    const saved = await as(org.adminUserId, (tx) =>
+      saveBillingPreview(tx, org.organisationId, org.adminUserId, preview),
+    );
+    const key = `billing-run:${saved.runId}:v${saved.previewVersion}`;
+
+    const first = await as(org.adminUserId, (tx) =>
+      postBillingRun(tx, org.organisationId, org.adminUserId, {
+        runId: saved.runId, previewVersion: saved.previewVersion,
+        idempotencyKey: key, issueDate: '2026-05-01',
+      }),
+    );
+    const second = await as(org.adminUserId, (tx) =>
+      postBillingRun(tx, org.organisationId, org.adminUserId, {
+        runId: saved.runId, previewVersion: saved.previewVersion,
+        idempotencyKey: key, issueDate: '2026-05-01',
+      }),
+    );
+
+    expect(first.postedCount).toBeGreaterThan(0);
+    expect(second.postedCount).toBe(0);
+    expect(second.totalMinor).toBe(first.totalMinor);
+
+    const [count] = await ownerSql()<{ count: string }[]>`
+      select count(*)::text as count from charge_documents
+       where billing_run_id = ${saved.runId}
+    `;
+    expect(Number(count!.count)).toBe(first.documentIds.length);
+    await as(org.adminUserId, (tx) => assertBookBalances(tx, org.bookId));
+  });
+
+  it('explains an issue date that falls after the charges are due', async () => {
+    // Billing a past period with today's date produces invoices due before they
+    // were issued, which the database refuses. Without a translation the
+    // operator sees a constraint name, which tells them nothing about what to
+    // change. The interface defaults the issue date to the period being billed
+    // for exactly this reason; this covers an operator who overrides it.
+    const preview = await as(org.adminUserId, (tx) =>
+      previewBillingRun(tx, org.organisationId, { periodStart: '2026-06-01' }),
+    );
+    const saved = await as(org.adminUserId, (tx) =>
+      saveBillingPreview(tx, org.organisationId, org.adminUserId, preview),
+    );
+    await expect(
+      as(org.adminUserId, (tx) =>
+        postBillingRun(tx, org.organisationId, org.adminUserId, {
+          runId: saved.runId, previewVersion: saved.previewVersion,
+          idempotencyKey: `billing-run:${saved.runId}:v${saved.previewVersion}`,
+          issueDate: '2027-01-01',
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      message: expect.stringContaining('cannot be issued after the date it falls due'),
+    });
   });
 
   it('refuses to post a run whose preview version is stale', async () => {
