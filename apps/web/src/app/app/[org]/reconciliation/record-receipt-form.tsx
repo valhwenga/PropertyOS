@@ -21,13 +21,24 @@ function Problem({ state, title = 'Not saved' }: { state: Outcome | null; title?
  * unidentified money belongs in suspense, not on a guessed lease.
  */
 export function RecordReceiptForm({
-  org, leases, today,
+  org, leases, today, prefill,
 }: {
   org: string; today: string;
   leases: { id: string; reference: string; label: string }[];
+  /**
+   * Filled in when the operator arrived from a statement line.
+   *
+   * The amount and the date come from the bank, so they are not retyped; the
+   * lease is only a default, because which lease it is remains their decision
+   * and a suggestion that fills itself in is a decision made by the product.
+   */
+  prefill?: {
+    leaseId?: string; amountMajor?: string; receivedOn?: string;
+    payerReference?: string; bankTransactionId?: string;
+  };
 }) {
   const [state, action, pending] = useActionState(recordReceiptAction, null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(prefill));
 
   if (!open) {
     return (
@@ -41,11 +52,21 @@ export function RecordReceiptForm({
     <Card className="p-5">
       <form action={action} className="space-y-4">
         <input type="hidden" name="org" value={org} />
+        {prefill?.bankTransactionId ? (
+          <input type="hidden" name="bankTransactionId" value={prefill.bankTransactionId} />
+        ) : null}
         <h2 className="text-sm font-semibold text-ink-900">Record money received</h2>
         <p className="text-sm text-ink-500">
           For funds you have confirmed are in the bank account. A resident&rsquo;s proof of
           payment is not this: it is reviewed separately and changes no balance.
         </p>
+        {prefill?.bankTransactionId ? (
+          <p className="text-sm text-ink-700">
+            Started from a statement line, so the amount and date come from the bank. The lease
+            below is a suggestion — check it before recording, because this is the moment the
+            money lands on somebody&rsquo;s account.
+          </p>
+        ) : null}
 
         <Problem state={state} />
         {state?.ok ? (
@@ -64,6 +85,7 @@ export function RecordReceiptForm({
             </label>
             <input
               id="amount" name="amount" inputMode="decimal" required placeholder="8000.00"
+              defaultValue={prefill?.amountMajor ?? ''}
               className="tabular w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
             />
             <p className="text-xs text-ink-500">
@@ -76,7 +98,8 @@ export function RecordReceiptForm({
               Date received
             </label>
             <input
-              id="receivedOn" name="receivedOn" type="date" defaultValue={today} required
+              id="receivedOn" name="receivedOn" type="date" required
+              defaultValue={prefill?.receivedOn ?? today}
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
             />
           </div>
@@ -86,7 +109,7 @@ export function RecordReceiptForm({
               Whose payment is this?
             </label>
             <select
-              id="receiptLeaseId" name="leaseId"
+              id="receiptLeaseId" name="leaseId" defaultValue={prefill?.leaseId ?? ''}
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
             >
               <option value="">Not identified — hold in suspense</option>
@@ -119,6 +142,7 @@ export function RecordReceiptForm({
             </label>
             <input
               id="payerReference" name="payerReference" placeholder="MOKOENA T"
+              defaultValue={prefill?.payerReference ?? ''}
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
             />
           </div>

@@ -13,7 +13,8 @@ import { scrypt as scryptCb, randomBytes } from 'node:crypto';
 import { promisify } from 'node:util';
 import {
   activateLease, allocateReceipt, confirmReceipt, createOrganisationWithOwner,
-  createResident, createStandaloneHouse, createProperty, createTicket, createUnit,
+  addBankAccount, createResident, createStandaloneHouse, createProperty, createTicket,
+  createUnit,
   createVendor, draftLease, parseMajorToMinor, postCharge, recordDepositReceipt,
   registerDocument, submitPaymentEvidence, suggestAllocation,
 } from '../../../domain/src/index';
@@ -271,6 +272,21 @@ async function main(): Promise<void> {
 
     // A maintenance request with a quotation waiting on it, so the approvals
     // queue has something real to decide.
+    // A bank account, so a statement can be imported against it.
+    //
+    // Without one the bank statement screen correctly refuses to offer an
+    // import — a statement belongs to the account it came from — and the whole
+    // feature is unreachable in a preview. The number is a well-known test
+    // number and no bank is ever contacted.
+    await run((tx) =>
+      addBankAccount(tx, org.organisationId, adminId, {
+        label: 'Operating account', bankName: '[DEMO] Blue Crane Bank',
+        accountHolder: '[DEMO] Blue Crane Rentals', accountNumber: '62000000001',
+        branchCode: '250655',
+        reason: 'DEMO DATA: synthetic account for the preview.',
+      }),
+    );
+
     // A contractor, so the quotation form has somebody to quote.
     await run((tx) =>
       createVendor(tx, org.organisationId, adminId, {

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
+import { formatMinor } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadLeaseChoices, loadReconciliation } from '@/lib/operations-queries';
@@ -17,23 +18,44 @@ export const dynamic = 'force-dynamic';
  * payment is a CLAIM, carries no ledger effect at all, and must not be read as
  * money in hand until it is verified against the bank record.
  *
- * Bank import and automatic matching are not built. This lists what the
- * records already show rather than pretending a feed exists.
+ * A statement a landlord exported themselves can now be imported, and its
+ * lines are identified from the Bank statements screen. There is still no bank
+ * FEED and no automatic matching: a line is evidence money arrived, and who it
+ * came from is a judgement somebody makes.
  */
 export default async function ReconciliationPage({
   params, searchParams,
 }: {
   params: Promise<{ org: string }>;
-  searchParams: Promise<{ filter?: string }>;
+  searchParams: Promise<{
+    filter?: string; lease?: string; amount?: string; bankLine?: string; on?: string;
+    reference?: string;
+  }>;
 }) {
   const { org } = await params;
-  const { filter } = await searchParams;
+  const { filter, lease, amount, bankLine, on, reference } = await searchParams;
   const context = await requireOperator(org);
   const { unmatched, evidence, leases } = await readAs(context.viewer, async (tx) => ({
     ...(await loadReconciliation(tx, context.organisationId)),
     leases: await loadLeaseChoices(tx, context.organisationId),
   }));
   const today = new Date().toISOString().slice(0, 10);
+
+  // Arrived from a statement line: the bank's own figures are carried over so
+  // they are not retyped, and the amount is converted back to major units for
+  // the form. A lease that is not this organisation's would simply not be in
+  // the list, and the command checks it again regardless.
+  const prefill = bankLine
+    ? {
+        bankTransactionId: bankLine,
+        leaseId: lease && leases.some((l) => l.id === lease) ? lease : undefined,
+        amountMajor: amount && /^\d+$/.test(amount)
+          ? formatMinor(BigInt(amount), context.currencyCode).replace(/,/g, '')
+          : undefined,
+        receivedOn: on && /^\d{4}-\d{2}-\d{2}$/.test(on) ? on : undefined,
+        payerReference: reference ? reference.slice(0, 140) : undefined,
+      }
+    : undefined;
 
   const showUnmatched = filter !== 'evidence';
   const showEvidence = filter !== 'unmatched';
@@ -43,8 +65,23 @@ export default async function ReconciliationPage({
       <PageHeader
         title="Reconciliation"
         description="Receipts not yet applied to a charge, and resident payment claims not yet verified."
-        actions={<RecordReceiptForm org={org} leases={leases} today={today} />}
+        actions={
+          <RecordReceiptForm org={org} leases={leases} today={today} prefill={prefill} />
+        }
       />
+
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <p className="text-sm text-ink-700">
+          Working from a bank statement? Import it and identify each line there. Importing
+          creates no receipt and moves no balance.
+        </p>
+        <Link
+          href={`/app/${org}/reconciliation/statements`}
+          className="whitespace-nowrap rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-spike-600"
+        >
+          Bank statements →
+        </Link>
+      </Card>
 
       {filter ? (
         <Link href={`/app/${org}/reconciliation`} className="inline-block text-sm text-spike-700">

@@ -31,6 +31,7 @@ Points where the two genuinely disagree, and what was done.
 
 | # | Blueprint | Implementation | Resolution |
 |---|---|---|---|
+| C15 | §9 *Import a bank statement and reconcile it.* §14. | The `bank_imports` and `bank_transactions` tables, and the two unique indexes that exist specifically to stop an overlapping statement being imported twice, had **no command that could write to them**. So the one task a landlord performs every month — sit down with the statement and work out who paid — had no support at all, and the reconciliation screen said bank import "is not built" while the schema was waiting for it. | **Resolved.** `packages/domain/src/bank-import.ts`, and the Bank statements screen under Reconciliation. The fingerprint carries an occurrence number counted across what the account already holds plus the rows before it in the file, which is what makes an overlapping statement idempotent while keeping two genuinely separate identical payments. |
 | C12 | §4 *A preparer cannot approve their own.* §11 *Expenses… approval and payment status.* | `completeWorkOrder` wrote the expense with status **`approved`** for any invoice within the approved ceiling. Three things were wrong at once: no journal was posted, so the books carried an approved cost that was not in them; no approver was recorded, so "approved" named nobody; and the command requires only `expense.record`, so somebody who may record costs but not approve them could produce an approved one. The ticket page then displayed it as "Approved". | **Resolved.** The expense is always a draft. The ceiling authorised the spend; posting the cost is a separate act with its own permission and its own approver's name. An integration test that asserted `status: 'approved'` was asserting the defect and has been corrected. |
 | C13 | §10 *Require documentary evidence, approval and a refund reference.* §4, on segregation of duties. | The approvals queue listed deposit movements "awaiting approval" by reading `deposit_events` where `approved_at is null`. The database **forbids** such a row: `deposit_events_refund_controls` requires an approver, evidence and a reason on every deduction, refund and transfer. The section could never show anything, and there was no request step at all — the approver had to enter every detail and name their own counterparty from a dropdown, which makes the second pair of eyes the clerk. | **Resolved.** Migration 0041 adds `deposit_payout_requests`. A pending request holds nothing, because the held balance is the sum of `deposit_events` and nothing is written there until approval. The requester's name comes from the stored request, never the approver's form. Browser-verified with two accounts. |
 | C14 | §12 *A quote, its approval and the work order are separate steps.* | `recordQuote`, `approveQuoteAndIssueWorkOrder` and `completeWorkOrder` existed with **no screen anywhere in the product**, so maintenance spending could not happen at all, and the approvals queue listed submitted quotations with nothing to do about them. There was also no way to decline one, so a queue had only one exit. | **Resolved.** Quotation, approval into a work order with a ceiling, decline with a reason, and the supplier's invoice against completed work — all on the ticket page, with the three permissions kept distinct. `declineQuote` added. |
@@ -90,6 +91,7 @@ Against the §5 MVP column.
 | Portfolio | Exercised | Properties, units, standalone houses; create and detail screens; every link followed by `tests/e2e/navigation.spec.ts`. **Missing:** editing a property or unit; retiring a unit. |
 | Residents | Exercised | Profiles, lease parties, invitations, detail screen, editing and sealed identity capture, all driven through the interface. Archiving rather than deletion. |
 | Leasing | Exercised | Draft, activate, renew, terminate, notices with honest delivery reporting, agreement generation and preview. An agreement missing essential terms is a draft that cannot be sent. |
+| Bank statements | Exercised | A CSV the operator exported themselves is previewed, then imported. `bank_imports` and `bank_transactions` had existed since the schema was written, with two unique indexes against double-importing an overlapping statement, and **nothing could write a row to either**. An imported line creates no receipt, posts no journal and moves no balance. Two identical payments on one day both survive; the same line in two overlapping statements is imported once; the bank's own identifier wins over column matching when the file has one. A suggested payer states its reason in words and is never applied automatically, even when exactly one lease matches. **There is no bank feed and no provider** — nothing here contacts a bank. |
 | Rent and receivables | Exercised | Recording money received, holding it in suspense, identifying the payer, suggested matching, operator-overridden partial allocation, unapplied credit and controlled reversal — all driven through the interface. Reviewing a resident's payment claim records a decision and moves no balance. |
 | Billing | Exercised | Period preview, preparing a run, a validation report that explains each exception, confirmation before posting, and a downloadable batch summary. Preparing needs `billing.preview`; posting needs `billing.post`. |
 | Deposits | Exercised | Receipts, interest from evidence, deductions, refunds, transfers and closure — all through the interface. A payout is now **requested by one person and decided by another**: a pending request holds nothing, the requester is refused the approval of their own, and the requester's name comes from the stored request rather than the approver's form. Browser-verified with two real accounts. |
@@ -132,12 +134,14 @@ complete vertical workflow"*.
    against completed work) had no interface at all; deposit payouts had no
    request step, so the approver had to be the clerk. Every queue row now
    reaches a decision.
-9. The rest of the MVP: bank statement import, portfolio and unit editing,
-   audit history viewer, staff invitations, MFA enrolment and recovery,
-   customer provisioning.
-10. Navigation grouped into Portfolio, Finance, Operations and Administration;
+9. ~~Bank statement import~~ — **done**. Preview before commit, overlapping
+   statements, suggested payers that stay suggestions, lines set aside with a
+   reason.
+10. The rest of the MVP: portfolio and unit editing, audit history viewer,
+   staff invitations, MFA enrolment and recovery, customer provisioning.
+11. Navigation grouped into Portfolio, Finance, Operations and Administration;
    filters, loading states, reporting dates, actionable exception queues.
-11. Pilot readiness: production-intended adapters exercised in isolated staging,
+12. Pilot readiness: production-intended adapters exercised in isolated staging,
    missing credentials documented honestly, restore rehearsed (M3).
 
 ## 6. What cannot be verified here, and why

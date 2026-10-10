@@ -32,3 +32,4 @@ export * from './lease-agreements';
 export * from './lease-agreement-commands';
 export * from './lease-agreement-pdf';
 export * from './dates';
+export * from './bank-import';

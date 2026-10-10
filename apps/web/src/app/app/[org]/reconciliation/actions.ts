@@ -53,9 +53,17 @@ export async function recordReceiptAction(_previous: unknown, formData: FormData
       method: (str(formData, 'method') || 'eft') as 'eft' | 'cash' | 'card' | 'debit_order' | 'other',
       payerReference: str(formData, 'payerReference') || undefined,
       notes: str(formData, 'notes') || undefined,
+      // When the receipt was started from a statement line, the two are tied
+      // together: `confirmReceipt` marks the line matched. Without this the
+      // line would stay on the worklist beside the receipt it produced, and
+      // somebody would eventually receipt it twice.
+      bankTransactionId: str(formData, 'bankTransactionId') || undefined,
     });
   });
-  if (result.ok) revalidatePath(`/app/${org}/reconciliation`);
+  if (result.ok) {
+    revalidatePath(`/app/${org}/reconciliation`);
+    revalidatePath(`/app/${org}/reconciliation/statements`);
+  }
   return result;
 }
 
