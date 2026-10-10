@@ -284,3 +284,211 @@ export async function respondToInspection(
     resourceId: params.inspectionId, after: { response: params.response },
   });
 }
+
+/**
+ * Records what the inspector actually found.
+ *
+ * The one command this module was missing. `createInspection` pre-populates the
+ * checklist from the template with every item `not_applicable`, and nothing
+ * could then change them — an inspector could open a checklist and not fill it
+ * in, which makes the whole module decorative.
+ *
+ * Only a draft accepts findings. Once finalised the record is closed: §13 says
+ * "once an inspection is finalised, changes require a new version with a
+ * reason", and that is what `reviseInspection` is for.
+ *
+ * Fair wear and tear is kept distinct from damage, because conflating them is
+ * how a deposit deduction becomes indefensible — the deposit module refuses to
+ * deduct without evidence, and this is where that evidence starts.
+ */
+export async function recordInspectionFindings(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  params: {
+    inspectionId: string;
+    findings: Array<{
+      itemId: string;
+      condition: 'good' | 'fair' | 'poor' | 'damaged' | 'not_applicable';
+      damageType?: 'fair_wear_and_tear' | 'damage' | 'missing';
+      note?: string;
+    }>;
+  },
+): Promise<{ updated: number }> {
+  await requirePermission(tx, organisationId, 'inspection.manage');
+
+  const [inspection] = await tx<{ id: string; status: string; property_id: string }[]>`
+    select id, status, property_id from inspections
+    where id = ${params.inspectionId}::uuid and organisation_id = ${organisationId}::uuid
+    for update
+  `;
+  if (!inspection) throw notFound('Inspection');
+  await requirePropertyScope(tx, organisationId, inspection.property_id);
+  if (inspection.status !== 'draft') {
+    throw new DomainError(
+      'conflict',
+      `This inspection is "${inspection.status}" and is closed to edits. `
+        + 'Create a new version with a reason to correct it.',
+    );
+  }
+
+  const findings = params.findings.map((f) => inspectionItemSchema
+    .omit({ room: true, item: true })
+    .extend({ itemId: z.string().uuid() })
+    .parse(f));
+
+  // A condition of "damaged" without saying what kind of damage leaves the
+  // record unable to support a deduction. Refused rather than stored as a gap
+  // somebody discovers at move-out.
+  const unexplained = findings.find((f) => f.condition === 'damaged' && !f.damageType);
+  if (unexplained) {
+    throw invalid(
+      'Say whether that is fair wear and tear, damage or something missing. A deduction '
+        + 'cannot rest on "damaged" alone.',
+    );
+  }
+
+  let updated = 0;
+  for (const f of findings) {
+    const [row] = await tx<{ id: string }[]>`
+      update inspection_items
+         set condition = ${f.condition},
+             damage_type = ${f.damageType ?? null},
+             note = ${f.note ?? null}
+       where id = ${f.itemId}::uuid
+         and inspection_id = ${params.inspectionId}::uuid
+         and organisation_id = ${organisationId}::uuid
+      returning id
+    `;
+    if (row) updated += 1;
+  }
+
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'inspection.findings_recorded', resourceType: 'inspection',
+    resourceId: params.inspectionId,
+    after: {
+      updated,
+      damaged: findings.filter((f) => f.condition === 'damaged').length,
+      wearAndTear: findings.filter((f) => f.damageType === 'fair_wear_and_tear').length,
+    },
+  });
+  return { updated };
+}
+
+export interface InspectionDetail {
+  id: string;
+  propertyName: string;
+  unitCode: string;
+  leaseId: string | null;
+  leaseReference: string | null;
+  residentName: string | null;
+  inspectionType: 'move_in' | 'move_out' | 'routine' | 'other';
+  templateName: string;
+  templateVersion: number;
+  status: 'draft' | 'finalised' | 'acknowledged' | 'disputed' | 'superseded';
+  scheduledFor: string | null;
+  performedOn: string | null;
+  inspectorName: string | null;
+  attendees: string | null;
+  keysHandedOver: string | null;
+  revisionReason: string | null;
+  supersedesInspectionId: string | null;
+  finalisedAt: string | null;
+  items: Array<{
+    id: string; room: string; item: string;
+    condition: string; damageType: string | null; note: string | null;
+  }>;
+  responses: Array<{
+    response: string; comment: string | null; respondedAt: string; residentName: string | null;
+  }>;
+}
+
+export async function getInspection(
+  tx: Sql, organisationId: string, inspectionId: string,
+): Promise<InspectionDetail | undefined> {
+  const [row] = await tx<Record<string, string | number | null>[]>`
+    select i.id, i.lease_id, i.inspection_type, i.template_version, i.status,
+           i.scheduled_for::text as scheduled_for, i.performed_on::text as performed_on,
+           i.attendees, i.keys_handed_over, i.revision_reason, i.supersedes_inspection_id,
+           i.finalised_at::text as finalised_at,
+           p.name as property_name, u.code as unit_code,
+           t.name as template_name,
+           inspector.full_name as inspector_name,
+           l.reference as lease_reference,
+           nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), '')
+             as resident_name
+      from inspections i
+      join properties p on p.id = i.property_id
+      join units u on u.id = i.unit_id
+      join inspection_templates t on t.id = i.template_id
+      left join user_profiles inspector on inspector.auth_user_id = i.inspector_user_id
+      left join leases l on l.id = i.lease_id
+      left join lease_parties lp
+        on lp.lease_id = l.id and lp.role = 'primary_resident' and lp.removed_on is null
+      left join resident_profiles rp on rp.id = lp.resident_id
+     where i.id = ${inspectionId}::uuid and i.organisation_id = ${organisationId}::uuid
+  `;
+  if (!row) return undefined;
+
+  const items = await tx<Record<string, string | null>[]>`
+    select id, room, item, condition, damage_type, note
+      from inspection_items
+     where inspection_id = ${inspectionId}::uuid and organisation_id = ${organisationId}::uuid
+     order by sort_order, room, item
+  `;
+
+  const responses = await tx<Record<string, string | null>[]>`
+    select a.response, a.comment, a.responded_at::text as responded_at,
+           nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), '')
+             as resident_name
+      from inspection_acknowledgements a
+      left join resident_profiles rp on rp.id = a.resident_id
+     where a.inspection_id = ${inspectionId}::uuid and a.organisation_id = ${organisationId}::uuid
+     order by a.responded_at desc
+  `;
+
+  return {
+    id: row.id as string,
+    propertyName: row.property_name as string,
+    unitCode: row.unit_code as string,
+    leaseId: (row.lease_id as string | null) ?? null,
+    leaseReference: (row.lease_reference as string | null) ?? null,
+    residentName: (row.resident_name as string | null) ?? null,
+    inspectionType: row.inspection_type as InspectionDetail['inspectionType'],
+    templateName: row.template_name as string,
+    templateVersion: Number(row.template_version),
+    status: row.status as InspectionDetail['status'],
+    scheduledFor: (row.scheduled_for as string | null) ?? null,
+    performedOn: (row.performed_on as string | null) ?? null,
+    inspectorName: (row.inspector_name as string | null) ?? null,
+    attendees: (row.attendees as string | null) ?? null,
+    keysHandedOver: (row.keys_handed_over as string | null) ?? null,
+    revisionReason: (row.revision_reason as string | null) ?? null,
+    supersedesInspectionId: (row.supersedes_inspection_id as string | null) ?? null,
+    finalisedAt: (row.finalised_at as string | null) ?? null,
+    items: items.map((i) => ({
+      id: i.id!, room: i.room!, item: i.item!,
+      condition: i.condition!, damageType: i.damage_type ?? null, note: i.note ?? null,
+    })),
+    responses: responses.map((r) => ({
+      response: r.response!, comment: r.comment ?? null,
+      respondedAt: r.responded_at!, residentName: r.resident_name ?? null,
+    })),
+  };
+}
+
+/** Active checklist templates, newest version of each. */
+export async function listInspectionTemplates(
+  tx: Sql, organisationId: string,
+): Promise<{ id: string; name: string; version: number; itemCount: number }[]> {
+  const rows = await tx<{ id: string; name: string; version: number; items: unknown }[]>`
+    select id, name, version, items from inspection_templates
+     where organisation_id = ${organisationId}::uuid and is_active
+     order by name
+  `;
+  return rows.map((r) => ({
+    id: r.id, name: r.name, version: r.version,
+    itemCount: Array.isArray(r.items) ? r.items.length : 0,
+  }));
+}

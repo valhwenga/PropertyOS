@@ -93,7 +93,7 @@ Against the §5 MVP column.
 | Utilities | Tested | Fixed and manual line items via charges. No dedicated screen. |
 | Expenses | Exercised | Suppliers, drafts, approval, payment and voiding through the interface. Approving and paying post to different accounts, so net operating income and cash surplus are different figures. **Missing:** splitting one cost across properties (§11). |
 | Maintenance | Exercised | Report, triage, assign, quote, comment, resolve — through the interface, including the resident portal. |
-| Inspections | **Tested, not Exercised** | Templates, items, acknowledgement tested. Read-only screen. |
+| Inspections | **Exercised** | Checklist published, inspection performed against a version, findings recorded, finalised, corrected by superseding. Fair wear and tear kept distinct from damage. Browser-verified. Photographs are not yet attachable to an item. |
 | Documents | Exercised | Private storage, quarantine, type and size limits, authorised download, in-browser preview of generated PDFs only. **Malware scanning is not configured and is not claimed.** |
 | Communications | Exercised | In-app inbox and email behind an adapter that never reports a message delivered when it was not sent. **No provider configured (M5).** |
 | Analytics | Exercised | Collection, arrears ageing, occupancy, expenses, rent roll, deposits, lease expiry, journal lines; every headline reconciles to its rows, asserted in tests. |
