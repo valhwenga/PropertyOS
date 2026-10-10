@@ -246,7 +246,20 @@ describe('Property operations', () => {
       const [expense] = await ownerSql()<{ status: string; work_order_id: string; amount_minor: string }[]>`
         select status, work_order_id, amount_minor::text from expenses where id = ${completion.expenseId}
       `;
-      expect(expense).toMatchObject({ status: 'approved', work_order_id: workOrder.workOrderId });
+      // A draft, not an approved cost.
+      //
+      // This asserted `status: 'approved'` when nothing in the product could
+      // post an expense, so the label meant nothing. It means something now,
+      // and what it meant here was false: no journal was posted, no approver
+      // was named, and `completeWorkOrder` requires only `expense.record`.
+      // Completing a work order records the supplier's invoice; approving it
+      // into the books is a separate act with its own permission.
+      expect(expense).toMatchObject({ status: 'draft', work_order_id: workOrder.workOrderId });
+
+      const [posted] = await ownerSql()<{ journal_id: string | null }[]>`
+        select journal_id::text from expenses where id = ${completion.expenseId}
+      `;
+      expect(posted!.journal_id).toBeNull();
     });
 
     it('refuses to record the same supplier invoice twice', async () => {

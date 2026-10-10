@@ -13,8 +13,9 @@ import { scrypt as scryptCb, randomBytes } from 'node:crypto';
 import { promisify } from 'node:util';
 import {
   activateLease, allocateReceipt, confirmReceipt, createOrganisationWithOwner,
-  createResident, createStandaloneHouse, createProperty, createUnit, draftLease,
-  parseMajorToMinor, postCharge, submitPaymentEvidence, suggestAllocation,
+  createResident, createStandaloneHouse, createProperty, createTicket, createUnit,
+  createVendor, draftLease, parseMajorToMinor, postCharge, recordDepositReceipt,
+  registerDocument, submitPaymentEvidence, suggestAllocation,
 } from '../../../domain/src/index';
 import type { Sql } from '../client';
 import { loadLocalEnv } from './load-env';
@@ -234,6 +235,56 @@ async function main(): Promise<void> {
     });
 
     await actAs(adminId);
+
+    // The deposit the lease requires, actually held.
+    //
+    // Without this the deposits module has nothing to show, and without a
+    // document on the lease the payout request form correctly refuses to open:
+    // a deduction needs evidence, so a demo with no evidence cannot reach the
+    // approval flow at all.
+    await run((tx) =>
+      recordDepositReceipt(tx, org.organisationId, adminId, {
+        leaseId: lease.leaseId, amountMinor: R('8000'), receivedOn: '2026-01-01',
+        holder: 'landlord', description: 'DEMO: deposit received on signing',
+      }),
+    );
+
+    await run((tx) =>
+      registerDocument(
+        tx, org.organisationId, adminId,
+        {
+          classification: 'deposit_evidence',
+          title: '[DEMO] Quotation — replace cracked shower screen',
+          filename: 'demo-quotation.pdf', contentType: 'application/pdf',
+          byteSize: 48_000, leaseId: lease.leaseId,
+        },
+        // Not 'clean': no scanner is configured in the preview and claiming a
+        // scan that never ran is exactly what the brief forbids. This file was
+        // created by the seed rather than uploaded, so it was never untrusted
+        // input and is not held in quarantine either.
+        {
+          status: 'system_generated',
+          detail: 'DEMO DATA: created by the seed. Not uploaded and not scanned.',
+        },
+      ),
+    );
+
+    // A maintenance request with a quotation waiting on it, so the approvals
+    // queue has something real to decide.
+    // A contractor, so the quotation form has somebody to quote.
+    await run((tx) =>
+      createVendor(tx, org.organisationId, adminId, {
+        name: '[DEMO] Protea Plumbing', category: 'plumbing', isContractor: true,
+      }),
+    );
+    await run((tx) =>
+      createTicket(tx, org.organisationId, adminId, {
+        propertyId: house.propertyId, unitId: house.unitId, leaseId: lease.leaseId,
+        category: 'plumbing', location: 'Main bathroom',
+        description: 'DEMO: the shower screen in the main bathroom is cracked through.',
+      }),
+    );
+
     const [balance] = await tx<{ receivable_minor: string }[]>`
       select receivable_minor::text from lease_balances where lease_id = ${lease.leaseId}
     `;

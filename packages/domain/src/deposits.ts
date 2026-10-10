@@ -573,3 +573,363 @@ export async function closeDepositAccount(
     resourceId: input.depositAccountId, reason,
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/* Payout requests                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A deduction, refund or transfer prepared for somebody else to approve.
+ *
+ * `approveDepositPayout` requires the approver to supply every detail
+ * themselves, which means the person with the approval permission also does
+ * the data entry. That is backwards: segregation of duties is supposed to put
+ * a second pair of eyes on a decision, not make the approver the clerk.
+ *
+ * A pending request HOLDS NOTHING. The deposit balance is the sum of
+ * `deposit_events` and nothing is written there until approval, for the same
+ * reason an uploaded proof of payment does not reduce a resident's rent
+ * balance: a claim awaiting a decision is not a movement.
+ */
+export interface PayoutRequest {
+  id: string;
+  depositAccountId: string;
+  leaseReference: string | null;
+  residentName: string | null;
+  kind: 'deduction' | 'refund' | 'transfer_to_rent';
+  amountMinor: bigint;
+  currencyCode: string;
+  effectiveOn: string;
+  description: string;
+  evidenceDocumentId: string;
+  evidenceTitle: string | null;
+  requestedBy: string;
+  requestedByName: string | null;
+  requestedAt: string;
+  status: 'pending' | 'approved' | 'declined' | 'withdrawn';
+  decidedByName: string | null;
+  decidedAt: string | null;
+  decisionReason: string | null;
+  eventId: string | null;
+  /** What the account holds now, so an approver can see the request in context. */
+  heldMinor: bigint;
+}
+
+const requestSchema = z.object({
+  depositAccountId: z.string().uuid(),
+  kind: z.enum(['deduction', 'refund', 'transfer_to_rent']),
+  amountMinor: z.bigint().positive(),
+  effectiveOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date in the form 2026-03-31.'),
+  description: z.string().trim().min(3).max(500),
+  evidenceDocumentId: z.string().uuid('A deduction or refund needs documentary evidence.'),
+  refundReference: z.string().trim().max(120).optional(),
+});
+
+export async function requestDepositPayout(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  input: {
+    depositAccountId: string;
+    kind: 'deduction' | 'refund' | 'transfer_to_rent';
+    amountMinor: Minor;
+    effectiveOn: string;
+    description: string;
+    evidenceDocumentId: string;
+  },
+): Promise<{ requestId: string }> {
+  // Raising a request is not approving one. `deposit.record` is enough to ask;
+  // only `deposit.refund.approve` can decide.
+  await requirePermission(tx, organisationId, 'deposit.record');
+  const params = parsed(requestSchema.omit({ refundReference: true }), input);
+
+  const account = await lockAccount(tx, organisationId, params.depositAccountId);
+  if (params.amountMinor > account.held) {
+    throw invalid(
+      'That is more than this deposit holds. A deposit cannot go into deficit: the resident '
+        + 'is owed what is held, not what was required.',
+    );
+  }
+
+  // Everything already asked for counts against what is held. Two requests for
+  // the full balance must not both become approvable.
+  const [pending] = await tx<{ total: string }[]>`
+    select coalesce(sum(amount_minor), 0)::text as total
+      from deposit_payout_requests
+     where deposit_account_id = ${params.depositAccountId}::uuid
+       and organisation_id = ${organisationId}::uuid
+       and status = 'pending'
+  `;
+  const alreadyRequested = BigInt(pending?.total ?? '0');
+  if (params.amountMinor + alreadyRequested > account.held) {
+    throw invalid(
+      'Requests already waiting for a decision account for the rest of this deposit. '
+        + 'Decide those first, or withdraw one.',
+    );
+  }
+
+  try {
+    const [row] = await tx<{ id: string }[]>`
+      insert into deposit_payout_requests (
+        organisation_id, deposit_account_id, kind, amount_minor, currency_code,
+        effective_on, description, evidence_document_id, requested_by
+      ) values (
+        ${organisationId}, ${params.depositAccountId}, ${params.kind},
+        ${params.amountMinor.toString()}, ${account.currency_code},
+        ${params.effectiveOn}, ${params.description}, ${params.evidenceDocumentId},
+        ${actorUserId}
+      )
+      returning id
+    `;
+    if (!row) throw new DomainError('internal', 'Payout request insert returned no row.');
+
+    await recordAudit(tx, {
+      organisationId, actorUserId,
+      action: 'deposit.payout.requested', resourceType: 'deposit_account',
+      resourceId: params.depositAccountId,
+      after: {
+        requestId: row.id, kind: params.kind,
+        amountMinor: params.amountMinor.toString(),
+        evidenceDocumentId: params.evidenceDocumentId,
+        // Said plainly in the audit trail too: asking changed no balance.
+        ledgerEffect: 'none',
+      },
+    });
+    return { requestId: row.id };
+  } catch (error) {
+    if (error instanceof DomainError) throw error;
+    throw fromDatabaseError(error);
+  }
+}
+
+/** Requests on one account, newest first; or every pending one in the organisation. */
+export async function listPayoutRequests(
+  tx: Sql,
+  organisationId: string,
+  filter: { depositAccountId?: string; pendingOnly?: boolean } = {},
+): Promise<PayoutRequest[]> {
+  const rows = await tx<
+    { id: string; deposit_account_id: string; lease_reference: string | null;
+      resident_name: string | null; kind: string; amount_minor: string; currency_code: string;
+      effective_on: string; description: string; evidence_document_id: string;
+      evidence_title: string | null; requested_by: string; requested_by_name: string | null;
+      requested_at: string; status: string; decided_by_name: string | null;
+      decided_at: string | null; decision_reason: string | null; event_id: string | null;
+      held: string }[]
+  >`
+    select r.id, r.deposit_account_id,
+           l.reference as lease_reference,
+           nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), '')
+             as resident_name,
+           r.kind, r.amount_minor::text, r.currency_code, r.effective_on::text,
+           r.description, r.evidence_document_id, d.title as evidence_title,
+           r.requested_by, req.full_name as requested_by_name, r.requested_at::text,
+           r.status, dec.full_name as decided_by_name, r.decided_at::text,
+           r.decision_reason, r.event_id,
+           coalesce((select sum(de.amount_minor) from deposit_events de
+                      where de.deposit_account_id = r.deposit_account_id), 0)::text as held
+      from deposit_payout_requests r
+      join deposit_accounts da on da.id = r.deposit_account_id
+      left join leases l on l.id = da.lease_id
+      left join lease_parties lp
+        on lp.lease_id = da.lease_id and lp.role = 'primary_resident' and lp.removed_on is null
+      left join resident_profiles rp on rp.id = lp.resident_id
+      left join documents d on d.id = r.evidence_document_id
+      left join user_profiles req on req.auth_user_id = r.requested_by
+      left join user_profiles dec on dec.auth_user_id = r.decided_by
+     where r.organisation_id = ${organisationId}::uuid
+       ${filter.depositAccountId
+         ? tx`and r.deposit_account_id = ${filter.depositAccountId}::uuid`
+         : tx``}
+       ${filter.pendingOnly ? tx`and r.status = 'pending'` : tx``}
+     order by r.requested_at desc
+     limit 200
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    depositAccountId: r.deposit_account_id,
+    leaseReference: r.lease_reference,
+    residentName: r.resident_name,
+    kind: r.kind as PayoutRequest['kind'],
+    amountMinor: BigInt(r.amount_minor),
+    currencyCode: r.currency_code,
+    effectiveOn: r.effective_on,
+    description: r.description,
+    evidenceDocumentId: r.evidence_document_id,
+    evidenceTitle: r.evidence_title,
+    requestedBy: r.requested_by,
+    requestedByName: r.requested_by_name,
+    requestedAt: r.requested_at,
+    status: r.status as PayoutRequest['status'],
+    decidedByName: r.decided_by_name,
+    decidedAt: r.decided_at,
+    decisionReason: r.decision_reason,
+    eventId: r.event_id,
+    heldMinor: BigInt(r.held),
+  }));
+}
+
+/**
+ * Approves a request and posts the movement it authorised.
+ *
+ * The approver is the actor, and the requester comes from the stored request —
+ * never from the form. That is the whole value of the request: the two names
+ * cannot be the same person because one of them was recorded before this
+ * screen was opened.
+ */
+export async function approvePayoutRequest(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  input: { requestId: string; approvalReason: string; refundReference?: string },
+): Promise<{ eventId: string }> {
+  await requirePermission(tx, organisationId, 'deposit.refund.approve');
+  const reason = parsed(
+    z.string().trim().min(5, 'Say why this is approved, in a sentence somebody can audit.')
+      .max(500),
+    input.approvalReason,
+  );
+
+  const [request] = await tx<
+    { id: string; deposit_account_id: string; kind: string; amount_minor: string;
+      effective_on: string; description: string; evidence_document_id: string;
+      requested_by: string; status: string }[]
+  >`
+    select id, deposit_account_id, kind, amount_minor::text, effective_on::text,
+           description, evidence_document_id, requested_by, status
+      from deposit_payout_requests
+     where id = ${input.requestId}::uuid and organisation_id = ${organisationId}::uuid
+     for update
+  `;
+  if (!request) throw notFound('Payout request');
+  if (request.status !== 'pending') {
+    throw new DomainError(
+      'conflict',
+      `This request was already ${request.status}. Raise another one if it is still needed.`,
+    );
+  }
+  if (request.requested_by === actorUserId) {
+    throw new DomainError(
+      'forbidden',
+      'You raised this request, so you cannot approve it. Someone else must.',
+    );
+  }
+
+  const { eventId } = await approveDepositPayout(tx, organisationId, actorUserId, {
+    depositAccountId: request.deposit_account_id,
+    kind: request.kind as 'deduction' | 'refund' | 'transfer_to_rent',
+    amountMinor: BigInt(request.amount_minor),
+    effectiveOn: request.effective_on,
+    description: request.description,
+    evidenceDocumentId: request.evidence_document_id,
+    requestedByUserId: request.requested_by,
+    approvalReason: reason,
+    refundReference: input.refundReference,
+  });
+
+  await tx`
+    update deposit_payout_requests
+       set status = 'approved', decided_by = ${actorUserId}, decided_at = now(),
+           decision_reason = ${reason}, event_id = ${eventId}
+     where id = ${input.requestId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+  return { eventId };
+}
+
+/** Declines a request. Nothing is posted, and the refusal stays on the record. */
+export async function declinePayoutRequest(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  input: { requestId: string; reason: string },
+): Promise<void> {
+  await requirePermission(tx, organisationId, 'deposit.refund.approve');
+  const reason = parsed(
+    z.string().trim().min(5, 'Say why this is declined. The requester has to know what to fix.')
+      .max(500),
+    input.reason,
+  );
+
+  const [request] = await tx<
+    { id: string; status: string; requested_by: string; deposit_account_id: string }[]
+  >`
+    select id, status, requested_by, deposit_account_id
+      from deposit_payout_requests
+     where id = ${input.requestId}::uuid and organisation_id = ${organisationId}::uuid
+     for update
+  `;
+  if (!request) throw notFound('Payout request');
+  if (request.status !== 'pending') {
+    throw new DomainError('conflict', `This request was already ${request.status}.`);
+  }
+  if (request.requested_by === actorUserId) {
+    throw new DomainError(
+      'forbidden',
+      'You raised this request. Withdraw it rather than declining your own.',
+    );
+  }
+
+  await tx`
+    update deposit_payout_requests
+       set status = 'declined', decided_by = ${actorUserId}, decided_at = now(),
+           decision_reason = ${reason}
+     where id = ${input.requestId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'deposit.payout.declined', resourceType: 'deposit_account',
+    resourceId: request.deposit_account_id, reason,
+    after: { requestId: input.requestId, ledgerEffect: 'none' },
+  });
+}
+
+/**
+ * Withdraws one's own request.
+ *
+ * Deliberately the only thing a requester can do to their own request, and the
+ * reason `declinePayoutRequest` refuses it: withdrawn and declined are
+ * different facts, and collapsing them would hide who decided what.
+ */
+export async function withdrawPayoutRequest(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  input: { requestId: string; reason: string },
+): Promise<void> {
+  await requirePermission(tx, organisationId, 'deposit.record');
+  const reason = parsed(z.string().trim().min(5).max(500), input.reason);
+
+  const [request] = await tx<
+    { id: string; status: string; requested_by: string; deposit_account_id: string }[]
+  >`
+    select id, status, requested_by, deposit_account_id
+      from deposit_payout_requests
+     where id = ${input.requestId}::uuid and organisation_id = ${organisationId}::uuid
+     for update
+  `;
+  if (!request) throw notFound('Payout request');
+  if (request.status !== 'pending') {
+    throw new DomainError('conflict', `This request was already ${request.status}.`);
+  }
+  if (request.requested_by !== actorUserId) {
+    throw new DomainError(
+      'forbidden',
+      'Only the person who raised a request can withdraw it. Decline it instead.',
+    );
+  }
+
+  // The decision columns carry the withdrawal, and the table's segregation
+  // check allows it because a withdrawal is not an approval of anything.
+  await tx`
+    update deposit_payout_requests
+       set status = 'withdrawn', decided_by = null, decided_at = now(),
+           decision_reason = ${reason}
+     where id = ${input.requestId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'deposit.payout.withdrawn', resourceType: 'deposit_account',
+    resourceId: request.deposit_account_id, reason,
+    after: { requestId: input.requestId, ledgerEffect: 'none' },
+  });
+}

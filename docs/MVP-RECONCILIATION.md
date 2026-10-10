@@ -31,6 +31,9 @@ Points where the two genuinely disagree, and what was done.
 
 | # | Blueprint | Implementation | Resolution |
 |---|---|---|---|
+| C12 | §4 *A preparer cannot approve their own.* §11 *Expenses… approval and payment status.* | `completeWorkOrder` wrote the expense with status **`approved`** for any invoice within the approved ceiling. Three things were wrong at once: no journal was posted, so the books carried an approved cost that was not in them; no approver was recorded, so "approved" named nobody; and the command requires only `expense.record`, so somebody who may record costs but not approve them could produce an approved one. The ticket page then displayed it as "Approved". | **Resolved.** The expense is always a draft. The ceiling authorised the spend; posting the cost is a separate act with its own permission and its own approver's name. An integration test that asserted `status: 'approved'` was asserting the defect and has been corrected. |
+| C13 | §10 *Require documentary evidence, approval and a refund reference.* §4, on segregation of duties. | The approvals queue listed deposit movements "awaiting approval" by reading `deposit_events` where `approved_at is null`. The database **forbids** such a row: `deposit_events_refund_controls` requires an approver, evidence and a reason on every deduction, refund and transfer. The section could never show anything, and there was no request step at all — the approver had to enter every detail and name their own counterparty from a dropdown, which makes the second pair of eyes the clerk. | **Resolved.** Migration 0041 adds `deposit_payout_requests`. A pending request holds nothing, because the held balance is the sum of `deposit_events` and nothing is written there until approval. The requester's name comes from the stored request, never the approver's form. Browser-verified with two accounts. |
+| C14 | §12 *A quote, its approval and the work order are separate steps.* | `recordQuote`, `approveQuoteAndIssueWorkOrder` and `completeWorkOrder` existed with **no screen anywhere in the product**, so maintenance spending could not happen at all, and the approvals queue listed submitted quotations with nothing to do about them. There was also no way to decline one, so a queue had only one exit. | **Resolved.** Quotation, approval into a work order with a ceiling, decline with a reason, and the supplier's invoice against completed work — all on the ticket page, with the three permissions kept distinct. `declineQuote` added. |
 | C1 | §14 *Rent billed: posted rent charges less rent credits.* *Current period collection: receipts allocated to current period rent over net rent billed.* | The overview divided allocations against **all** charges by **rent** billed; the collection report filtered neither side. | **Resolved.** One shared definition in `packages/domain/src/collection-metrics.ts`; both screens read it, two labelled measures, neither blended. |
 | C2 | §14 *A management snapshot should be reproducible from the underlying records.* | Reports had no cut-off; reversals carried only a system timestamp, so a closed month restated when an allocation was corrected later. | **Resolved.** Business-date cut-off throughout; migration 0036 adds `allocated_on`/`reversed_on`. |
 | C3 | §8 *Keep recurring charge schedules separate from issued charge documents. Preview a billing period before posting.* | Schedules, runs, previews, version guards and idempotent posting all existed; the Billing screen was read-only and carried a note saying posting was not wired up. | **Resolved.** Preview → prepare → validation report → approve and post → batch summary, all through the interface. |
@@ -89,14 +92,15 @@ Against the §5 MVP column.
 | Leasing | Exercised | Draft, activate, renew, terminate, notices with honest delivery reporting, agreement generation and preview. An agreement missing essential terms is a draft that cannot be sent. |
 | Rent and receivables | Exercised | Recording money received, holding it in suspense, identifying the payer, suggested matching, operator-overridden partial allocation, unapplied credit and controlled reversal — all driven through the interface. Reviewing a resident's payment claim records a decision and moves no balance. |
 | Billing | Exercised | Period preview, preparing a run, a validation report that explains each exception, confirmation before posting, and a downloadable batch summary. Preparing needs `billing.preview`; posting needs `billing.post`. |
-| Deposits | Exercised | Receipts, interest from evidence, deductions, refunds, transfers and closure — all through the interface, with the two-person approval and the evidence requirement enforced in the command as well as the schema. |
+| Deposits | Exercised | Receipts, interest from evidence, deductions, refunds, transfers and closure — all through the interface. A payout is now **requested by one person and decided by another**: a pending request holds nothing, the requester is refused the approval of their own, and the requester's name comes from the stored request rather than the approver's form. Browser-verified with two real accounts. |
 | Utilities | Tested | Fixed and manual line items via charges. No dedicated screen. |
 | Expenses | Exercised | Suppliers, drafts, approval, payment and voiding through the interface. Approving and paying post to different accounts, so net operating income and cash surplus are different figures. **Missing:** splitting one cost across properties (§11). |
-| Maintenance | Exercised | Report, triage, assign, quote, comment, resolve — through the interface, including the resident portal. |
+| Maintenance | Exercised | Report, triage, assign, comment, resolve — through the interface, including the resident portal. **Spending now has an interface at all**: record a quotation, approve it into a work order with a ceiling, decline it with a reason, and record the supplier's invoice against completed work as a draft expense. Approving spending is a permission separate from managing a request. |
 | Inspections | **Exercised** | Checklist published, inspection performed against a version, findings recorded, finalised, corrected by superseding. Fair wear and tear kept distinct from damage. Browser-verified. Photographs are not yet attachable to an item. |
 | Documents | Exercised | Private storage, quarantine, type and size limits, authorised download, in-browser preview of generated PDFs only. **Malware scanning is not configured and is not claimed.** |
 | Communications | Exercised | In-app inbox and email behind an adapter that never reports a message delivered when it was not sent. **No provider configured (M5).** |
 | Analytics | Exercised | Collection, arrears ageing, occupancy, expenses, rent roll, deposits, lease expiry, journal lines; every headline reconciles to its rows, asserted in tests. |
+| Approvals queue | Exercised | Every waiting item — billing run, deposit payout, maintenance quotation, draft expense — now opens where the decision is made and recorded, and says what the decision does. The decision itself is not duplicated in the queue. The old deposit section read a row the database forbids and could never show anything. |
 | Staff | Open | Roles exist; no invitation or assignment screen. |
 | AI | Agrees | None, by design. §23: *the launch does not require AI.* |
 | Spike administration | Exercised | Customers, plans, entitlements, support sessions, platform lease templates. **Missing:** customer provisioning screen. |
@@ -121,12 +125,19 @@ complete vertical workflow"*.
 5. ~~Deposits~~ — **done**. Receipt, interest from evidence, deduction, refund,
    transfer and closure, with two-person approval.
 6. ~~Expenses~~ — **done**. Suppliers, drafts, approval, payment, voiding.
-7. The rest of the MVP: approvals that act, bank statement import, inspections,
-   portfolio and resident editing, audit history viewer, staff invitations, MFA
-   enrolment and recovery, customer provisioning.
-8. Navigation grouped into Portfolio, Finance, Operations and Administration;
+7. ~~Inspections~~ — **done**. Checklist versions, findings, finalising,
+   correction by superseding.
+8. ~~Approvals that act~~ — **done**. Maintenance spending (quotation,
+   approval into a work order with a ceiling, decline with a reason, invoice
+   against completed work) had no interface at all; deposit payouts had no
+   request step, so the approver had to be the clerk. Every queue row now
+   reaches a decision.
+9. The rest of the MVP: bank statement import, portfolio and unit editing,
+   audit history viewer, staff invitations, MFA enrolment and recovery,
+   customer provisioning.
+10. Navigation grouped into Portfolio, Finance, Operations and Administration;
    filters, loading states, reporting dates, actionable exception queues.
-9. Pilot readiness: production-intended adapters exercised in isolated staging,
+11. Pilot readiness: production-intended adapters exercised in isolated staging,
    missing credentials documented honestly, restore rehearsed (M3).
 
 ## 6. What cannot be verified here, and why

@@ -1,9 +1,15 @@
 import { notFound } from 'next/navigation';
 import { Card, Money, PageHeader, StatusBadge, Td, Th, DataTable } from '@propertyos/ui';
+import { formatMoney, hasPermission, listVendors } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
-import { formatDateTime } from '@/lib/format';
-import { loadTicketDetail } from '@/lib/operations-queries';
+import { formatDate, formatDateTime } from '@/lib/format';
+import {
+  loadInvoiceChoices, loadQuotationChoices, loadTicketDetail,
+} from '@/lib/operations-queries';
 import { TicketActions } from './ticket-actions';
+import {
+  CompleteWorkOrderForm, QuoteDecisionForms, RecordQuoteForm,
+} from './spend-forms';
 
 export const metadata = { title: 'Maintenance request' };
 export const dynamic = 'force-dynamic';
@@ -21,11 +27,31 @@ export default async function TicketPage({
 }) {
   const { org, ticketId } = await params;
   const context = await requireOperator(org);
-  const data = await readAs(context.viewer, (tx) =>
-    loadTicketDetail(tx, context.organisationId, ticketId),
-  );
+  const data = await readAs(context.viewer, async (tx) => {
+    const detail = await loadTicketDetail(tx, context.organisationId, ticketId);
+    if (!detail) return null;
+    return {
+      ...detail,
+      vendors: await listVendors(tx, context.organisationId),
+      quotations: await loadQuotationChoices(tx, context.organisationId),
+      invoices: await loadInvoiceChoices(tx, context.organisationId),
+      canManage: await hasPermission(tx, context.organisationId, 'maintenance.manage'),
+      canApproveSpend: await hasPermission(
+        tx, context.organisationId, 'maintenance.quote.approve',
+      ),
+      canRecordExpense: await hasPermission(tx, context.organisationId, 'expense.record'),
+    };
+  });
   if (!data) notFound();
-  const { ticket, events, comments, quotes, workOrders } = data;
+  const {
+    ticket, events, comments, quotes, workOrders, vendors, quotations, invoices,
+    canManage, canApproveSpend, canRecordExpense,
+  } = data;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const docChoice = (d: { id: string; title: string; uploaded_at: string }) => ({
+    id: d.id, label: `${d.title} — ${formatDate(d.uploaded_at, context.timeZone)}`,
+  });
 
   return (
     <div className="space-y-6">
@@ -91,11 +117,19 @@ export default async function TicketPage({
             )}
           </section>
 
-          {quotes.length > 0 ? (
-            <section aria-labelledby="quotes-heading" className="space-y-3">
-              <h2 id="quotes-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
-                Quotations
-              </h2>
+          {/* Quotations, and the decisions on them.
+
+              This chain had no interface at all: `recordQuote`,
+              `approveQuoteAndIssueWorkOrder` and `completeWorkOrder` existed
+              with no screen, so maintenance spending could not happen in the
+              product, and the approvals queue listed submitted quotations
+              with nothing to do about them. */}
+          <section aria-labelledby="quotes-heading" className="space-y-3">
+            <h2 id="quotes-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+              Quotations
+            </h2>
+
+            {quotes.length > 0 ? (
               <DataTable
                 caption="Quotations for this request"
                 dense
@@ -105,12 +139,45 @@ export default async function TicketPage({
                   <tr key={q.id}>
                     <Td>{q.vendor_name}</Td>
                     <Td numeric><Money minor={q.amount_minor} currency={q.currency_code} /></Td>
-                    <Td className="capitalize">{q.status}</Td>
+                    <Td className="capitalize">
+                      {q.status === 'rejected' ? 'declined' : q.status}
+                    </Td>
                   </tr>
                 ))}
               </DataTable>
-            </section>
-          ) : null}
+            ) : (
+              <p className="text-sm text-ink-500">No quotations yet.</p>
+            )}
+
+            {quotes.filter((q) => q.status === 'submitted').map((q) => (
+              <Card key={`decide-${q.id}`} className="p-4">
+                <p className="pb-3 text-sm text-ink-700">
+                  <strong>{formatMoney(q.amount_minor, q.currency_code)}</strong> from{' '}
+                  {q.vendor_name} is waiting for a decision.
+                </p>
+                {canApproveSpend ? (
+                  <QuoteDecisionForms
+                    org={org} ticketId={ticketId} quoteId={q.id}
+                    amountLabel={formatMoney(q.amount_minor, q.currency_code)}
+                    vendorName={q.vendor_name}
+                  />
+                ) : (
+                  <p className="text-sm text-ink-500">
+                    Approving spending needs the quotation approval permission, which is held
+                    separately from managing a request.
+                  </p>
+                )}
+              </Card>
+            ))}
+
+            {canManage ? (
+              <RecordQuoteForm
+                org={org} ticketId={ticketId}
+                vendors={vendors.map((v) => ({ id: v.id, label: v.name }))}
+                documents={quotations.map(docChoice)}
+              />
+            ) : null}
+          </section>
 
           {workOrders.length > 0 ? (
             <section aria-labelledby="orders-heading" className="space-y-3">
@@ -130,16 +197,31 @@ export default async function TicketPage({
                     <p className="mt-2 text-sm">
                       Expense recorded:{' '}
                       <Money minor={w.expense_amount_minor!} currency={w.currency_code} />{' '}
+                      {/* The badge used to read "Approved" for anything within
+                          the ceiling, for a cost nobody had approved and that
+                          was not in the ledger. It says what is true instead. */}
                       {w.expense_status === 'draft' ? (
-                        <StatusBadge tone="caution" glyph="▲">
-                          Over ceiling — awaiting approval
+                        <StatusBadge tone="caution" glyph="◐">
+                          Draft — not yet in the books
                         </StatusBadge>
+                      ) : w.expense_status === 'paid' ? (
+                        <StatusBadge tone="positive" glyph="✓">Paid</StatusBadge>
                       ) : (
-                        <StatusBadge tone="positive" glyph="✓">Approved</StatusBadge>
+                        <StatusBadge tone="info" glyph="●">Posted</StatusBadge>
                       )}
                     </p>
                   ) : (
-                    <p className="mt-2 text-sm text-ink-500">No expense recorded yet.</p>
+                    <div className="mt-3 space-y-2">
+                      <p className="text-sm text-ink-500">No expense recorded yet.</p>
+                      {canRecordExpense ? (
+                        <CompleteWorkOrderForm
+                          org={org} ticketId={ticketId} workOrderId={w.id} today={today}
+                          ceilingLabel={w.spending_ceiling_minor
+                            ? formatMoney(w.spending_ceiling_minor, w.currency_code) : null}
+                          documents={invoices.map(docChoice)}
+                        />
+                      ) : null}
+                    </div>
                   )}
                 </Card>
               ))}

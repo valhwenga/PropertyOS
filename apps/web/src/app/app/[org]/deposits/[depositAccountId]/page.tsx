@@ -1,11 +1,16 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Card, Money, PageHeader, StatusBadge } from '@propertyos/ui';
-import { formatMoney, getDepositAccount, hasPermission } from '@propertyos/domain';
+import {
+  formatMoney, getDepositAccount, hasPermission, listPayoutRequests,
+} from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadColleagues, loadLeaseEvidenceChoices } from '@/lib/operations-queries';
-import { ApprovePayoutForm, CloseDepositForm, CreditInterestForm } from '../deposit-forms';
+import {
+  ApprovePayoutForm, CloseDepositForm, CreditInterestForm, DecidePayoutRequestForms,
+  RequestPayoutForm,
+} from '../deposit-forms';
 
 export const metadata = { title: 'Deposit' };
 export const dynamic = 'force-dynamic';
@@ -42,13 +47,16 @@ export default async function DepositPage({
       account,
       evidence: await loadLeaseEvidenceChoices(tx, context.organisationId, account.leaseId),
       colleagues: await loadColleagues(tx, context.organisationId),
+      requests: await listPayoutRequests(tx, context.organisationId, { depositAccountId }),
       canRecord: await hasPermission(tx, context.organisationId, 'deposit.record'),
       canApprove: await hasPermission(tx, context.organisationId, 'deposit.refund.approve'),
     };
   });
   if (!data) notFound();
 
-  const { account, evidence, colleagues, canRecord, canApprove } = data;
+  const { account, evidence, colleagues, requests, canRecord, canApprove } = data;
+  const pendingRequests = requests.filter((r) => r.status === 'pending');
+  const decidedRequests = requests.filter((r) => r.status !== 'pending');
   const today = new Date().toISOString().slice(0, 10);
   const evidenceChoices = evidence.map((d) => ({
     id: d.id,
@@ -156,6 +164,66 @@ export default async function DepositPage({
             ) : null}
           </div>
 
+          {/* Requests waiting for a decision.
+
+              The approvals queue used to list deposit movements "awaiting
+              approval" by reading deposit_events where approved_at is null — a
+              row the database forbids, so the section could never show
+              anything and there was no way to prepare a payout for somebody
+              else to approve. A request lives in its own table and holds
+              nothing until it is approved. */}
+          {pendingRequests.length > 0 ? (
+            <Card className="p-5">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+                Waiting for a decision
+              </h2>
+              <p className="mt-1 text-sm text-ink-500">
+                None of this has moved. {formatMoney(account.heldMinor, account.currencyCode)}{' '}
+                is still held.
+              </p>
+              <ul className="mt-4 space-y-4">
+                {pendingRequests.map((r) => (
+                  <li key={r.id} className="border-t border-ink-100 pt-4">
+                    <p className="text-sm font-medium text-ink-900">
+                      {formatMoney(r.amountMinor, r.currencyCode)}{' '}
+                      <span className="font-normal capitalize text-ink-500">
+                        {r.kind.replace(/_/g, ' ')}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-sm text-ink-700">{r.description}</p>
+                    <p className="mt-1 text-xs text-ink-500">
+                      requested by {r.requestedByName ?? 'a colleague'} on{' '}
+                      {formatDate(r.requestedAt, context.timeZone)}
+                      {r.evidenceTitle ? ` · evidence: ${r.evidenceTitle}` : ''}
+                    </p>
+                    <div className="mt-3">
+                      <DecidePayoutRequestForms
+                        org={org} depositAccountId={depositAccountId}
+                        canApprove={canApprove}
+                        isMine={r.requestedBy === context.viewer.authUserId}
+                        request={{
+                          id: r.id, kind: r.kind,
+                          amountLabel: formatMoney(r.amountMinor, r.currencyCode),
+                          description: r.description,
+                          requestedByName: r.requestedByName,
+                          evidenceTitle: r.evidenceTitle,
+                        }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+
+          {canRecord ? (
+            <RequestPayoutForm
+              org={org} depositAccountId={depositAccountId}
+              evidence={evidenceChoices} today={today}
+              heldLabel={formatMoney(account.heldMinor, account.currencyCode)}
+            />
+          ) : null}
+
           {canApprove ? (
             <ApprovePayoutForm
               org={org} depositAccountId={depositAccountId}
@@ -172,6 +240,44 @@ export default async function DepositPage({
             </Card>
           )}
         </div>
+      ) : null}
+
+      {decidedRequests.length > 0 ? (
+        <Card className="p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+            Requests already decided
+          </h2>
+          <p className="mt-1 text-sm text-ink-500">
+            A declined or withdrawn request is part of the record of what was asked for. Only
+            the approved ones appear as movements below.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {decidedRequests.map((r) => (
+              <li key={r.id} className="border-t border-ink-100 pt-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-ink-900">
+                    {formatMoney(r.amountMinor, r.currencyCode)}
+                  </span>
+                  <StatusBadge
+                    tone={r.status === 'approved' ? 'positive'
+                      : r.status === 'declined' ? 'critical' : 'neutral'}
+                  >
+                    {r.status}
+                  </StatusBadge>
+                  <span className="text-xs text-ink-500">
+                    {r.description} · requested by {r.requestedByName ?? 'a colleague'}
+                    {r.status === 'withdrawn'
+                      ? ' · withdrawn by the requester'
+                      : r.decidedByName ? ` · decided by ${r.decidedByName}` : ''}
+                  </span>
+                </div>
+                {r.decisionReason ? (
+                  <p className="mt-1 text-sm text-ink-700">{r.decisionReason}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Card>
       ) : null}
 
       <Card className="p-5">

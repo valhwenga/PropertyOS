@@ -399,9 +399,18 @@ export async function completeWorkOrder(
         ${params.invoiceAmountMinor.toString()}, ${workOrder.currency_code},
         ${params.expenseDate}, ${params.invoiceReference}, ${params.invoiceDocumentId ?? null},
         ${params.workOrderId},
-        -- An invoice above the approved ceiling stays a draft until someone with
-        -- approval authority looks at it.
-        ${exceededCeiling ? 'draft' : 'approved'}, ${actorUserId}
+        -- Always a draft, whatever the ceiling said.
+        --
+        -- This used to write 'approved' for an invoice within the ceiling,
+        -- which was wrong in three ways at once: nothing was posted to the
+        -- ledger, so the books carried an approved cost that did not exist in
+        -- them; no approver was recorded, so "approved" named nobody; and this
+        -- command requires only expense.record, so somebody who may record
+        -- costs but not approve them could produce an approved one. The work
+        -- order's ceiling authorised the SPEND. Posting the cost is a separate
+        -- act, with its own permission and its own approver's name on it, and
+        -- it happens in approveExpense.
+        'draft', ${actorUserId}
       )
       returning id
     `;
@@ -435,4 +444,48 @@ export async function completeWorkOrder(
 
 export async function canApproveSpending(tx: Sql, organisationId: string): Promise<boolean> {
   return hasPermission(tx, organisationId, 'maintenance.quote.approve');
+}
+
+/**
+ * Declines a quotation, with a reason.
+ *
+ * The approvals queue could list a submitted quotation and offer nothing to do
+ * about it. A queue with only one exit is not a decision — it is a backlog that
+ * grows until somebody edits the database. A declined quotation stays readable:
+ * the reason it was refused is often more useful later than the approval would
+ * have been.
+ */
+export async function declineQuote(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  params: { quoteId: string; reason: string },
+): Promise<void> {
+  await requirePermission(tx, organisationId, 'maintenance.quote.approve');
+  const reason = params.reason.trim();
+  if (reason.length < 5) {
+    throw invalid('Say why the quotation was declined. The vendor and the next reader need it.');
+  }
+
+  const [quote] = await tx<{ id: string; status: string; ticket_id: string }[]>`
+    select id, status, ticket_id from maintenance_quotes
+    where id = ${params.quoteId}::uuid and organisation_id = ${organisationId}::uuid
+    for update
+  `;
+  if (!quote) throw notFound('Quotation');
+  if (quote.status !== 'submitted') {
+    throw new DomainError('conflict', `A quotation that is "${quote.status}" cannot be declined.`);
+  }
+
+  await tx`
+    update maintenance_quotes set status = 'rejected'
+    where id = ${params.quoteId}::uuid and organisation_id = ${organisationId}::uuid
+  `;
+
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'maintenance.quote.declined', resourceType: 'maintenance_quote',
+    resourceId: params.quoteId, reason,
+    after: { ticketId: quote.ticket_id },
+  });
 }

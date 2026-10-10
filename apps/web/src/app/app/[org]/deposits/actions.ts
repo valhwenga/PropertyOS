@@ -2,8 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  approveDepositPayout, closeDepositAccount, creditDepositInterest, parseMajorToMinor,
-  recordDepositReceipt,
+  approveDepositPayout, approvePayoutRequest, closeDepositAccount, creditDepositInterest,
+  declinePayoutRequest, parseMajorToMinor, recordDepositReceipt, requestDepositPayout,
+  withdrawPayoutRequest,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
@@ -101,5 +102,90 @@ export async function closeDepositAccountAction(_previous: unknown, formData: Fo
     return { closed: true };
   });
   if (result.ok) revalidatePath(`/app/${org}/deposits/${depositAccountId}`);
+  return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Payout requests                                                            */
+/* -------------------------------------------------------------------------- */
+//
+// `approveDepositPayoutAction` makes the approver type every detail and name
+// the requester from a dropdown, which turns the second pair of eyes into the
+// clerk. These three let one person prepare a payout and another decide it —
+// and the requester's name then comes from the stored request rather than from
+// the approver's form.
+
+export async function requestDepositPayoutAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org'));
+  const depositAccountId = String(formData.get('depositAccountId'));
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    return requestDepositPayout(tx, context.organisationId, viewer.authUserId, {
+      depositAccountId,
+      kind: String(formData.get('kind')) as 'deduction' | 'refund' | 'transfer_to_rent',
+      amountMinor: parseMajorToMinor(
+        String(formData.get('amount') ?? ''), context.currencyCode,
+      ),
+      effectiveOn: String(formData.get('effectiveOn') ?? ''),
+      description: String(formData.get('description') ?? ''),
+      evidenceDocumentId: String(formData.get('evidenceDocumentId') ?? ''),
+    });
+  });
+
+  if (result.ok) {
+    revalidatePath(`/app/${org}/deposits/${depositAccountId}`);
+    revalidatePath(`/app/${org}/approvals`);
+  }
+  return result;
+}
+
+export async function approvePayoutRequestAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org'));
+  const depositAccountId = String(formData.get('depositAccountId'));
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    return approvePayoutRequest(tx, context.organisationId, viewer.authUserId, {
+      requestId: String(formData.get('requestId')),
+      approvalReason: String(formData.get('approvalReason') ?? ''),
+      refundReference: String(formData.get('refundReference') ?? '') || undefined,
+    });
+  });
+
+  if (result.ok) {
+    revalidatePath(`/app/${org}/deposits/${depositAccountId}`);
+    revalidatePath(`/app/${org}/approvals`);
+  }
+  return result;
+}
+
+export async function decidePayoutRequestAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org'));
+  const depositAccountId = String(formData.get('depositAccountId'));
+  const requestId = String(formData.get('requestId'));
+  const reason = String(formData.get('reason') ?? '');
+  // Withdrawing your own and declining somebody else's are different facts,
+  // and the domain refuses each in the other's place.
+  const withdraw = String(formData.get('intent')) === 'withdraw';
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    if (withdraw) {
+      await withdrawPayoutRequest(tx, context.organisationId, viewer.authUserId, {
+        requestId, reason,
+      });
+    } else {
+      await declinePayoutRequest(tx, context.organisationId, viewer.authUserId, {
+        requestId, reason,
+      });
+    }
+    return { decided: true };
+  });
+
+  if (result.ok) {
+    revalidatePath(`/app/${org}/deposits/${depositAccountId}`);
+    revalidatePath(`/app/${org}/approvals`);
+  }
   return result;
 }

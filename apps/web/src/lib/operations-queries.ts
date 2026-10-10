@@ -173,9 +173,10 @@ export async function loadInspections(tx: Sql, organisationId: string) {
 }
 
 export async function loadPendingApprovals(tx: Sql, organisationId: string) {
-  const [quotes, deposits, expenses, runs] = await Promise.all([
-    tx<{ id: string; ticket_reference: string; vendor_name: string; amount_minor: string; currency_code: string }[]>`
-      select q.id, t.reference as ticket_reference, v.name as vendor_name,
+  const [quotes, payoutRequests, expenses, runs] = await Promise.all([
+    tx<{ id: string; ticket_id: string; ticket_reference: string; vendor_name: string;
+         amount_minor: string; currency_code: string }[]>`
+      select q.id, q.ticket_id, t.reference as ticket_reference, v.name as vendor_name,
              q.amount_minor::text, q.currency_code
       from maintenance_quotes q
       join maintenance_tickets t on t.id = q.ticket_id
@@ -183,12 +184,25 @@ export async function loadPendingApprovals(tx: Sql, organisationId: string) {
       where q.organisation_id = ${organisationId}::uuid and q.status = 'submitted'
       order by q.created_at
     `,
-    tx<{ id: string; event_type: string; amount_minor: string; currency_code: string; description: string }[]>`
-      select de.id, de.event_type::text, de.amount_minor::text, de.currency_code, de.description
-      from deposit_events de
-      where de.organisation_id = ${organisationId}::uuid
-        and de.event_type in ('deduction', 'refund') and de.approved_at is null
-      order by de.created_at
+    // Deposit payout requests. This used to read `deposit_events` where
+    // `approved_at is null`, which the database forbids outright:
+    // `deposit_events_refund_controls` requires an approver, evidence and a
+    // reason on every deduction and refund. The section could never show a
+    // row. A request now has its own table and holds nothing until approved.
+    tx<{ id: string; deposit_account_id: string; kind: string; amount_minor: string;
+         currency_code: string; description: string; requested_by_name: string | null;
+         requested_at: string; unit_label: string | null }[]>`
+      select r.id, r.deposit_account_id, r.kind, r.amount_minor::text, r.currency_code,
+             r.description, up.full_name as requested_by_name, r.requested_at::text,
+             p.name || coalesce(' / ' || u.code, '') as unit_label
+      from deposit_payout_requests r
+      join deposit_accounts da on da.id = r.deposit_account_id
+      left join leases l on l.id = da.lease_id
+      left join properties p on p.id = l.property_id
+      left join units u on u.id = l.unit_id
+      left join user_profiles up on up.auth_user_id = r.requested_by
+      where r.organisation_id = ${organisationId}::uuid and r.status = 'pending'
+      order by r.requested_at
     `,
     tx<{ id: string; description: string; amount_minor: string; currency_code: string;
          property_name: string | null; invoice_reference: string | null }[]>`
@@ -206,7 +220,7 @@ export async function loadPendingApprovals(tx: Sql, organisationId: string) {
       order by period_start
     `,
   ]);
-  return { quotes, deposits, expenses, runs };
+  return { quotes, payoutRequests, expenses, runs };
 }
 
 /**
@@ -674,6 +688,27 @@ export async function loadInvoiceChoices(tx: Sql, organisationId: string) {
          select 1 from expenses e
           where e.invoice_document_id = d.id and e.status <> 'void'
        )
+     order by d.uploaded_at desc
+     limit 200
+  `;
+}
+
+/**
+ * Documents that could be a quotation.
+ *
+ * Unlike an invoice, a quotation can be attached to more than one thing — it
+ * may be the evidence behind a deposit deduction as well as the quotation on a
+ * maintenance request — so nothing is excluded here on the grounds of being
+ * already referenced. Quarantined files are excluded, because a file that has
+ * not cleared scanning is not evidence of anything yet.
+ */
+export async function loadQuotationChoices(tx: Sql, organisationId: string) {
+  return tx<{ id: string; title: string; uploaded_at: string }[]>`
+    select d.id, d.title, d.uploaded_at::text as uploaded_at
+      from documents d
+     where d.organisation_id = ${organisationId}::uuid
+       and not d.quarantined
+       and d.deleted_at is null
      order by d.uploaded_at desc
      limit 200
   `;
