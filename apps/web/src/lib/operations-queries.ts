@@ -646,3 +646,35 @@ export async function loadColleagues(tx: Sql, organisationId: string) {
      order by p.full_name
   `;
 }
+
+/** Properties an expense could be recorded against. */
+export async function loadPropertyChoices(tx: Sql, organisationId: string) {
+  return tx<{ id: string; name: string; code: string }[]>`
+    select id, name, code from properties
+     where organisation_id = ${organisationId}::uuid and status = 'active'
+     order by name
+  `;
+}
+
+/**
+ * Documents that could be the invoice behind an expense.
+ *
+ * Excludes any already attached to a live expense: §11 says a receipt must not
+ * be counted twice, and the easiest way to prevent that is to stop offering a
+ * document that is already spoken for. The unique index refuses it regardless.
+ */
+export async function loadInvoiceChoices(tx: Sql, organisationId: string) {
+  return tx<{ id: string; title: string; uploaded_at: string }[]>`
+    select d.id, d.title, d.uploaded_at::text as uploaded_at
+      from documents d
+     where d.organisation_id = ${organisationId}::uuid
+       and not d.quarantined
+       and d.deleted_at is null
+       and not exists (
+         select 1 from expenses e
+          where e.invoice_document_id = d.id and e.status <> 'void'
+       )
+     order by d.uploaded_at desc
+     limit 200
+  `;
+}

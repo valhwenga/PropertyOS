@@ -7,7 +7,8 @@ export type SystemAccountRole =
   | 'resident_receivable' | 'unapplied_receipts' | 'rental_income'
   | 'utility_recovery_income' | 'other_income' | 'bank_control'
   | 'deposit_bank_control' | 'deposit_liability' | 'deposit_interest_expense'
-  | 'suspense' | 'property_expense' | 'write_off_expense' | 'opening_equity';
+  | 'suspense' | 'property_expense' | 'write_off_expense' | 'opening_equity'
+  | 'accounts_payable';
 
 export type JournalSource =
   | 'opening_balance' | 'rent_charge' | 'utility_charge' | 'adjustment' | 'receipt'

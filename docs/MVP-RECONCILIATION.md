@@ -36,6 +36,7 @@ Points where the two genuinely disagree, and what was done.
 | C3 | §8 *Keep recurring charge schedules separate from issued charge documents. Preview a billing period before posting.* | Schedules, runs, previews, version guards and idempotent posting all existed; the Billing screen was read-only and carried a note saying posting was not wired up. | **Resolved.** Preview → prepare → validation report → approve and post → batch summary, all through the interface. |
 | C4 | §9 *Reconciliation has three distinct steps… An operator can split a receipt across several charges.* | Confirm, suggest, allocate, reverse and suspense all existed and were tested, with no screen performing any of them. The middle step had no command at all: money in suspense could only leave by being reversed. Reviewing a resident's proof of payment had no command either. | **Resolved.** `identifySuspenseReceipt` and `reviewPaymentEvidence` added; the whole workflow is driven through `/reconciliation` and verified in the browser. |
 | C8 | §9 *Store bank account references securely, show verified banking details in the portal and require fresh authentication plus an audit trail for changes.* | `bank_accounts` carried `verified_at`/`verified_by` with nothing to say what "verified" meant, no change history, no screen, and no fresh-authentication mechanism existed anywhere. | **Resolved.** Migrations 0037–0038: a database-resolved freshness check, `verification_method` recorded and displayed in words, and an append-only `bank_account_changes`. |
+| C11 | §11 *Expenses contain payee, property, category, amount, dates, invoice, approval and payment status… A receipt must not be counted twice because it is attached to both a maintenance ticket and an expense.* | No expenses domain module. `approved` and `paid` were separate statuses with no account to hold the difference, so an approved-but-unpaid cost had nowhere correct to post. Nothing stopped the same invoice being expensed twice. | **Resolved.** Migration 0040 adds accounts payable and a unique index on the invoice document; `packages/domain/src/expenses.ts` carries the commands. **Still open:** §11's split of one cost across several properties — the schema holds a single `property_id`. |
 | C10 | §10 *Deposit records include holder, evidence, deductions and refunds… Require documentary evidence, approval and a refund reference.* §4 *A preparer cannot approve their own restricted refunds.* | The schema carried every control and there was **no deposits domain module at all** — no command to record a deposit, credit interest, deduct, refund or close. An earlier version of this document called the module "tested"; what was tested was the table, through direct SQL inserts. | **Resolved.** `packages/domain/src/deposits.ts` with commands for each, and screens for all of them. |
 | C9 | §7 *Activation requires… an attached executed contract or documented exception.* | The merge catalogue marked ten fields `essential` and **nothing read the flag**. An agreement missing the tenant's identity number, the rent or the commencement date could be generated *and shared with the resident*. | **Resolved.** Migration 0039 records the essential subset per generation; sharing refuses while it is non-empty. Drafting an incomplete agreement stays possible — it is how the gaps are seen. |
 | C5 | §3 *Ownership is separate from organisation membership… A property may have several owners.* | No owner, ownership-interest or management-agreement tables. | **Open.** Blueprint puts the owner portal in Phase 2, but §18 lists the tables in the MVP schema. Deferred deliberately; recorded here rather than silently dropped. |
@@ -90,7 +91,7 @@ Against the §5 MVP column.
 | Billing | Exercised | Period preview, preparing a run, a validation report that explains each exception, confirmation before posting, and a downloadable batch summary. Preparing needs `billing.preview`; posting needs `billing.post`. |
 | Deposits | Exercised | Receipts, interest from evidence, deductions, refunds, transfers and closure — all through the interface, with the two-person approval and the evidence requirement enforced in the command as well as the schema. |
 | Utilities | Tested | Fixed and manual line items via charges. No dedicated screen. |
-| Expenses | **Tested, not Exercised** | Domain and read-only screen; no capture or approval. |
+| Expenses | Exercised | Suppliers, drafts, approval, payment and voiding through the interface. Approving and paying post to different accounts, so net operating income and cash surplus are different figures. **Missing:** splitting one cost across properties (§11). |
 | Maintenance | Exercised | Report, triage, assign, quote, comment, resolve — through the interface, including the resident portal. |
 | Inspections | **Tested, not Exercised** | Templates, items, acknowledgement tested. Read-only screen. |
 | Documents | Exercised | Private storage, quarantine, type and size limits, authorised download, in-browser preview of generated PDFs only. **Malware scanning is not configured and is not claimed.** |
@@ -119,12 +120,13 @@ complete vertical workflow"*.
    batch summary export. Closes C3.
 5. ~~Deposits~~ — **done**. Receipt, interest from evidence, deduction, refund,
    transfer and closure, with two-person approval.
-6. The rest of the MVP: approvals that act, bank statement import, expenses,
-   inspections, portfolio and resident editing, audit history viewer, staff
-   invitations, MFA enrolment and recovery, customer provisioning.
-7. Navigation grouped into Portfolio, Finance, Operations and Administration;
+6. ~~Expenses~~ — **done**. Suppliers, drafts, approval, payment, voiding.
+7. The rest of the MVP: approvals that act, bank statement import, inspections,
+   portfolio and resident editing, audit history viewer, staff invitations, MFA
+   enrolment and recovery, customer provisioning.
+8. Navigation grouped into Portfolio, Finance, Operations and Administration;
    filters, loading states, reporting dates, actionable exception queues.
-8. Pilot readiness: production-intended adapters exercised in isolated staging,
+9. Pilot readiness: production-intended adapters exercised in isolated staging,
    missing credentials documented honestly, restore rehearsed (M3).
 
 ## 6. What cannot be verified here, and why
@@ -156,7 +158,8 @@ instructions repeat it.
   interest treatment or refund deadlines are lawful. §21 requires counsel to
   settle those before the feature is relied on.
 - **No accountant has validated the chart of accounts or posting model.** §10
-  requires it before the financial model is used commercially.
+  requires it before the financial model is used commercially. Migration 0040
+  added an accounts payable account on that same unreviewed basis.
 - **No load testing.** §26's targets are untested.
 
 Until these are closed, this product is at the stage the blueprint calls a

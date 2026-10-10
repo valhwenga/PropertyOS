@@ -32,6 +32,7 @@ const DEFAULT_ACCOUNTS: Array<{
   { code: 'UNAPPLIED',       name: 'Unapplied resident receipts',type: 'liability', role: 'unapplied_receipts' },
   { code: 'DEPOSIT_LIAB',    name: 'Resident deposit liability', type: 'liability', role: 'deposit_liability' },
   { code: 'SUSPENSE',        name: 'Suspense (unidentified receipts)', type: 'liability', role: 'suspense' },
+  { code: 'AP_TRADE',        name: 'Accounts payable',           type: 'liability', role: 'accounts_payable' },
   { code: 'INC_RENT',        name: 'Rental income',              type: 'income',    role: 'rental_income' },
   { code: 'INC_UTILITY',     name: 'Utility recovery income',    type: 'income',    role: 'utility_recovery_income' },
   { code: 'INC_OTHER',       name: 'Other income',               type: 'income',    role: 'other_income' },
