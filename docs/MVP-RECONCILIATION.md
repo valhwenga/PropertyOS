@@ -31,6 +31,7 @@ Points where the two genuinely disagree, and what was done.
 
 | # | Blueprint | Implementation | Resolution |
 |---|---|---|---|
+| C17 | §4 *Every privileged action is recorded with actor, time and reason.* §30 on evidence. | `recordAudit` wrote an entry for every command from the first migration, and **no code path could read one**. The trail was write-only: answering "who changed this, when, and why" needed database access, so the record that exists for a dispute could not be produced in one. | **Resolved.** Migration 0042 adds `audit.read` and an organisation-scope test; `packages/domain/src/audit-history.ts` reads the trail; the viewer lives under Settings. Reading is administrator-only, a property-scoped member is refused with the reason rather than shown a partial trail, and the entries stay append-only — the privilege to update them is revoked from the application role, so a reader cannot rewrite what they are reading. |
 | C16 | §5 *Units can be retired without deleting history.* The MVP brief: *do not silently retire occupied units.* | Nothing could edit or retire anything. `createProperty` and `createUnit` existed, and `createUnit` had no screen either, so a property kept whatever units it was born with and an apartment block that gained a flat could never record it. A typo in a unit code needed database access. | **Resolved.** Edit screens for a property and a unit, adding a unit, retiring and reinstating, archiving. Retiring refuses while a lease on the unit is live — a draft included, because a draft is somebody's work in progress and orphaning it silently is the same fault — and the unit page states the refusal before the operator fills anything in. Two defects found while building it: a partial update recorded an omitted optional field as blanked in the audit while the SQL correctly left the column alone, and two forms on one page shared element ids so a label bound to the wrong input. |
 | C15 | §9 *Import a bank statement and reconcile it.* §14. | The `bank_imports` and `bank_transactions` tables, and the two unique indexes that exist specifically to stop an overlapping statement being imported twice, had **no command that could write to them**. So the one task a landlord performs every month — sit down with the statement and work out who paid — had no support at all, and the reconciliation screen said bank import "is not built" while the schema was waiting for it. | **Resolved.** `packages/domain/src/bank-import.ts`, and the Bank statements screen under Reconciliation. The fingerprint carries an occurrence number counted across what the account already holds plus the rows before it in the file, which is what makes an overlapping statement idempotent while keeping two genuinely separate identical payments. |
 | C12 | §4 *A preparer cannot approve their own.* §11 *Expenses… approval and payment status.* | `completeWorkOrder` wrote the expense with status **`approved`** for any invoice within the approved ceiling. Three things were wrong at once: no journal was posted, so the books carried an approved cost that was not in them; no approver was recorded, so "approved" named nobody; and the command requires only `expense.record`, so somebody who may record costs but not approve them could produce an approved one. The ticket page then displayed it as "Approved". | **Resolved.** The expense is always a draft. The ceiling authorised the spend; posting the cost is a separate act with its own permission and its own approver's name. An integration test that asserted `status: 'approved'` was asserting the defect and has been corrected. |
@@ -103,6 +104,7 @@ Against the §5 MVP column.
 | Documents | Exercised | Private storage, quarantine, type and size limits, authorised download, in-browser preview of generated PDFs only. **Malware scanning is not configured and is not claimed.** |
 | Communications | Exercised | In-app inbox and email behind an adapter that never reports a message delivered when it was not sent. **No provider configured (M5).** |
 | Analytics | Exercised | Collection, arrears ageing, occupancy, expenses, rent roll, deposits, lease expiry, journal lines; every headline reconciles to its rows, asserted in tests. |
+| Audit trail | Exercised | Every command has always written an entry in the same transaction as the change it describes, and **nothing could read one back** — the trail existed for a dispute nobody could open. A viewer under Settings reads it with filters built from the data itself, shows what each entry changed rather than two JSON blobs, and one record's own history is reachable from the record. `audit.read` is a permission of its own, held by the organisation administrator only. A property-scoped member is **refused rather than shown a filtered trail**: an entry records the resource it changed, not the property that resource belongs to, so there is no honest filter and a partial trail would look complete. Nothing can unredact — a sensitive value was replaced before it was written. Browser-verified. |
 | Approvals queue | Exercised | Every waiting item — billing run, deposit payout, maintenance quotation, draft expense — now opens where the decision is made and recorded, and says what the decision does. The decision itself is not duplicated in the queue. The old deposit section read a row the database forbids and could never show anything. |
 | Staff | Open | Roles exist; no invitation or assignment screen. |
 | AI | Agrees | None, by design. §23: *the launch does not require AI.* |
@@ -140,11 +142,13 @@ complete vertical workflow"*.
    reason.
 10. ~~Portfolio and unit editing~~ — **done**. Corrections with a before-and-after
    audit entry, adding a unit, retiring and reinstating, archiving a property.
-11. The rest of the MVP: audit history viewer, staff invitations, MFA enrolment
-   and recovery, customer provisioning.
-12. Navigation grouped into Portfolio, Finance, Operations and Administration;
+11. ~~Audit history viewer~~ — **done**. Filters from the data, per-record
+   history, an honest refusal for a property-scoped reader.
+12. The rest of the MVP: staff invitations, MFA enrolment and recovery,
+   customer provisioning.
+13. Navigation grouped into Portfolio, Finance, Operations and Administration;
    filters, loading states, reporting dates, actionable exception queues.
-13. Pilot readiness: production-intended adapters exercised in isolated staging,
+14. Pilot readiness: production-intended adapters exercised in isolated staging,
    missing credentials documented honestly, restore rehearsed (M3).
 
 ## 6. What cannot be verified here, and why

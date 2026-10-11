@@ -79,6 +79,18 @@ export default async function UnitPage({
         </div>
       </Card>
 
+      <Link
+        href={{
+          pathname: `/app/${org}/settings/audit`,
+          query: {
+            resourceType: 'unit', resourceId: unitId, label: `unit ${unit.code}`,
+          },
+        }}
+        className="inline-block text-sm text-spike-600 hover:underline"
+      >
+        Every change to this unit →
+      </Link>
+
       {canUpdate ? (
         <>
           <EditUnitForm

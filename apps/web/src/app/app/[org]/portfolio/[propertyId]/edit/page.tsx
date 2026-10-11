@@ -79,6 +79,19 @@ export default async function EditPropertyPage({
         </Card>
       ) : null}
 
+      {/* Where a reader asks "who changed this": the trail is organisation-wide
+          and administrator-only, so the link goes to the one record's history
+          rather than duplicating a panel here. */}
+      <Link
+        href={{
+          pathname: `/app/${org}/settings/audit`,
+          query: { resourceType: 'property', resourceId: propertyId, label: property.name },
+        }}
+        className="inline-block text-sm text-spike-600 hover:underline"
+      >
+        Every change to this property →
+      </Link>
+
       <EditPropertyForm
         org={org} propertyId={propertyId}
         property={{

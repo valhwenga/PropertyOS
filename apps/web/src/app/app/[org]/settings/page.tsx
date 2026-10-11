@@ -25,6 +25,13 @@ const SECTIONS = [
       'The accounts residents pay into. Numbers are masked, changes need your authenticator code, and every change is kept.',
   },
   {
+    href: 'audit',
+    title: 'Audit trail',
+    description:
+      'Every change anybody made: who, when, what it was before, and the reason they gave. '
+      + 'Read-only, and nothing in it can be edited or removed.',
+  },
+  {
     href: 'support-access',
     title: 'Spike support access',
     description:
