@@ -29,9 +29,11 @@ const LEASE_TONE: Record<string, StatusTone> = {
  * were pointing at — what the unit is, who is in it, what rent the lease
  * carries, and anything open on maintenance.
  *
- * Deliberately read-only. Editing a property, retiring a unit and changing rent
- * each have consequences a form on a summary page would hide, so none of them is
- * bolted on here.
+ * Still read-only. Editing a property, retiring a unit and changing rent each
+ * have consequences a form on a summary page would hide, so each lives on its
+ * own screen and this one links to them. Fixing a street name and taking a
+ * property out of use are not alike, and a summary that offered both in the
+ * same place would make them look alike.
  */
 export default async function PropertyPage({
   params,
@@ -64,12 +66,20 @@ export default async function PropertyPage({
         title={property.name}
         description={address || 'No address recorded.'}
         actions={
-          <Link
-            href={`/app/${org}/maintenance/new`}
-            className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700"
-          >
-            Log a request
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/app/${org}/portfolio/${propertyId}/edit`}
+              className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700"
+            >
+              Edit the property
+            </Link>
+            <Link
+              href={`/app/${org}/maintenance/new`}
+              className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700"
+            >
+              Log a request
+            </Link>
+          </div>
         }
       />
 
@@ -107,7 +117,17 @@ export default async function PropertyPage({
           {units.map((u) => (
             <tr key={u.id} className="hover:bg-ink-50">
               <Td>
-                <span className="font-medium text-ink-900">{u.code}</span>
+                <Link
+                  href={`/app/${org}/portfolio/${propertyId}/units/${u.id}`}
+                  className="font-medium text-spike-600 hover:underline"
+                >
+                  {u.code}
+                </Link>
+                {u.status !== 'active' ? (
+                  <span className="ml-1.5 align-middle">
+                    <StatusBadge tone="neutral">retired</StatusBadge>
+                  </span>
+                ) : null}
                 {u.description ? (
                   <span className="block text-xs text-ink-400">{u.description}</span>
                 ) : null}

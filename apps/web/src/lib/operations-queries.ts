@@ -315,13 +315,14 @@ export async function loadPropertyDetail(tx: Sql, organisationId: string, proper
 
   const units = await tx<
     { id: string; code: string; description: string | null; rentable_type: string;
-      bedrooms: number | null; bathrooms: string | null; floor_area_sqm: string | null;
-      advertised_rent_minor: string | null; status: string;
+      bedrooms: number | null; bathrooms: string | null; floor: string | null;
+      floor_area_sqm: string | null; advertised_rent_minor: string | null; status: string;
       lease_id: string | null; lease_reference: string | null; lease_status: string | null;
       rent_minor: string | null; resident_name: string | null }[]
   >`
     select u.id, u.code, u.description, u.rentable_type, u.bedrooms,
-           u.bathrooms::text, u.floor_area_sqm::text, u.advertised_rent_minor::text, u.status,
+           u.bathrooms::text, u.floor, u.floor_area_sqm::text,
+           u.advertised_rent_minor::text, u.status,
            l.id as lease_id, l.reference as lease_reference, l.status::text as lease_status,
            l.rent_minor::text,
            trim(coalesce(r.first_name, '') || ' ' || coalesce(r.last_name, '')) as resident_name
