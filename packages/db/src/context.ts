@@ -1,5 +1,5 @@
 import type { Sql } from './client';
-import { sql, assertApplicationRoleIsIsolated } from './client';
+import { sql, privilegedSql, assertApplicationRoleIsIsolated } from './client';
 
 /**
  * The verified identity of the caller.
@@ -86,5 +86,48 @@ export async function withAnonymous<T>(fn: (tx: Sql) => Promise<T>): Promise<T> 
   return client.begin(async (tx) => {
     await tx`select set_config('request.jwt.claims', '', true)`;
     return fn(tx as unknown as Sql);
+  }) as Promise<T>;
+}
+
+/**
+ * A privileged transaction that still knows who the caller is.
+ *
+ * Some commands cannot run on the application role at all. Provisioning a
+ * customer is the clearest case: every write policy in the schema is keyed on
+ * membership, and a Spike operator is deliberately a member of nothing, so the
+ * insert is refused — correctly. The operator is not acting *inside* a
+ * customer organisation; they are bringing one into existence.
+ *
+ * So the role bypasses POLICIES, and the claims are set anyway. That second
+ * part is the point. Without the claims, `auth.uid()` is null, so
+ * `app.is_platform_operator()` reads false and a command's own authorisation
+ * check cannot run — leaving a privileged connection whose only guard is that
+ * the calling code remembered to check first. With them, the command verifies
+ * the caller in SQL exactly as it would anywhere else, including the
+ * second-factor requirement, and only the row-level filtering is lifted.
+ *
+ * Use it only where a policy keyed on membership is the thing in the way, and
+ * only with an actor taken from a verified session. It is not a way round an
+ * authorisation decision; it is a way to let one be made.
+ */
+export async function withPrivilegedActor<T>(
+  actor: RequestActor,
+  fn: (ctx: TxContext) => Promise<T>,
+): Promise<T> {
+  if (!UUID.test(actor.authUserId)) {
+    throw new Error('withPrivilegedActor requires a well-formed auth user id');
+  }
+  const client = privilegedSql();
+  return client.begin(async (tx) => {
+    const claims = JSON.stringify({
+      sub: actor.authUserId,
+      role: 'authenticated',
+      aal: actor.assuranceLevel === 'aal2' ? 'aal2' : 'aal1',
+      ...(typeof actor.authenticatedAt === 'number' && Number.isFinite(actor.authenticatedAt)
+        ? { auth_time: Math.floor(actor.authenticatedAt) }
+        : {}),
+    });
+    await tx`select set_config('request.jwt.claims', ${claims}, true)`;
+    return fn({ tx: tx as unknown as Sql, actor });
   }) as Promise<T>;
 }

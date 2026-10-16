@@ -1,7 +1,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
-import { withActor, withAnonymous } from '@propertyos/db';
+import { withActor, withAnonymous, withPrivilegedActor } from '@propertyos/db';
 import type { Sql } from '@propertyos/db';
 import { DomainError } from '@propertyos/domain';
 import { currentSession, type AssuranceLevel } from './session';
@@ -127,6 +127,34 @@ export async function requireOperator(slug: string): Promise<OperatorContext> {
 /** Runs a read under the caller's RLS context. */
 export async function readAs<T>(viewer: Viewer, fn: (tx: Sql) => Promise<T>): Promise<T> {
   return withActor(
+    {
+      authUserId: viewer.authUserId,
+      assuranceLevel: viewer.assuranceLevel,
+      authenticatedAt: viewer.authenticatedAt,
+    },
+    ({ tx }) => fn(tx),
+  );
+}
+
+/**
+ * A read that lifts row-level FILTERING while keeping the caller's identity.
+ *
+ * For the handful of platform reads that are about organisations the caller is
+ * deliberately not a member of. A Spike operator is a member of nothing, so
+ * every membership-keyed policy filters those rows away — correctly for
+ * customer content, and uselessly for the account metadata the platform page
+ * exists to show.
+ *
+ * The identity is still set on the transaction, so the function being called
+ * performs its own `requirePlatformOperator` check in SQL, second factor and
+ * all. Use it only for reads that return account metadata, never for customer
+ * records: those are reachable only through an authorised, time-limited,
+ * audited support session.
+ */
+export async function readPrivilegedAs<T>(
+  viewer: Viewer, fn: (tx: Sql) => Promise<T>,
+): Promise<T> {
+  return withPrivilegedActor(
     {
       authUserId: viewer.authUserId,
       assuranceLevel: viewer.assuranceLevel,

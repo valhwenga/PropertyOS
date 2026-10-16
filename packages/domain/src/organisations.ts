@@ -21,6 +21,14 @@ export const createOrganisationSchema = z.object({
 });
 
 export type CreateOrganisationInput = z.infer<typeof createOrganisationSchema>;
+/**
+ * What a caller may pass: the defaulted fields are optional on the way in.
+ *
+ * The parsed type above is what the fields become once the schema has filled
+ * the launch defaults, and demanding it from callers would make every one of
+ * them restate 'ZA', 'ZAR' and 'Africa/Johannesburg'.
+ */
+export type CreateOrganisationArgs = z.input<typeof createOrganisationSchema>;
 
 /** The chart of accounts every new book starts with. */
 const DEFAULT_ACCOUNTS: Array<{
@@ -52,11 +60,24 @@ const DEFAULT_ACCOUNTS: Array<{
  * user administration of *that* organisation. No other privileged write path
  * exists in the request lifecycle.
  */
-export async function createOrganisationWithOwner(
+/**
+ * Everything an organisation needs to exist, except a member.
+ *
+ * Split out of `createOrganisationWithOwner` so a customer can be provisioned
+ * by Spike WITHOUT Spike becoming a member of it. A provisioned organisation
+ * starts with nobody in it and its founding administrator arrives by accepting
+ * an invitation — which keeps Spike out of customer data entirely, rather than
+ * relying on a Spike account being removed afterwards.
+ *
+ * `actorUserId` is whoever is doing this: the founding administrator in the
+ * self-service path, the Spike operator in the provisioning one. It is
+ * recorded, never granted anything.
+ */
+export async function createOrganisationShell(
   tx: Sql,
-  input: CreateOrganisationInput,
-  ownerAuthUserId: string,
-): Promise<{ organisationId: string; bookId: string; membershipId: string }> {
+  input: CreateOrganisationArgs,
+  actorUserId: string,
+): Promise<{ organisationId: string; bookId: string }> {
   const parsed = createOrganisationSchema.parse(input);
 
   const [org] = await tx<{ id: string }[]>`
@@ -92,22 +113,6 @@ export async function createOrganisationWithOwner(
     )}
   `;
 
-  const [membership] = await tx<{ id: string }[]>`
-    insert into memberships (organisation_id, auth_user_id, status)
-    values (${org.id}, ${ownerAuthUserId}, 'active')
-    returning id
-  `;
-  if (!membership) throw new DomainError('internal', 'Membership insert returned no row.');
-
-  await tx`
-    insert into membership_roles (membership_id, role_key, granted_by)
-    values (${membership.id}, 'org_admin', ${ownerAuthUserId})
-  `;
-  // Organisation-wide resource scope for the founding administrator.
-  await tx`
-    insert into property_assignments (organisation_id, membership_id, scope_type)
-    values (${org.id}, ${membership.id}, 'organisation')
-  `;
   // A default portfolio, so a small landlord never has to think about portfolios.
   await tx`
     insert into portfolios (organisation_id, name, code)
@@ -116,7 +121,7 @@ export async function createOrganisationWithOwner(
 
   await recordAudit(tx, {
     organisationId: org.id,
-    actorUserId: ownerAuthUserId,
+    actorUserId,
     action: 'organisation.created',
     resourceType: 'organisation',
     resourceId: org.id,
@@ -130,7 +135,43 @@ export async function createOrganisationWithOwner(
     payload: { plan: parsed.planKey },
   });
 
-  return { organisationId: org.id, bookId: book.id, membershipId: membership.id };
+  return { organisationId: org.id, bookId: book.id };
+}
+
+/**
+ * Creates an organisation and makes one person its administrator.
+ *
+ * The self-service path: whoever is signing up is the founding administrator,
+ * so there is nobody to invite. Spike's provisioning path uses the shell above
+ * and an invitation instead.
+ */
+export async function createOrganisationWithOwner(
+  tx: Sql,
+  input: CreateOrganisationArgs,
+  ownerAuthUserId: string,
+): Promise<{ organisationId: string; bookId: string; membershipId: string }> {
+  const { organisationId, bookId } = await createOrganisationShell(
+    tx, input, ownerAuthUserId,
+  );
+
+  const [membership] = await tx<{ id: string }[]>`
+    insert into memberships (organisation_id, auth_user_id, status)
+    values (${organisationId}, ${ownerAuthUserId}, 'active')
+    returning id
+  `;
+  if (!membership) throw new DomainError('internal', 'Membership insert returned no row.');
+
+  await tx`
+    insert into membership_roles (membership_id, role_key, granted_by)
+    values (${membership.id}, 'org_admin', ${ownerAuthUserId})
+  `;
+  // Organisation-wide resource scope for the founding administrator.
+  await tx`
+    insert into property_assignments (organisation_id, membership_id, scope_type)
+    values (${organisationId}, ${membership.id}, 'organisation')
+  `;
+
+  return { organisationId, bookId, membershipId: membership.id };
 }
 
 export async function getDefaultBook(tx: Sql, organisationId: string): Promise<{ id: string; currencyCode: string }> {

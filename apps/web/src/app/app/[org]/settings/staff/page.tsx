@@ -62,6 +62,17 @@ export default async function StaffPage({
             Inviting colleagues and changing what they can do needs the membership permission,
             which the organisation administrator holds.
           </p>
+          {context.viewer.assuranceLevel !== 'aal2' ? (
+            <p className="mt-2 text-sm text-ink-700">
+              If you are the administrator, this is why: the role requires a second factor and
+              this session has only a password. The permission is withheld until you add an
+              authenticator and sign in with it — which is also the state a newly set-up
+              organisation starts in.{' '}
+              <Link href="/account/security" className="text-spike-600 hover:underline">
+                Set up an authenticator →
+              </Link>
+            </p>
+          ) : null}
         </Card>
       </div>
     );

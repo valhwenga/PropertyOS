@@ -1,9 +1,10 @@
+import Link from 'next/link';
 import {
   Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
-import { listCustomers, platformHealth } from '@propertyos/domain';
-import { readAs, requireViewer } from '@/lib/auth';
+import { listCustomers, listPendingCustomers, platformHealth } from '@propertyos/domain';
+import { readAs, readPrivilegedAs, requireViewer } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 
 export const metadata = { title: 'Platform' };
@@ -23,6 +24,16 @@ export default async function PlatformPage() {
     await platformHealth(tx, viewer.authUserId),
   ] as const);
 
+  // A provisioned organisation with no members is invisible to every
+  // membership-keyed policy, including for the operator who created it — so
+  // one nobody accepted would sit there unnoticed. Read with the filtering
+  // lifted and the operator's identity intact, so `listPendingCustomers`
+  // still checks platform-operator status and the second factor in SQL. It
+  // returns account metadata only: a name, an address and who was invited.
+  const pending = await readPrivilegedAs(viewer, (tx) =>
+    listPendingCustomers(tx, viewer.authUserId),
+  );
+
   const overLimit = customers.filter((c) => c.overPlanLimit);
   const activeSessions = customers.reduce((s, c) => s + c.activeSupportSessions, 0);
 
@@ -31,7 +42,52 @@ export default async function PlatformPage() {
       <PageHeader
         title="Customer organisations"
         description="Account metadata and usage. Customer records are not shown here and are not reachable from this page."
+        actions={
+          <Link
+            href="/platform/new"
+            className="rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-spike-600"
+          >
+            Set up a customer
+          </Link>
+        }
       />
+
+      {pending.length > 0 ? (
+        <section aria-labelledby="pending-heading" className="space-y-3">
+          <h2
+            id="pending-heading"
+            className="text-sm font-semibold uppercase tracking-wide text-ink-500"
+          >
+            Waiting to be taken up
+          </h2>
+          <p className="text-sm text-ink-500">
+            Set up, with nobody in them yet. Each one is invisible to everybody — including
+            you — until its administrator accepts their invitation.
+          </p>
+          <Card className="divide-y divide-ink-100">
+            {pending.map((customer) => (
+              <div
+                key={customer.organisationId}
+                className="flex flex-wrap items-baseline justify-between gap-3 p-4"
+              >
+                <div>
+                  <p className="text-sm font-medium text-ink-900">{customer.name}</p>
+                  <p className="text-xs text-ink-500">
+                    {customer.slug} · {customer.administratorName}{' '}
+                    ({customer.administratorEmail}) · invited{' '}
+                    {formatDate(customer.invitedAt, 'Africa/Johannesburg')}
+                  </p>
+                </div>
+                <StatusBadge tone={customer.lapsed ? 'critical' : 'caution'} glyph="◐">
+                  {customer.lapsed
+                    ? 'the link has expired — set them up again'
+                    : 'waiting to be accepted'}
+                </StatusBadge>
+              </div>
+            ))}
+          </Card>
+        </section>
+      ) : null}
 
       <section aria-labelledby="health-heading" className="space-y-3">
         <h2 id="health-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">

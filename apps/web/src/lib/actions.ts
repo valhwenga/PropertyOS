@@ -1,7 +1,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { headers } from 'next/headers';
-import { withActor } from '@propertyos/db';
+import { withActor, withPrivilegedActor } from '@propertyos/db';
 import type { Sql } from '@propertyos/db';
 import { DomainError } from '@propertyos/domain';
 import { getViewer, type Viewer } from './auth';
@@ -45,6 +45,15 @@ async function assertSameOrigin(): Promise<void> {
  */
 export async function command<T>(
   fn: (ctx: { tx: Sql; viewer: Viewer; correlationId: string }) => Promise<T>,
+  /**
+   * `privileged` lifts row-level FILTERING only, and only for commands where a
+   * membership-keyed policy is the thing in the way — provisioning a customer
+   * is the case it exists for, since a Spike operator is deliberately a member
+   * of nothing. The caller's verified identity is still set on the
+   * transaction, so the command's own authorisation check runs in SQL exactly
+   * as it would otherwise. It is not a way past an authorisation decision.
+   */
+  options: { privileged?: boolean } = {},
 ): Promise<ActionResult<T>> {
   const correlationId = randomUUID();
   try {
@@ -53,7 +62,7 @@ export async function command<T>(
     if (!viewer) {
       return { ok: false, code: 'unauthenticated', message: 'Please sign in again.', correlationId };
     }
-    const result = await withActor(
+    const result = await (options.privileged ? withPrivilegedActor : withActor)(
       {
         authUserId: viewer.authUserId,
         assuranceLevel: viewer.assuranceLevel,

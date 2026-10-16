@@ -1,7 +1,9 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { recordAudit, emitEvent } from './audit';
-import { DomainError, invalid, notFound } from './errors';
+import { DomainError, invalid, notFound, parsed } from './errors';
+import { createOrganisationShell } from './organisations';
 
 /**
  * Spike platform administration.
@@ -616,4 +618,198 @@ export async function addSystemLeaseTemplateVersion(
     values (${params.templateId}::uuid, ${version}, ${params.body}, ${actorUserId})
   `;
   return { version };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Provisioning a customer                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Sets up a new customer organisation.
+ *
+ * `createOrganisationWithOwner` has existed since the first migration and had
+ * no screen, so a new customer could not be set up in the product at all —
+ * every organisation that exists was created by the seed or by a test.
+ *
+ * The important decision here is what Spike does NOT get. The obvious
+ * implementation makes the Spike operator the founding administrator and
+ * expects somebody to remove them afterwards; that is a Spike account inside
+ * customer data, which is exactly what the support-session machinery exists to
+ * avoid. So a provisioned organisation starts with NOBODY in it. Its founding
+ * administrator arrives by accepting an invitation, the same mechanism a
+ * customer uses for their own colleagues, and until they do the organisation
+ * is an empty shell that no Spike operator can read either.
+ *
+ * The invitation row is written here rather than through `inviteStaff`, which
+ * requires `membership.manage` within the organisation — a permission no Spike
+ * operator has or should have. The authority for this one is
+ * `requirePlatformOperator`, checked first.
+ */
+export async function provisionCustomer(
+  tx: Sql,
+  authUserId: string,
+  input: {
+    name: string;
+    slug: string;
+    legalEntityName: string;
+    planKey: string;
+    countryCode?: string;
+    currencyCode?: string;
+    timeZone?: string;
+    administrator: { fullName: string; email: string };
+    /** Who asked for this account, so the record says why it exists. */
+    reason: string;
+  },
+): Promise<{
+  organisationId: string;
+  invitationId: string;
+  /** Returned once. Stored only as a hash; nobody can recover it afterwards. */
+  token: string;
+  expiresAt: Date;
+}> {
+  const operator = await requirePlatformOperator(tx, authUserId);
+
+  const details = parsed(
+    z.object({
+      name: z.string().trim().min(2).max(200),
+      slug: z.string().trim().regex(
+        /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/,
+        'Use lower-case letters, numbers and dashes — it appears in every URL.',
+      ),
+      legalEntityName: z.string().trim().min(2).max(200),
+      planKey: z.string().trim().min(2).max(40),
+      countryCode: z.string().length(2).toUpperCase().optional(),
+      currencyCode: z.string().length(3).toUpperCase().optional(),
+      timeZone: z.string().trim().min(3).max(60).optional(),
+      administrator: z.object({
+        fullName: z.string().trim().min(2).max(160),
+        email: z.string().trim().toLowerCase().email('Enter a valid email address.').max(254),
+      }),
+      reason: z.string().trim().min(5, 'Say who asked for this account.').max(500),
+    }),
+    input,
+  );
+
+  const [plan] = await tx<{ key: string }[]>`
+    select key from plans where key = ${details.planKey} and is_active
+  `;
+  if (!plan) throw notFound('Plan');
+
+  const [clash] = await tx<{ slug: string }[]>`
+    select slug from organisations where slug = ${details.slug}
+  `;
+  if (clash) {
+    throw new DomainError(
+      'duplicate',
+      `The address "${details.slug}" is already taken. It appears in every URL this customer `
+        + 'uses, so no two organisations can share one.',
+    );
+  }
+
+  const { organisationId } = await createOrganisationShell(tx, {
+    name: details.name,
+    slug: details.slug,
+    legalEntityName: details.legalEntityName,
+    planKey: details.planKey,
+    countryCode: details.countryCode,
+    currencyCode: details.currencyCode,
+    timeZone: details.timeZone,
+  }, authUserId);
+
+  // The same token shape as every other invitation in the product: 32 random
+  // bytes, stored only as its sha256, returned once.
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256').update(token).digest();
+  const expiresAt = new Date(Date.now() + 14 * 86_400_000);
+
+  const [invitation] = await tx<{ id: string }[]>`
+    insert into staff_invitations (
+      organisation_id, invited_email, full_name, roles, scope_type,
+      invite_token_hash, invited_by, expires_at
+    ) values (
+      ${organisationId}, ${details.administrator.email}, ${details.administrator.fullName},
+      ${['org_admin']}, 'organisation', ${tokenHash}, ${authUserId},
+      ${expiresAt.toISOString()}
+    )
+    returning id
+  `;
+  if (!invitation) throw new DomainError('internal', 'Invitation insert returned no row.');
+
+  await recordAudit(tx, {
+    organisationId,
+    actorUserId: authUserId,
+    action: 'platform.customer_provisioned',
+    resourceType: 'organisation',
+    resourceId: organisationId,
+    reason: details.reason,
+    after: {
+      name: details.name,
+      slug: details.slug,
+      plan: details.planKey,
+      administratorEmail: details.administrator.email,
+      provisionedBy: operator.fullName,
+      // Said plainly: Spike created the organisation and is not in it.
+      spikeMembership: 'none',
+      memberCount: 0,
+    },
+  });
+
+  return { organisationId, invitationId: invitation.id, token, expiresAt };
+}
+
+/**
+ * Customers that exist but that nobody has accepted yet.
+ *
+ * A provisioned organisation with no members is invisible to everybody,
+ * including the operator who created it, so a forgotten one would sit there
+ * unnoticed. This is the one view that can see them, and it exists so that
+ * "we set them up last month and never heard back" is answerable.
+ *
+ * MUST be called on a transaction whose row-level filtering is lifted — the
+ * rows it reads are in organisations the caller is deliberately not a member
+ * of, so an ordinary request-scoped connection returns nothing at all rather
+ * than erroring. The platform-operator check below still runs, because the
+ * caller's identity is on the transaction either way.
+ */
+export async function listPendingCustomers(
+  tx: Sql,
+  authUserId: string,
+): Promise<Array<{
+  organisationId: string;
+  name: string;
+  slug: string;
+  administratorName: string;
+  administratorEmail: string;
+  invitedAt: string;
+  expiresAt: string;
+  lapsed: boolean;
+}>> {
+  await requirePlatformOperator(tx, authUserId);
+
+  const rows = await tx<
+    { organisation_id: string; name: string; slug: string; full_name: string;
+      invited_email: string; invited_at: string; expires_at: string; lapsed: boolean }[]
+  >`
+    select o.id as organisation_id, o.name, o.slug, i.full_name,
+           i.invited_email::text as invited_email, i.invited_at::text, i.expires_at::text,
+           (i.expires_at < now()) as lapsed
+      from staff_invitations i
+      join organisations o on o.id = i.organisation_id
+     where i.status = 'invited'
+       and not exists (
+         select 1 from memberships m where m.organisation_id = o.id
+       )
+     order by i.invited_at desc
+     limit 200
+  `;
+  return rows.map((r) => ({
+    organisationId: r.organisation_id,
+    name: r.name,
+    slug: r.slug,
+    administratorName: r.full_name,
+    administratorEmail: r.invited_email,
+    invitedAt: r.invited_at,
+    expiresAt: r.expires_at,
+    lapsed: r.lapsed,
+  }));
 }

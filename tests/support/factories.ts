@@ -8,7 +8,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
-import { withActor } from '@propertyos/db';
+import { withActor, withPrivilegedActor } from '@propertyos/db';
 import type { Sql } from '@propertyos/db';
 import { createOrganisationWithOwner } from '@propertyos/domain';
 
@@ -164,6 +164,22 @@ export async function grantSupportSession(
  */
 export async function as<T>(authUserId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
   return withActor({ authUserId, assuranceLevel: 'aal2' }, ({ tx }) => fn(tx));
+}
+
+/**
+ * A Spike platform operator provisioning a customer.
+ *
+ * Privileged, because every write policy in the schema is keyed on membership
+ * and a Spike operator is a member of nothing — but still carrying the
+ * operator's identity, so the command's own platform-operator and
+ * second-factor checks run in SQL exactly as they would anywhere else.
+ */
+export async function asPlatformOperator<T>(
+  authUserId: string,
+  fn: (tx: Sql) => Promise<T>,
+  assuranceLevel: 'aal1' | 'aal2' = 'aal2',
+): Promise<T> {
+  return withPrivilegedActor({ authUserId, assuranceLevel }, ({ tx }) => fn(tx));
 }
 
 /**
