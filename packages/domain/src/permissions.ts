@@ -96,6 +96,36 @@ export async function hasPermission(
 }
 
 /**
+ * What to offer, and what is being withheld only for want of a second factor.
+ *
+ * The difference matters on a menu. A permission the caller's roles do not
+ * include should not be offered at all; one their roles DO include, withheld
+ * because this session has only a password, must not simply vanish — hiding it
+ * hides the remedy, and the person is left believing the product is closed to
+ * them. `app.permission_needs_mfa` answers exactly that second question, and
+ * is itself false once the permission is actually held.
+ *
+ * One round trip for both, because the menu is rendered on every page.
+ */
+export async function resolveMenuPermissions<K extends PermissionKey>(
+  tx: Sql,
+  organisationId: string,
+  permissions: readonly K[],
+): Promise<{ held: K[]; withheldForSecondFactor: K[] }> {
+  if (permissions.length === 0) return { held: [], withheldForSecondFactor: [] };
+  const rows = await tx<{ key: string; held: boolean; needs_mfa: boolean }[]>`
+    select k as key,
+           app.has_permission(${organisationId}::uuid, k) as held,
+           app.permission_needs_mfa(${organisationId}::uuid, k) as needs_mfa
+    from unnest(${permissions as unknown as string[]}::text[]) as k
+  `;
+  return {
+    held: rows.filter((r) => r.held).map((r) => r.key as K),
+    withheldForSecondFactor: rows.filter((r) => !r.held && r.needs_mfa).map((r) => r.key as K),
+  };
+}
+
+/**
  * Resource scope check for a property-bound command.
  *
  * Membership is necessary but never sufficient: an unassigned property is denied

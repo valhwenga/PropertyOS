@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { AccountLink } from './account-link';
-import { OperatorNav } from './operator-nav';
+import { OperatorNav, type NavGroup } from './operator-nav';
 import { ThemeToggle } from './theme-toggle';
 import { Wordmark } from './wordmark';
 
@@ -10,7 +10,9 @@ import { Wordmark } from './wordmark';
  *
  * Thirteen sections never fitted across the top — they scrolled sideways, so
  * the later ones were invisible until you dragged the bar. Down the side they
- * are all legible at once, which is what a console with this many areas needs.
+ * are all legible at once, which is what a console with this many areas needs,
+ * and they are grouped: sixteen equal entries is a list to read rather than a
+ * shape to learn.
  *
  * One set of markup, re-arranged by CSS at the `md` breakpoint (768px), so a
  * window at half the width of a laptop screen still gets the sidebar. A collapsible
@@ -22,10 +24,11 @@ import { Wordmark } from './wordmark';
  * component, because marking the current section means reading the pathname.
  */
 export function OperatorShell({
-  slug, organisationName, userName, unreadNotices, children,
+  slug, organisationName, userName, unreadNotices, groups, awaitingSecondFactor, children,
 }: {
   slug: string; organisationName: string; userName: string;
-  unreadNotices: number; children: React.ReactNode;
+  unreadNotices: number; groups: NavGroup[]; awaitingSecondFactor: number;
+  children: React.ReactNode;
 }) {
   const base = `/app/${slug}`;
   return (
@@ -73,7 +76,7 @@ export function OperatorShell({
           </div>
         </div>
 
-        <OperatorNav base={base} />
+        <OperatorNav base={base} groups={groups} awaitingSecondFactor={awaitingSecondFactor} />
       </header>
 
       {/* min-w-0 matters: without it a wide table — the lease statement, for one
