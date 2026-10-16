@@ -268,18 +268,24 @@ test.describe('approvals', () => {
     await page.getByLabel('Invoice amount').fill(quoted);
     await page.getByRole('button', { name: 'Record completion' }).click();
 
-    const expensed = page.getByText('Expense recorded');
-    const completeFailed = page.getByText('Could not record completion');
-    await expect(expensed.or(completeFailed).first()).toBeVisible({ timeout: 30_000 });
-    if (await completeFailed.isVisible().catch(() => false)) {
-      throw new Error(`recording completion was refused: ${await visibleText(page)}`);
-    }
+    // Waiting on this invoice reference rather than on "Expense recorded",
+    // which an earlier run of this spec may already have put on the ticket.
+    // Matching a marker that is already on screen reports success while the
+    // submission is still in flight — the queue was then read before the
+    // expense existed, and the test failed on a feature that worked.
+    const inQueue = async (): Promise<boolean> => {
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        await page.goto(`${org}/approvals`, { waitUntil: 'domcontentloaded' });
+        if ((await visibleText(page)).includes(invoiceRef)) return true;
+        await page.waitForTimeout(1_000);
+      }
+      return false;
+    };
+    expect(await inQueue(), 'the draft expense never reached the approvals queue').toBe(true);
 
-    // And it is waiting in the expense queue as a draft, not quietly posted.
-    await page.goto(`${org}/approvals`, { waitUntil: 'domcontentloaded' });
+    // And it is there as a draft, not quietly posted.
     const finalQueue = await visibleText(page);
     expect(finalQueue).toContain('Draft expenses');
-    expect(finalQueue).toContain(invoiceRef);
     expect(finalQueue).toContain('it pays nobody');
   });
 });

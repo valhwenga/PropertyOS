@@ -49,13 +49,19 @@ export default async function AccountPage() {
         </div>
       </Card>
 
-      <Card className="p-4">
-        <p className="text-sm font-medium text-ink-900">Second factor</p>
-        <p className="mt-1 text-sm text-ink-500">
-          {viewer.assuranceLevel === 'aal2'
-            ? 'You signed in with a second factor on this session.'
-            : 'This session has no second factor. Elevated permissions stay withheld until you provide one.'}
-        </p>
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div>
+          <p className="text-sm font-medium text-ink-900">Second factor</p>
+          <p className="mt-1 text-sm text-ink-500">
+            {viewer.assuranceLevel === 'aal2'
+              ? 'You signed in with a second factor on this session.'
+              : 'This session has no second factor. Elevated permissions stay withheld until you provide one.'}
+          </p>
+        </div>
+        <Link href="/account/security"
+              className="whitespace-nowrap rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm text-ink-700">
+          Sign-in security
+        </Link>
       </Card>
     </div>
   );

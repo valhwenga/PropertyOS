@@ -71,7 +71,15 @@ describe('Schema invariants', () => {
           'role_permissions', 'user_profiles', 'memberships', 'membership_roles',
           'support_sessions', 'subscriptions', 'notification_templates',
           'schema_migrations', 'webhook_events', 'job_attempts',
-          'auth_mfa_factors', 'auth_mfa_used_codes', 'auth_attempts',
+          -- Credential material belongs to an AUTH USER, not to an
+          -- organisation: one person signs in once and may be a member of
+          -- several. Isolating these by organisation would be meaningless,
+          -- which is why they are instead unreadable by the application role
+          -- altogether. That is asserted in
+          -- tests/integration/mfa-enrolment.test.ts, which tries to read both
+          -- as a signed-in member and expects to be denied.
+          'auth_mfa_factors', 'auth_mfa_used_codes', 'auth_mfa_recovery_codes',
+          'auth_attempts',
           'app_privilege_exemptions', 'inspection_photos',
           -- Lease templates Spike publishes to every customer. Platform-owned,
           -- not customer-owned: a nullable organisation_id on the customer

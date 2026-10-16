@@ -6,6 +6,7 @@ import { privilegedSql } from '@propertyos/db/client';
 import {
   resolveAuthProviderName, supabaseAuthConfig, supabaseSignIn, verifyCode,
 } from '@propertyos/integrations';
+import { consumeRecoveryCode } from '@/lib/mfa';
 import { createSession, verifyPassword } from '@/lib/session';
 import {
   checkSignInRate, clearFailures, clientAddressHash, recordAttempt,
@@ -30,6 +31,12 @@ export async function signIn(_previous: SignInState, formData: FormData): Promis
   const email = String(formData.get('email') ?? '').trim().toLowerCase();
   const password = String(formData.get('password') ?? '');
   const code = String(formData.get('code') ?? '').trim();
+  // A recovery code stands in for the authenticator when the phone is gone.
+  // Kept as its own field rather than guessed from the shape of the input: a
+  // six-digit recovery code and a six-digit TOTP code would be
+  // indistinguishable, and spending a recovery code by accident is a real
+  // cost to somebody who has few left.
+  const recoveryCode = String(formData.get('recoveryCode') ?? '').trim();
 
   if (!email || !password) {
     return { error: 'Enter your email address and password.', correlationId };
@@ -106,13 +113,31 @@ export async function signIn(_previous: SignInState, formData: FormData): Promis
   `;
   const mfaEnrolled = Boolean(factor?.verified_at);
 
-  if (mfaEnrolled && !code) {
+  if (mfaEnrolled && !code && !recoveryCode) {
     await recordAttempt(email, ipHash, 'mfa_required');
     return { error: null, mfaRequired: true, pendingEmail: email, correlationId };
   }
 
   let assurance: 'aal1' | 'aal2' = 'aal1';
-  if (mfaEnrolled) {
+  let recoveryRemaining: number | undefined;
+
+  if (mfaEnrolled && recoveryCode) {
+    const spent = await consumeRecoveryCode(sql, user.id, recoveryCode, ipHash);
+    if (!spent.ok) {
+      await recordAttempt(email, ipHash, 'mfa_failed');
+      return {
+        error: 'That recovery code is not valid, or it has already been used.',
+        mfaRequired: true,
+        pendingEmail: email,
+        correlationId,
+      };
+    }
+    // A spent recovery code is a full second factor: the point of it is to get
+    // somebody back in when the authenticator is gone, and a half-privileged
+    // session would leave them unable to enrol a new one.
+    assurance = 'aal2';
+    recoveryRemaining = spent.remaining;
+  } else if (mfaEnrolled) {
     const verification = verifyCode(factor!.secret, code);
     if (!verification.valid || verification.step === undefined) {
       await recordAttempt(email, ipHash, 'mfa_failed');
@@ -145,7 +170,10 @@ export async function signIn(_previous: SignInState, formData: FormData): Promis
   await recordAttempt(email, ipHash, 'success');
   await clearFailures(email);
   await createSession(user.id, assurance);
-  redirect('/');
+  // Somebody who has just spent a recovery code is sent to the security page
+  // rather than to the console: they are there because their authenticator is
+  // gone, and the next thing they need is to enrol a new one.
+  redirect(recoveryRemaining === undefined ? '/' : '/account/security?recovered=1');
 }
 
 /**
