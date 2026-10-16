@@ -4,6 +4,8 @@ import type { StatusTone } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadTickets } from '@/lib/operations-queries';
+import { pageHref, readPaging, summarise } from '@/lib/listing';
+import { ListSelect, ListToolbar, PageBar } from '@/components/list-controls';
 
 export const metadata = { title: 'Maintenance' };
 export const dynamic = 'force-dynamic';
@@ -32,15 +34,22 @@ export default async function MaintenancePage({
   params, searchParams,
 }: {
   params: Promise<{ org: string }>;
-  searchParams: Promise<{ filter?: string }>;
+  searchParams: Promise<{ filter?: string; q?: string; urgency?: string; page?: string }>;
 }) {
   const { org } = await params;
-  const { filter } = await searchParams;
+  const query = await searchParams;
   const context = await requireOperator(org);
-  const scope = filter === 'open' ? 'open' : 'all';
-  const tickets = await readAs(context.viewer, (tx) =>
-    loadTickets(tx, context.organisationId, scope),
+  const scope = query.filter === 'open' ? 'open' : 'all';
+  const urgency = ['emergency', 'high', 'normal', 'low'].includes(query.urgency ?? '')
+    ? query.urgency
+    : undefined;
+  const paging = readPaging(query.page);
+  const { rows: tickets, total } = await readAs(context.viewer, (tx) =>
+    loadTickets(tx, context.organisationId, { scope, query: query.q, urgency }, paging),
   );
+
+  const filtered = Boolean(query.q || urgency || scope === 'open');
+  const summary = summarise(paging, tickets.length, total, filtered);
 
   return (
     <div className="space-y-6">
@@ -63,6 +72,34 @@ export default async function MaintenancePage({
             </Link>
           </>
         }
+      />
+
+      <ListToolbar
+        action={`/app/${org}/maintenance`}
+        query={query.q}
+        placeholder="Reference, description or property"
+        customised={Object.keys(query).length > 0}
+      >
+        {/* Carried, or searching inside the open queue would quietly widen it
+            back to every ticket ever logged. */}
+        {scope === 'open' ? <input type="hidden" name="filter" value="open" /> : null}
+        <ListSelect
+          name="urgency"
+          label="Urgency"
+          value={urgency}
+          anyLabel="Any urgency"
+          options={[
+            { value: 'emergency', label: 'Emergency' },
+            { value: 'high', label: 'High' },
+            { value: 'normal', label: 'Normal' },
+            { value: 'low', label: 'Low' },
+          ]}
+        />
+      </ListToolbar>
+
+      <PageBar
+        summary={summary}
+        href={(page) => `/app/${org}/maintenance${pageHref(query, page)}`}
       />
 
       {tickets.length === 0 ? (

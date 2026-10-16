@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
-import { expenseReport, hasPermission, listExpenses, listVendors } from '@propertyos/domain';
+import {
+  EXPENSE_LIST_CAP, expenseReport, hasPermission, listExpenses, listVendors,
+} from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadInvoiceChoices, loadPropertyChoices } from '@/lib/operations-queries';
@@ -59,6 +61,11 @@ export default async function ExpensesPage({
   const invoiceChoices = invoices.map((d) => ({
     id: d.id, label: `${d.title} — ${formatDate(d.uploaded_at, context.timeZone)}`,
   }));
+
+  // The query is capped. Saying so is the difference between a short list and
+  // a list that stopped; the full history is in the expense report, which is
+  // filtered and exported rather than scrolled.
+  const capped = expenses.length === EXPENSE_LIST_CAP;
 
   return (
     <div className="space-y-6">
@@ -171,6 +178,13 @@ export default async function ExpensesPage({
           }
         />
       ) : (
+        <>
+        {capped ? (
+          <p className="text-sm text-caution-700">
+            Only the most recent {EXPENSE_LIST_CAP} costs are loaded here. For a complete
+            history, use the expense report, which takes a period and exports.
+          </p>
+        ) : null}
         <DataTable
           caption={`Expenses ${periodStart} to ${periodEnd}`}
           head={
@@ -214,6 +228,7 @@ export default async function ExpensesPage({
             </tr>
           ))}
         </DataTable>
+        </>
       )}
 
       {data.meta.qualifications.length > 0 ? (

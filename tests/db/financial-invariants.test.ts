@@ -408,7 +408,16 @@ describe('Leasing invariants', () => {
       activate(draftA.leaseId, '2026-06-01'),
       activate(draftB.leaseId, '2026-09-01'),
     ]);
-    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    // Named, because this raced once in a full-suite run and the bare length
+    // assertion said nothing about which way it went. Under contention the
+    // loser should still fail on the exclusion constraint; anything else —
+    // a deadlock, a lock timeout, both losing — is a different bug and the
+    // next occurrence should say so rather than be a mystery.
+    const outcomes = results.map((r) => r.status === 'fulfilled'
+      ? 'fulfilled'
+      : `rejected: ${(r.reason as { code?: string; message?: string }).code ?? 'no code'} `
+        + `${(r.reason as { message?: string }).message ?? ''}`);
+    expect(results.filter((r) => r.status === 'fulfilled'), outcomes.join(' | ')).toHaveLength(1);
     const failure = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
     expect(failure.reason).toMatchObject({ code: 'conflict' });
   });

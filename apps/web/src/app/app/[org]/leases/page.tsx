@@ -4,6 +4,8 @@ import type { StatusTone } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadLeases } from '@/lib/queries';
+import { pageHref, readPaging, summarise } from '@/lib/listing';
+import { ListSelect, ListToolbar, PageBar } from '@/components/list-controls';
 
 export const metadata = { title: 'Leases' };
 export const dynamic = 'force-dynamic';
@@ -22,25 +24,27 @@ export default async function LeasesPage({
   params, searchParams,
 }: {
   params: Promise<{ org: string }>;
-  searchParams: Promise<{ expiring?: string }>;
+  searchParams: Promise<{ expiring?: string; q?: string; status?: string; page?: string }>;
 }) {
   const { org } = await params;
-  const { expiring } = await searchParams;
+  const query = await searchParams;
   const context = await requireOperator(org);
-  const allLeases = await readAs(context.viewer, (tx) => loadLeases(tx, context.organisationId));
-  let leases = [...allLeases];
 
-  // The dashboard "expiring leases" tile links here with the same filter.
-  if (expiring) {
-    const horizon = new Date();
-    horizon.setUTCDate(horizon.getUTCDate() + Number(expiring));
-    const cutOff = horizon.toISOString().slice(0, 10);
-    const today = new Date().toISOString().slice(0, 10);
-    leases = leases.filter(
-      (l) => ['active', 'notice_given'].includes(l.status) &&
-             l.end_date !== null && l.end_date >= today && l.end_date <= cutOff,
-    );
-  }
+  // The dashboard "expiring leases" tile links here with the same filter, so
+  // the horizon stays a number of days rather than becoming a status.
+  const expiringWithinDays = query.expiring !== undefined && Number.isFinite(Number(query.expiring))
+    ? Math.max(0, Number(query.expiring))
+    : undefined;
+  const status = STATUS[query.status ?? ''] ? query.status : undefined;
+  const paging = readPaging(query.page);
+
+  const { rows: leases, total } = await readAs(context.viewer, (tx) =>
+    loadLeases(tx, context.organisationId,
+      { query: query.q, status, expiringWithinDays }, paging));
+
+  const filtered = Boolean(query.q || status || expiringWithinDays !== undefined);
+  const summary = summarise(paging, leases.length, total, filtered);
+  const expiring = query.expiring;
 
   return (
     <div className="space-y-6">
@@ -58,12 +62,34 @@ export default async function LeasesPage({
         }
       />
 
+      <ListToolbar
+        action={`/app/${org}/leases`}
+        query={query.q}
+        placeholder="Reference, resident or unit"
+        customised={Object.keys(query).length > 0}
+      >
+        {/* Carried through the form, or searching inside "expiring in 60
+            days" would quietly widen the list back to every lease. */}
+        {expiring !== undefined ? (
+          <input type="hidden" name="expiring" value={expiring} />
+        ) : null}
+        <ListSelect
+          name="status"
+          label="Status"
+          value={status}
+          anyLabel="Any status"
+          options={Object.entries(STATUS).map(([value, s]) => ({ value, label: s.label }))}
+        />
+      </ListToolbar>
+
+      <PageBar summary={summary} href={(page) => `/app/${org}/leases${pageHref(query, page)}`} />
+
       {leases.length === 0 ? (
         <EmptyState
-          title={expiring ? 'No leases expiring in this window' : 'No leases yet'}
+          title={filtered ? 'Nothing matches those filters' : 'No leases yet'}
           description={
-            expiring
-              ? 'Nothing in your scope ends in this period.'
+            filtered
+              ? 'Every lease is still here; none of them answers what you asked. Reset the filters to see them all.'
               : 'Draft a lease once you have a unit and a resident. A draft has no billing effect until it is activated.'
           }
         />

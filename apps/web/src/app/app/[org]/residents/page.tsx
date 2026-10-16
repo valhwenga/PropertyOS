@@ -2,14 +2,44 @@ import Link from 'next/link';
 import { DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { loadResidents } from '@/lib/queries';
+import { pageHref, readPaging, summarise } from '@/lib/listing';
+import { ListSelect, ListToolbar, PageBar } from '@/components/list-controls';
 
 export const metadata = { title: 'Residents' };
 export const dynamic = 'force-dynamic';
 
-export default async function ResidentsPage({ params }: { params: Promise<{ org: string }> }) {
+/**
+ * The statuses a resident profile can carry.
+ *
+ * Archived is on the list deliberately. It used to be filtered out with no way
+ * to ask for it, so an archived person — whose lease history is still there and
+ * who somebody eventually has to look up — could not be reached from anywhere
+ * in the product.
+ */
+const STATUSES = [
+  { value: 'prospect', label: 'Prospect' },
+  { value: 'active', label: 'Active' },
+  { value: 'former', label: 'Former' },
+  { value: 'archived', label: 'Archived' },
+] as const;
+
+export default async function ResidentsPage({
+  params, searchParams,
+}: {
+  params: Promise<{ org: string }>;
+  searchParams: Promise<{ q?: string; status?: string; page?: string }>;
+}) {
   const { org } = await params;
+  const query = await searchParams;
   const context = await requireOperator(org);
-  const residents = await readAs(context.viewer, (tx) => loadResidents(tx, context.organisationId));
+
+  const status = STATUSES.some((s) => s.value === query.status) ? query.status : undefined;
+  const paging = readPaging(query.page);
+  const { rows: residents, total } = await readAs(context.viewer, (tx) =>
+    loadResidents(tx, context.organisationId, { query: query.q, status }, paging));
+
+  const filtered = Boolean(query.q || status);
+  const summary = summarise(paging, residents.length, total, filtered);
 
   return (
     <div className="space-y-6">
@@ -23,10 +53,31 @@ export default async function ResidentsPage({ params }: { params: Promise<{ org:
         }
       />
 
+      <ListToolbar
+        action={`/app/${org}/residents`}
+        query={query.q}
+        placeholder="Name, email or phone"
+        customised={Object.keys(query).length > 0}
+      >
+        <ListSelect
+          name="status"
+          label="Status"
+          value={status}
+          anyLabel="Everyone except archived"
+          options={STATUSES}
+        />
+      </ListToolbar>
+
+      <PageBar summary={summary} href={(page) => `/app/${org}/residents${pageHref(query, page)}`} />
+
       {residents.length === 0 ? (
         <EmptyState
-          title="No residents yet"
-          description="Add a resident profile before drafting their lease. Contact details and a portal invitation can follow later."
+          title={filtered ? 'Nobody matches those filters' : 'No residents yet'}
+          description={
+            filtered
+              ? 'Everybody is still here; none of them answers what you asked. Archived people are shown only when you ask for them.'
+              : 'Add a resident profile before drafting their lease. Contact details and a portal invitation can follow later.'
+          }
         />
       ) : (
         <DataTable

@@ -6,6 +6,8 @@ import type { StatusTone } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadDocuments } from '@/lib/operations-queries';
+import { pageHref, readPaging, summarise } from '@/lib/listing';
+import { ListSelect, ListToolbar, PageBar } from '@/components/list-controls';
 
 export const metadata = { title: 'Documents' };
 export const dynamic = 'force-dynamic';
@@ -30,12 +32,33 @@ function formatBytes(bytes: string): string {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default async function DocumentsPage({ params }: { params: Promise<{ org: string }> }) {
-  const { org } = await params;
-  const context = await requireOperator(org);
-  const documents = await readAs(context.viewer, (tx) => loadDocuments(tx, context.organisationId));
+const CLASSIFICATIONS = [
+  'lease', 'identity', 'proof_of_payment', 'invoice', 'inspection',
+  'maintenance', 'deposit_evidence', 'statement_export', 'other',
+] as const;
 
-  const unscanned = documents.filter((d) => d.quarantined);
+export default async function DocumentsPage({
+  params, searchParams,
+}: {
+  params: Promise<{ org: string }>;
+  searchParams: Promise<{ q?: string; classification?: string; held?: string; page?: string }>;
+}) {
+  const { org } = await params;
+  const query = await searchParams;
+  const context = await requireOperator(org);
+
+  const classification = CLASSIFICATIONS.includes(query.classification as typeof CLASSIFICATIONS[number])
+    ? query.classification
+    : undefined;
+  const quarantinedOnly = query.held === 'yes';
+  const paging = readPaging(query.page);
+
+  const { rows: documents, total, quarantinedTotal } = await readAs(context.viewer, (tx) =>
+    loadDocuments(tx, context.organisationId,
+      { query: query.q, classification, quarantinedOnly }, paging));
+
+  const filtered = Boolean(query.q || classification || quarantinedOnly);
+  const summary = summarise(paging, documents.length, total, filtered);
 
   return (
     <div className="space-y-6">
@@ -47,10 +70,13 @@ export default async function DocumentsPage({ params }: { params: Promise<{ org:
 
       {/* An honest, prominent statement of the scanning position. The product
           must never imply files have been checked when they have not. */}
-      {unscanned.length > 0 ? (
+      {/* Counted across every document, not across this page: a safety
+          statement that narrows to whatever you are looking at is worse than
+          no statement at all. */}
+      {quarantinedTotal > 0 ? (
         <Card className="border-caution-700/25 bg-caution-50 p-4">
           <p className="text-sm font-semibold text-caution-700">
-            {unscanned.length} file{unscanned.length === 1 ? ' is' : 's are'} quarantined
+            {quarantinedTotal} file{quarantinedTotal === 1 ? ' is' : 's are'} quarantined
           </p>
           <p className="mt-1 text-sm text-ink-700">
             No malware scanner is configured, so these files have <strong>not</strong> been
@@ -58,13 +84,48 @@ export default async function DocumentsPage({ params }: { params: Promise<{ org:
             or owners. This is enforced by the database, not only by this screen. See{' '}
             <code className="text-xs">docs/runbooks/uploads.md</code> to configure a scanner.
           </p>
+          <p className="mt-2 text-sm">
+            <Link href={`/app/${org}/documents?held=yes`} className="font-medium underline">
+              Show only those files
+            </Link>
+          </p>
         </Card>
       ) : null}
 
+      <ListToolbar
+        action={`/app/${org}/documents`}
+        query={query.q}
+        placeholder="Title, lease or property"
+        customised={Object.keys(query).length > 0}
+      >
+        <ListSelect
+          name="classification"
+          label="Kind"
+          value={classification}
+          anyLabel="Any kind"
+          options={CLASSIFICATIONS.map((value) => ({
+            value, label: value.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()),
+          }))}
+        />
+        <ListSelect
+          name="held"
+          label="Quarantine"
+          value={quarantinedOnly ? 'yes' : undefined}
+          anyLabel="Everything"
+          options={[{ value: 'yes', label: 'Held back only' }]}
+        />
+      </ListToolbar>
+
+      <PageBar summary={summary} href={(page) => `/app/${org}/documents${pageHref(query, page)}`} />
+
       {documents.length === 0 ? (
         <EmptyState
-          title="No documents yet"
-          description="Lease contracts, invoices, inspection photos and proof of payment appear here once uploaded."
+          title={filtered ? 'Nothing matches those filters' : 'No documents yet'}
+          description={
+            filtered
+              ? 'Every document is still here; none of them answers what you asked.'
+              : 'Lease contracts, invoices, inspection photos and proof of payment appear here once uploaded.'
+          }
         />
       ) : (
         <DataTable

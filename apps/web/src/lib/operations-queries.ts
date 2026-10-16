@@ -1,35 +1,62 @@
 import 'server-only';
 import type { Sql } from '@propertyos/db';
+import { likeTerm, PAGE_SIZE, type Paging } from './listing';
 
+export interface TicketListFilters {
+  /** 'open' keeps the queue to what still needs somebody. */
+  scope: 'open' | 'all';
+  query?: string;
+  urgency?: string;
+}
+
+/**
+ * One page of maintenance tickets.
+ *
+ * The queue is ordered by the manager's assessment where one exists, so the
+ * first page is the work that matters most — which is the whole reason this
+ * one can be paged without hiding anything urgent.
+ */
 export async function loadTickets(
   tx: Sql,
   organisationId: string,
-  filter: 'open' | 'all',
+  filters: TicketListFilters,
+  paging: Paging = { page: 1, limit: PAGE_SIZE, offset: 0 },
 ) {
   const openStates = ['submitted', 'triaged', 'awaiting_approval', 'assigned', 'in_progress', 'awaiting_confirmation'];
-  return tx<
+  const term = likeTerm(filters.query);
+  const rows = await tx<
     { id: string; reference: string; status: string; urgency: string; triaged_urgency: string | null;
       category: string; description: string; created_at: string; unit_label: string;
-      resident_name: string | null; comment_count: string }[]
+      resident_name: string | null; comment_count: string; total: string }[]
   >`
     select t.id, t.reference, t.status::text, t.urgency, t.triaged_urgency, t.category,
            t.description, t.created_at::text,
            p.name || coalesce(' / ' || u.code, '') as unit_label,
            (rp.first_name || ' ' || rp.last_name) as resident_name,
-           (select count(*)::text from maintenance_comments c where c.ticket_id = t.id) as comment_count
+           (select count(*)::text from maintenance_comments c where c.ticket_id = t.id) as comment_count,
+           count(*) over ()::text as total
     from maintenance_tickets t
     join properties p on p.id = t.property_id
     left join units u on u.id = t.unit_id
     left join resident_profiles rp on rp.id = t.reported_by_resident
     where t.organisation_id = ${organisationId}::uuid
-      ${filter === 'open' ? tx`and t.status::text = any(${openStates})` : tx``}
+      ${filters.scope === 'open' ? tx`and t.status::text = any(${openStates})` : tx``}
+      ${filters.urgency
+        ? tx`and coalesce(t.triaged_urgency, t.urgency) = ${filters.urgency}` : tx``}
+      ${term ? tx`and (
+          t.reference ilike ${term} escape '\\'
+          or t.description ilike ${term} escape '\\'
+          or (p.name || coalesce(' / ' || u.code, '')) ilike ${term} escape '\\'
+        )` : tx``}
     order by
       -- The manager's assessment drives the queue where one exists; otherwise
       -- the resident's reported urgency does.
       case coalesce(t.triaged_urgency, t.urgency)
         when 'emergency' then 0 when 'high' then 1 when 'normal' then 2 else 3 end,
       t.created_at desc
+    limit ${paging.limit} offset ${paging.offset}
   `;
+  return { rows, total: Number(rows[0]?.total ?? 0) };
 }
 
 export async function loadTicketDetail(tx: Sql, organisationId: string, ticketId: string) {
@@ -91,12 +118,37 @@ export async function loadTicketDetail(tx: Sql, organisationId: string, ticketId
   return { ticket, events, comments, quotes, workOrders };
 }
 
-export async function loadDocuments(tx: Sql, organisationId: string) {
-  return tx<
+export interface DocumentListFilters {
+  query?: string;
+  classification?: string;
+  /** Only the files held back from sharing. */
+  quarantinedOnly?: boolean;
+}
+
+/**
+ * One page of documents.
+ *
+ * This used to read the most recent 200 and say nothing about the cut-off,
+ * which looks exactly like having 200 documents. It now pages, and reports the
+ * total so the screen can say what it is not showing.
+ *
+ * The quarantined count is deliberately NOT the count on this page. It drives
+ * the banner that states files have not been scanned, and a safety statement
+ * that silently narrows to whatever page you are looking at is worse than no
+ * statement.
+ */
+export async function loadDocuments(
+  tx: Sql,
+  organisationId: string,
+  filters: DocumentListFilters = {},
+  paging: Paging = { page: 1, limit: PAGE_SIZE, offset: 0 },
+) {
+  const term = likeTerm(filters.query);
+  const rows = await tx<
     { id: string; title: string; classification: string; visibility: string; scan_status: string;
       scan_detail: string | null; quarantined: boolean; byte_size: string; content_type: string;
       uploaded_at: string; uploader: string | null; lease_reference: string | null;
-      property_name: string | null; superseded: boolean }[]
+      property_name: string | null; superseded: boolean; total: string }[]
   >`
     select d.id, d.title, d.classification, d.visibility::text, d.scan_status::text,
            d.scan_detail, d.quarantined, d.byte_size::text, d.content_type, d.uploaded_at::text,
@@ -106,15 +158,35 @@ export async function loadDocuments(tx: Sql, organisationId: string) {
            exists (
              select 1 from documents newer
               where newer.supersedes_document_id = d.id and newer.deleted_at is null
-           ) as superseded
+           ) as superseded,
+           count(*) over ()::text as total
     from documents d
     left join user_profiles up on up.auth_user_id = d.uploaded_by
     left join leases l on l.id = d.lease_id
     left join properties p on p.id = d.property_id
     where d.organisation_id = ${organisationId}::uuid and d.deleted_at is null
+      ${filters.classification ? tx`and d.classification = ${filters.classification}` : tx``}
+      ${filters.quarantinedOnly ? tx`and d.quarantined` : tx``}
+      ${term ? tx`and (
+          d.title ilike ${term} escape '\\'
+          or coalesce(l.reference, '') ilike ${term} escape '\\'
+          or coalesce(p.name, '') ilike ${term} escape '\\'
+        )` : tx``}
     order by d.uploaded_at desc
-    limit 200
+    limit ${paging.limit} offset ${paging.offset}
   `;
+
+  const [counts] = await tx<{ quarantined: string }[]>`
+    select count(*) filter (where quarantined)::text as quarantined
+    from documents
+    where organisation_id = ${organisationId}::uuid and deleted_at is null
+  `;
+
+  return {
+    rows,
+    total: Number(rows[0]?.total ?? 0),
+    quarantinedTotal: Number(counts?.quarantined ?? 0),
+  };
 }
 
 /**

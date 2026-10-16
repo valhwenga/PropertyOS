@@ -9,6 +9,7 @@ export default defineConfig({
       // More specific first: Vite matches an alias key as a prefix, so the
       // bare package name would otherwise swallow this subpath and resolve it
       // to `index.ts/dates`.
+      'server-only': `${root}tests/support/server-only.ts`,
       '@propertyos/domain/dates': `${root}packages/domain/src/dates.ts`,
       '@propertyos/db': `${root}packages/db/src/index.ts`,
       '@propertyos/domain': `${root}packages/domain/src/index.ts`,

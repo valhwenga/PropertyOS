@@ -1,5 +1,6 @@
 import 'server-only';
 import type { Sql } from '@propertyos/db';
+import { likeTerm, PAGE_SIZE, type Paging } from './listing';
 import { collectionTotals } from '@propertyos/domain';
 import type { CollectionTotals } from '@propertyos/domain';
 
@@ -179,17 +180,40 @@ export async function loadProperties(tx: Sql, organisationId: string) {
   `;
 }
 
-export async function loadLeases(tx: Sql, organisationId: string) {
-  return tx<
+export interface LeaseListFilters {
+  /** Free text over the reference, the resident and the unit label. */
+  query?: string;
+  status?: string;
+  /** Only leases ending within this many days, and not already ended. */
+  expiringWithinDays?: number;
+}
+
+/**
+ * One page of leases, filtered in the database.
+ *
+ * It used to read every lease in the organisation and filter in JavaScript,
+ * which is a full table read on a page a letting agent opens all day. The
+ * total comes back in the same round trip, so the page can say how much it is
+ * not showing instead of ending without explanation.
+ */
+export async function loadLeases(
+  tx: Sql,
+  organisationId: string,
+  filters: LeaseListFilters = {},
+  paging: Paging = { page: 1, limit: PAGE_SIZE, offset: 0 },
+) {
+  const term = likeTerm(filters.query);
+  const rows = await tx<
     { id: string; reference: string; status: string; start_date: string; end_date: string | null;
       rent_minor: string; currency_code: string; unit_label: string; resident_name: string;
-      receivable_minor: string }[]
+      receivable_minor: string; total: string }[]
   >`
     select l.id, l.reference, l.status::text, l.start_date::text, l.end_date::text,
            l.rent_minor::text, l.currency_code,
            p.name || ' / ' || u.code as unit_label,
            coalesce(rp.first_name || ' ' || rp.last_name, '—') as resident_name,
-           coalesce(lb.receivable_minor, 0)::text as receivable_minor
+           coalesce(lb.receivable_minor, 0)::text as receivable_minor,
+           count(*) over ()::text as total
     from leases l
     join properties p on p.id = l.property_id
     join units u on u.id = l.unit_id
@@ -197,15 +221,49 @@ export async function loadLeases(tx: Sql, organisationId: string) {
     left join resident_profiles rp on rp.id = lp.resident_id
     left join lease_balances lb on lb.lease_id = l.id
     where l.organisation_id = ${organisationId}::uuid
+      ${filters.status ? tx`and l.status = ${filters.status}::app.lease_status` : tx``}
+      ${term ? tx`and (
+          l.reference ilike ${term} escape '\\'
+          or (p.name || ' / ' || u.code) ilike ${term} escape '\\'
+          or coalesce(rp.first_name || ' ' || rp.last_name, '') ilike ${term} escape '\\'
+        )` : tx``}
+      ${filters.expiringWithinDays !== undefined ? tx`
+        and l.status in ('active', 'notice_given')
+        and l.end_date is not null
+        and l.end_date >= current_date
+        and l.end_date <= current_date + (${filters.expiringWithinDays} || ' days')::interval
+      ` : tx``}
     order by l.status, l.start_date desc
+    limit ${paging.limit} offset ${paging.offset}
   `;
+  return { rows, total: Number(rows[0]?.total ?? 0) };
 }
 
-export async function loadResidents(tx: Sql, organisationId: string) {
-  return tx<
+export interface ResidentListFilters {
+  query?: string;
+  /** 'archived' or a live status. Omitted means every status except archived. */
+  status?: string;
+}
+
+/**
+ * One page of residents.
+ *
+ * Archived residents were excluded unconditionally, which made an archived
+ * person unreachable from anywhere in the product — their lease history still
+ * exists and somebody eventually has to look at it. They are now behind a
+ * filter rather than behind nothing.
+ */
+export async function loadResidents(
+  tx: Sql,
+  organisationId: string,
+  filters: ResidentListFilters = {},
+  paging: Paging = { page: 1, limit: PAGE_SIZE, offset: 0 },
+) {
+  const term = likeTerm(filters.query);
+  const rows = await tx<
     { id: string; first_name: string; last_name: string; email: string | null;
       phone: string | null; status: string; identity_number_last4: string | null;
-      lease_count: string; has_portal: boolean }[]
+      lease_count: string; has_portal: boolean; total: string }[]
   >`
     select r.id, r.first_name, r.last_name, r.email, r.phone, r.status::text,
            r.identity_number_last4,
@@ -213,9 +271,21 @@ export async function loadResidents(tx: Sql, organisationId: string) {
            exists (
              select 1 from portal_links pl
              where pl.resident_id = r.id and pl.status = 'active'
-           ) as has_portal
+           ) as has_portal,
+           count(*) over ()::text as total
     from resident_profiles r
-    where r.organisation_id = ${organisationId}::uuid and r.status <> 'archived'
+    where r.organisation_id = ${organisationId}::uuid
+      ${filters.status
+        ? tx`and r.status = ${filters.status}::app.resident_status`
+        : tx`and r.status <> 'archived'`}
+      ${term ? tx`and (
+          (r.first_name || ' ' || r.last_name) ilike ${term} escape '\\'
+          or coalesce(r.email, '') ilike ${term} escape '\\'
+          or coalesce(r.phone, '') ilike ${term} escape '\\'
+        )` : tx``}
     order by r.last_name, r.first_name
+    limit ${paging.limit} offset ${paging.offset}
   `;
+  return { rows, total: Number(rows[0]?.total ?? 0) };
 }
+

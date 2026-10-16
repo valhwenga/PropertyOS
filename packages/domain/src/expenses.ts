@@ -93,6 +93,16 @@ const reasonSchema = z.string().trim().min(5, 'Say why, in a sentence.').max(500
 
 /* ------------------------------------------------------------------ reading */
 
+/**
+ * Expenses, most recent first.
+ *
+ * Capped, and the cap is exported so a caller can tell the difference between
+ * "this is everything" and "this is the first {@link EXPENSE_LIST_CAP}". A
+ * list that stops without saying so looks exactly like a shorter list, and the
+ * screen is the only place that can say it.
+ */
+export const EXPENSE_LIST_CAP = 500;
+
 export async function listExpenses(
   tx: Sql, organisationId: string, filters: { status?: string; propertyId?: string } = {},
 ): Promise<ExpenseSummary[]> {
@@ -114,7 +124,7 @@ export async function listExpenses(
        ${filters.status ? tx`and e.status = ${filters.status}` : tx``}
        ${filters.propertyId ? tx`and e.property_id = ${filters.propertyId}::uuid` : tx``}
      order by e.expense_date desc, e.created_at desc
-     limit 500
+     limit ${EXPENSE_LIST_CAP}
   `;
   return rows.map((r) => ({
     id: r.id!,
