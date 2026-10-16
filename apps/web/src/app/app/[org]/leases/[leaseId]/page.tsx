@@ -4,11 +4,13 @@ import {
   Card, DataTable, Money, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
 import {
-  buildStatement, DomainError, listLeaseAgreementGenerations, listLeaseLifecycleEvents,
-  listLeaseTemplates,
+  buildStatement, DomainError, hasPermission, listLeaseAgreementGenerations,
+  listLeaseLifecycleEvents, listLeaseTemplates,
 } from '@propertyos/domain';
+import { loadPortalAccess } from '@/lib/operations-queries';
 import { AgreementPanel } from './agreement/agreement-panel';
 import { LifecyclePanel } from './lifecycle/lifecycle-panel';
+import { PortalAccessPanel } from './portal-panel';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 
@@ -80,7 +82,14 @@ export default async function LeaseDetailPage({
 
     try {
       const statement = await buildStatement(tx, context.organisationId, { leaseId, cutOff: cut });
-      return { lease, parties, statement, templates, generations, lifecycle, terms: terms ?? {} };
+      return {
+        lease, parties, statement, templates, generations, lifecycle,
+        terms: terms ?? {},
+        portalParties: await loadPortalAccess(tx, context.organisationId, leaseId),
+        canManageResidents: await hasPermission(
+          tx, context.organisationId, 'resident.manage',
+        ),
+      };
     } catch (error) {
       if (error instanceof DomainError && error.code === 'not_found') return null;
       throw error;
@@ -290,6 +299,28 @@ export default async function LeaseDetailPage({
           previousEndDateDisplay: e.previousEndDate
             ? formatDate(e.previousEndDate, context.timeZone) : null,
           recordedAtDisplay: formatDate(e.recordedAt, context.timeZone),
+        }))}
+      />
+
+      {/* The portal invitation commands have existed since §8 with no screen
+          at all: an operator could not invite a resident, and a resident could
+          not have redeemed a link if one had been issued. */}
+      <PortalAccessPanel
+        org={org}
+        leaseId={leaseId}
+        baseUrl={process.env.APP_BASE_URL ?? ''}
+        canManage={data.canManageResidents}
+        parties={data.portalParties.map((party) => ({
+          residentId: party.resident_id,
+          name: party.name,
+          email: party.email,
+          role: party.role,
+          canViewFinancials: party.can_view_financials,
+          portalLinkId: party.portal_link_id,
+          status: party.status,
+          invitedEmail: party.invited_email,
+          expiresAt: party.expires_at,
+          lapsed: party.lapsed,
         }))}
       />
 

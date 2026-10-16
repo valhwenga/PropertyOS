@@ -714,3 +714,41 @@ export async function loadQuotationChoices(tx: Sql, organisationId: string) {
      limit 200
   `;
 }
+
+/**
+ * Who on a lease can reach the resident portal, and who cannot.
+ *
+ * The portal invitation commands have existed since §8 with no screen at all:
+ * an operator could not invite a resident, and a resident could not have
+ * redeemed a link if one had been issued. This is what the panel needs — every
+ * party to the lease, whether they have access, and the state of any
+ * invitation already sitting with them.
+ *
+ * Deliberately lists every party, not only those with access: the question an
+ * operator arrives with is "why can this person not see their statement", and
+ * a list of the ones who already can does not answer it.
+ */
+export async function loadPortalAccess(tx: Sql, organisationId: string, leaseId: string) {
+  return tx<
+    { resident_id: string; name: string; email: string | null; role: string;
+      can_view_financials: boolean; portal_link_id: string | null; status: string | null;
+      invited_email: string | null; invited_at: string | null; expires_at: string | null;
+      accepted_at: string | null; lapsed: boolean }[]
+  >`
+    select rp.id as resident_id,
+           trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')) as name,
+           rp.email::text as email,
+           lp.role::text, lp.can_view_financials,
+           pl.id as portal_link_id, pl.status::text,
+           pl.invited_email::text as invited_email,
+           pl.invited_at::text, pl.expires_at::text, pl.accepted_at::text,
+           coalesce(pl.status = 'invited' and pl.expires_at < now(), false) as lapsed
+      from lease_parties lp
+      join resident_profiles rp on rp.id = lp.resident_id
+      left join portal_links pl
+        on pl.lease_id = lp.lease_id and pl.resident_id = lp.resident_id
+       and pl.organisation_id = ${organisationId}::uuid
+     where lp.lease_id = ${leaseId}::uuid and lp.removed_on is null
+     order by case lp.role when 'primary_resident' then 0 else 1 end, rp.last_name
+  `;
+}
