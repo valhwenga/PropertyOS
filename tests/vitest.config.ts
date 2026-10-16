@@ -6,6 +6,10 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      // More specific first: Vite matches an alias key as a prefix, so the
+      // bare package name would otherwise swallow this subpath and resolve it
+      // to `index.ts/dates`.
+      '@propertyos/domain/dates': `${root}packages/domain/src/dates.ts`,
       '@propertyos/db': `${root}packages/db/src/index.ts`,
       '@propertyos/domain': `${root}packages/domain/src/index.ts`,
       '@propertyos/integrations': `${root}packages/integrations/src/index.ts`,

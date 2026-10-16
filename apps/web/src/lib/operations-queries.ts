@@ -662,6 +662,22 @@ export async function loadColleagues(tx: Sql, organisationId: string) {
   `;
 }
 
+/**
+ * Properties a report may be narrowed to.
+ *
+ * Archived properties are included, marked with their status. A report over a
+ * past period still has figures for a property that has since been archived,
+ * and leaving it out of the filter would make those figures unreachable while
+ * still counting them in the unfiltered total.
+ */
+export async function loadReportPropertyChoices(tx: Sql, organisationId: string) {
+  return tx<{ id: string; name: string; status: string }[]>`
+    select id, name, status::text from properties
+     where organisation_id = ${organisationId}::uuid
+     order by status = 'active' desc, name
+  `;
+}
+
 /** Properties an expense could be recorded against. */
 export async function loadPropertyChoices(tx: Sql, organisationId: string) {
   return tx<{ id: string; name: string; code: string }[]>`

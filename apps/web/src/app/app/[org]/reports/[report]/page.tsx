@@ -3,76 +3,83 @@ import { notFound } from 'next/navigation';
 import {
   Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
-import {
-  arrearsAgeing, collectionReport, depositRegister, expenseReport,
-  journalLinesExport, leaseExpiryReport, occupancyReport, rentRoll,
-} from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
+import { loadReportPropertyChoices } from '@/lib/operations-queries';
+import {
+  periodLabel, REPORT_SHAPES, reportQueryString, resolveReport, todayIn,
+} from '@/lib/report-shapes';
+import { runReport } from '@/lib/reports';
+import { ReportFiltersForm } from './report-filters';
 
 export const dynamic = 'force-dynamic';
-
-const VALID = new Set([
-  'rent-roll', 'arrears', 'collection', 'expenses', 'deposits',
-  'lease-expiry', 'occupancy', 'journal-lines',
-]);
-
-function defaultPeriod(): { start: string; end: string } {
-  const now = new Date();
-  const start = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0))
-    .toISOString().slice(0, 10);
-  return { start, end };
-}
 
 export default async function ReportPage({
   params, searchParams,
 }: {
   params: Promise<{ org: string; report: string }>;
-  searchParams: Promise<{ from?: string; to?: string; overdue?: string }>;
+  searchParams: Promise<{
+    from?: string; to?: string; asAt?: string; within?: string; property?: string | string[];
+  }>;
 }) {
   const { org, report } = await params;
-  const { from, to } = await searchParams;
-  if (!VALID.has(report)) notFound();
+  const query = await searchParams;
+  const shape = REPORT_SHAPES[report];
+  if (!shape) notFound();
 
   const context = await requireOperator(org);
-  const period = defaultPeriod();
-  const periodStart = from ?? period.start;
-  const periodEnd = to ?? period.end;
+  const properties = await readAs(context.viewer, (tx) =>
+    loadReportPropertyChoices(tx, context.organisationId));
 
-  const data = await readAs(context.viewer, async (tx) => {
-    switch (report) {
-      case 'rent-roll':     return { kind: 'rent-roll' as const, ...(await rentRoll(tx, context.organisationId)) };
-      case 'arrears':       return { kind: 'arrears' as const, ...(await arrearsAgeing(tx, context.organisationId)) };
-      case 'collection':    return { kind: 'collection' as const, ...(await collectionReport(tx, context.organisationId, { periodStart, periodEnd })) };
-      case 'expenses':      return { kind: 'expenses' as const, ...(await expenseReport(tx, context.organisationId, { periodStart, periodEnd })) };
-      case 'deposits':      return { kind: 'deposits' as const, ...(await depositRegister(tx, context.organisationId)) };
-      case 'lease-expiry':  return { kind: 'lease-expiry' as const, ...(await leaseExpiryReport(tx, context.organisationId, { withinDays: 180 })) };
-      case 'occupancy':     return { kind: 'occupancy' as const, ...(await occupancyReport(tx, context.organisationId, { periodStart, periodEnd })) };
-      default:              return { kind: 'journal-lines' as const, ...(await journalLinesExport(tx, context.organisationId, { periodStart, periodEnd })) };
-    }
-  });
+  // The ids offered are the ids accepted. Not an access control — the report
+  // runs under the caller's own scope either way — but an id that was typed
+  // rather than ticked should be reported back, not quietly narrow the figures.
+  const resolved = resolveReport(
+    shape, query, context.timeZone, new Set(properties.map((p) => p.id)),
+  );
+  const today = todayIn(context.timeZone);
+  const label = periodLabel(shape, resolved.filters, today);
+
+  const data = await readAs(context.viewer, (tx) =>
+    runReport(tx, context.organisationId, report, resolved.filters));
+  if (!data) notFound();
 
   const currency = data.meta.currencyCode;
+  const chosen = resolved.filters.propertyIds ?? [];
+  const scope = chosen.length === 0
+    ? 'every property in your scope'
+    : chosen.length === 1
+      ? properties.find((p) => p.id === chosen[0])?.name ?? 'one property'
+      : `${chosen.length} of ${properties.length} properties`;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title={data.meta.name}
-        description={`Within your assigned scope · generated ${formatDate(data.meta.generatedAt, context.timeZone)}`}
+        // The period is the first thing the page says. A rent roll with no
+        // date on it is a rent roll somebody will still be reading in March.
+        description={`${label.sentence} · ${scope} · generated ${formatDate(data.meta.generatedAt, context.timeZone)}`}
         actions={
           <>
             <Link href={`/app/${org}/reports`} className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700">
               All reports
             </Link>
             <a
-              href={`/app/${org}/reports/${report}/export.csv?from=${periodStart}&to=${periodEnd}`}
+              href={`/app/${org}/reports/${report}/export.csv?${reportQueryString(shape, resolved.filters)}`}
               className="rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white"
             >
               Export CSV
             </a>
           </>
         }
+      />
+
+      <ReportFiltersForm
+        base={`/app/${org}`}
+        shape={shape}
+        resolved={resolved}
+        properties={properties}
+        customised={Object.keys(query).length > 0}
       />
 
       {/* The definitions travel with the figures, on screen and in the export. */}

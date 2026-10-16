@@ -25,6 +25,8 @@ export interface ReportFilters {
   periodEnd?: string;
   propertyIds?: string[];
   asAt?: string;
+  /** Lease expiry only: how far ahead to look. */
+  withinDays?: number;
 }
 
 export interface ReportMeta {
@@ -312,6 +314,7 @@ export async function collectionReport(
 export async function depositRegister(
   tx: Sql,
   organisationId: string,
+  filters: ReportFilters = {},
 ): Promise<{
   meta: ReportMeta;
   rows: Array<{
@@ -346,6 +349,7 @@ export async function depositRegister(
     left join lease_parties lp on lp.lease_id = l.id and lp.role = 'primary_resident' and lp.removed_on is null
     left join resident_profiles rp on rp.id = lp.resident_id
     where da.organisation_id = ${organisationId}::uuid
+      ${filters.propertyIds?.length ? tx`and l.property_id = any(${filters.propertyIds}::uuid[])` : tx``}
     order by p.name, u.code
   `;
 
@@ -366,7 +370,7 @@ export async function depositRegister(
     meta: {
       name: 'Deposit register',
       generatedAt: new Date().toISOString(),
-      filters: {},
+      filters,
       currencyCode: rows[0]?.currency_code ?? 'ZAR',
       qualifications: [
         'Deposits are a liability to the resident and are NOT rental income.',
@@ -449,7 +453,7 @@ export async function expenseReport(
 export async function leaseExpiryReport(
   tx: Sql,
   organisationId: string,
-  params: { withinDays: number },
+  params: ReportFilters & { withinDays: number },
 ): Promise<{
   meta: ReportMeta;
   rows: Array<{
@@ -484,6 +488,7 @@ export async function leaseExpiryReport(
       and l.status in ('active', 'notice_given', 'expired')
       and l.end_date is not null
       and l.end_date <= current_date + (${params.withinDays} || ' days')::interval
+      ${params.propertyIds?.length ? tx`and l.property_id = any(${params.propertyIds}::uuid[])` : tx``}
     order by l.end_date
   `;
 
@@ -491,7 +496,10 @@ export async function leaseExpiryReport(
     meta: {
       name: 'Lease expiry',
       generatedAt: new Date().toISOString(),
-      filters: {},
+      // The horizon is part of what the figures mean, so it travels with them:
+      // a file of five leases says whether that is five in a month or five in
+      // a year.
+      filters: params,
       currencyCode: rows[0]?.currency_code ?? 'ZAR',
       qualifications: [
         'Physical occupation is tracked separately from lease status.',
@@ -573,6 +581,7 @@ export async function journalLinesExport(
       qualifications: [
         'This is the complete double-entry detail for the period, for an accountant to reconcile.',
         'Posted journals are immutable; corrections appear as separate linked reversal journals.',
+        'This covers the whole organisation. Journal lines are not property-scoped — a receipt into the bank account belongs to no single property — so filtering them by property would produce a set that does not balance.',
       ],
     },
     rows: mapped,
@@ -589,7 +598,7 @@ export async function journalLinesExport(
 export async function occupancyReport(
   tx: Sql,
   organisationId: string,
-  params: { periodStart: string; periodEnd: string },
+  params: ReportFilters & { periodStart: string; periodEnd: string },
 ): Promise<{
   meta: ReportMeta;
   occupiedUnitDays: number;
@@ -610,6 +619,7 @@ export async function occupancyReport(
         (select e from period) - (select s from period) + 1 as total_days
       from units u
       where u.organisation_id = ${organisationId}::uuid and u.status = 'active'
+        ${params.propertyIds?.length ? tx`and u.property_id = any(${params.propertyIds}::uuid[])` : tx``}
     ),
     occupied as (
       select coalesce(sum(
@@ -621,6 +631,7 @@ export async function occupancyReport(
       join units u on u.id = oi.unit_id
       where oi.organisation_id = ${organisationId}::uuid and u.status = 'active'
         and oi.period && daterange((select s from period), (select e from period), '[]')
+        ${params.propertyIds?.length ? tx`and u.property_id = any(${params.propertyIds}::uuid[])` : tx``}
     ),
     out_of_service as (
       select coalesce(sum(
@@ -632,6 +643,7 @@ export async function occupancyReport(
       join units u on u.id = ua.unit_id
       where ua.organisation_id = ${organisationId}::uuid and u.status = 'active'
         and ua.period && daterange((select s from period), (select e from period), '[]')
+        ${params.propertyIds?.length ? tx`and u.property_id = any(${params.propertyIds}::uuid[])` : tx``}
     )
     select
       (select days from occupied)::text as occupied_days,
@@ -650,7 +662,7 @@ export async function occupancyReport(
     meta: {
       name: 'Occupancy',
       generatedAt: new Date().toISOString(),
-      filters: { periodStart: params.periodStart, periodEnd: params.periodEnd },
+      filters: params,
       currencyCode: 'ZAR',
       qualifications: [
         'Physical occupancy is occupied rentable unit days divided by available rentable unit days.',
@@ -670,12 +682,22 @@ export function toCsv(
   meta: ReportMeta,
   columns: Array<{ key: string; label: string }>,
   rows: Array<Record<string, unknown>>,
+  /**
+   * What the file covers, in the words the screen used.
+   *
+   * The filters line below is exact and machine-readable, and unreadable to a
+   * person: an identifier is not an answer to "which properties is this?".
+   * Whoever ran the report knows the names, so they are passed in rather than
+   * looked up here.
+   */
+  coverage: string[] = [],
 ): string {
   const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines: string[] = [
     [meta.name].map(escape).join(','),
     ['Generated at', meta.generatedAt].map(escape).join(','),
     ['Currency', meta.currencyCode].map(escape).join(','),
+    ...coverage.map((line) => ['Covers', line].map(escape).join(',')),
     ['Filters', JSON.stringify(meta.filters)].map(escape).join(','),
     '',
   ];
