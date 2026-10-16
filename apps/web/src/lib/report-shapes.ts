@@ -92,13 +92,17 @@ function readDate(value: string | undefined): string | null {
 }
 
 export interface ResolvedReport {
-  filters: ReportFilters & { periodStart: string; periodEnd: string; withinDays: number };
+  filters: ReportFilters & {
+    periodStart: string; periodEnd: string; withinDays: number; overdueOnly: boolean;
+  };
   /** Set when the query string could not be read and a default was used instead. */
   ignored?: string;
 }
 
 export interface ReportQuery {
   from?: string; to?: string; asAt?: string; within?: string; property?: string | string[];
+  /** Arrears only: the dashboard's Arrears tile links here with it set. */
+  overdue?: string;
 }
 
 /**
@@ -150,6 +154,12 @@ export function resolveReport(
     }
   }
 
+  // The dashboard's Arrears tile has always linked here with `overdue=true`,
+  // and the report ignored it: the tile counted money already past its due
+  // date and the page it opened listed every unpaid charge including this
+  // morning's invoice. The flag is honoured now.
+  const overdueOnly = shape.slug === 'arrears' && query.overdue === 'true';
+
   // Property ids are checked against the ones this viewer was actually shown.
   // Not as an access control — RLS and the report's own scope already decide
   // what it can return — but so a typed-in id cannot reach the query and so an
@@ -164,7 +174,7 @@ export function resolveReport(
   }
 
   return {
-    filters: { periodStart, periodEnd, asAt, withinDays, propertyIds },
+    filters: { periodStart, periodEnd, asAt, withinDays, propertyIds, overdueOnly },
     ignored: ignored.length > 0 ? ignored.join(' and ') : undefined,
   };
 }
@@ -180,6 +190,7 @@ export function reportQueryString(
   }
   if (shape.period === 'asAt' && filters.asAt) params.set('asAt', filters.asAt);
   if (shape.period === 'horizon') params.set('within', String(filters.withinDays));
+  if (filters.overdueOnly) params.set('overdue', 'true');
   for (const id of filters.propertyIds ?? []) params.append('property', id);
   return params.toString();
 }
@@ -215,7 +226,9 @@ export function periodLabel(
       };
     default:
       return {
-        sentence: `as the records stand on ${formatDayMonthYear(today)}`,
+        sentence: filters.overdueOnly
+          ? `past due as the records stand on ${formatDayMonthYear(today)}`
+          : `as the records stand on ${formatDayMonthYear(today)}`,
         fileSuffix: `as-at-${today}`,
       };
   }

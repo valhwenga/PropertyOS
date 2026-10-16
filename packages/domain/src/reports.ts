@@ -27,6 +27,14 @@ export interface ReportFilters {
   asAt?: string;
   /** Lease expiry only: how far ahead to look. */
   withinDays?: number;
+  /**
+   * Arrears only: leave out the leases whose whole balance is not yet due.
+   *
+   * The difference matters. "Outstanding" includes this month's rent invoice
+   * issued yesterday; "arrears" is money somebody has already failed to pay,
+   * and only the second is a queue to work.
+   */
+  overdueOnly?: boolean;
 }
 
 export interface ReportMeta {
@@ -183,6 +191,8 @@ export async function arrearsAgeing(
     left join resident_profiles rp on rp.id = lp.resident_id
     where a.organisation_id = ${organisationId}::uuid
       ${filters.propertyIds?.length ? tx`and l.property_id = any(${filters.propertyIds}::uuid[])` : tx``}
+      ${filters.overdueOnly ? tx`and coalesce(a.total_outstanding_minor, 0)
+                                   - coalesce(a.not_yet_due_minor, 0) > 0` : tx``}
     order by coalesce(a.days_over_90_minor, 0) desc, a.total_outstanding_minor desc
   `;
 
@@ -213,6 +223,10 @@ export async function arrearsAgeing(
         'A partial payment leaves the remainder in its original due-date bucket.',
         'Allocation order affects ageing; the applied policy is recorded on every allocation.',
         'Disputed amounts are flagged, not removed.',
+        ...(filters.overdueOnly
+          ? ['Showing only leases with a balance past its due date. '
+             + 'Charges not yet due are still counted in each row\'s total.']
+          : []),
       ],
     },
     rows: mapped,

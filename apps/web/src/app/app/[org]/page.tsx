@@ -199,6 +199,34 @@ async function Metrics({
           >
             {metrics.unverifiedEvidence}
           </MetricTile>
+          {/* Three queues that existed in the data and on no screen: a cost
+              approved and still unpaid, a file nothing has scanned, and a
+              lease signed off that nobody activated — which bills nobody. */}
+          <MoneyMetric
+            label="Approved, not yet paid" minor={metrics.unpaidExpensesMinor}
+            currency={context.currencyCode}
+            href={`${base}/expenses?status=posted`}
+            qualification={
+              metrics.unpaidExpenses === 0
+                ? 'No supplier costs are waiting to be paid'
+                : `${metrics.unpaidExpenses} supplier cost${metrics.unpaidExpenses === 1 ? '' : 's'} posted to the books and not yet paid`
+            }
+            tone={metrics.unpaidExpenses > 0 ? 'attention' : 'default'}
+          />
+          <MetricTile
+            label="Quarantined files" href={`${base}/documents?held=yes`}
+            qualification="Held back from sharing because nothing has scanned them"
+            tone={metrics.quarantinedDocuments > 0 ? 'attention' : 'default'}
+          >
+            {metrics.quarantinedDocuments}
+          </MetricTile>
+          <MetricTile
+            label="Leases awaiting activation" href={`${base}/leases?status=awaiting_execution`}
+            qualification="Signed off and not activated, so no rent is being billed"
+            tone={metrics.leasesAwaitingActivation > 0 ? 'attention' : 'default'}
+          >
+            {metrics.leasesAwaitingActivation}
+          </MetricTile>
         </div>
       </section>
 

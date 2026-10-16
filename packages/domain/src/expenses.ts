@@ -104,7 +104,16 @@ const reasonSchema = z.string().trim().min(5, 'Say why, in a sentence.').max(500
 export const EXPENSE_LIST_CAP = 500;
 
 export async function listExpenses(
-  tx: Sql, organisationId: string, filters: { status?: string; propertyId?: string } = {},
+  tx: Sql,
+  organisationId: string,
+  filters: {
+    status?: string; propertyId?: string;
+    /** Inclusive bounds on the expense date. */
+    from?: string; to?: string;
+    /** Page size, capped at {@link EXPENSE_LIST_CAP}. */
+    limit?: number;
+    offset?: number;
+  } = {},
 ): Promise<ExpenseSummary[]> {
   await requirePermission(tx, organisationId, 'report.read');
   const rows = await tx<Record<string, string | null>[]>`
@@ -123,8 +132,11 @@ export async function listExpenses(
      where e.organisation_id = ${organisationId}::uuid
        ${filters.status ? tx`and e.status = ${filters.status}` : tx``}
        ${filters.propertyId ? tx`and e.property_id = ${filters.propertyId}::uuid` : tx``}
+       ${filters.from ? tx`and e.expense_date >= ${filters.from}::date` : tx``}
+       ${filters.to ? tx`and e.expense_date <= ${filters.to}::date` : tx``}
      order by e.expense_date desc, e.created_at desc
-     limit ${EXPENSE_LIST_CAP}
+     limit ${Math.min(filters.limit ?? EXPENSE_LIST_CAP, EXPENSE_LIST_CAP)}
+     offset ${filters.offset ?? 0}
   `;
   return rows.map((r) => ({
     id: r.id!,
@@ -148,6 +160,32 @@ export async function listExpenses(
     createdByName: r.created_by_name ?? null,
     createdAt: r.created_at!,
   }));
+}
+
+/**
+ * How many expenses match, for the line under the list.
+ *
+ * Separate from the page itself rather than a window function, because
+ * `listExpenses` has a dozen callers that want an array and changing its shape
+ * to carry a total would reach every one of them for the benefit of one
+ * screen.
+ */
+export async function countExpenses(
+  tx: Sql,
+  organisationId: string,
+  filters: { status?: string; propertyId?: string; from?: string; to?: string } = {},
+): Promise<number> {
+  await requirePermission(tx, organisationId, 'report.read');
+  const [row] = await tx<{ total: string }[]>`
+    select count(*)::text as total
+      from expenses e
+     where e.organisation_id = ${organisationId}::uuid
+       ${filters.status ? tx`and e.status = ${filters.status}` : tx``}
+       ${filters.propertyId ? tx`and e.property_id = ${filters.propertyId}::uuid` : tx``}
+       ${filters.from ? tx`and e.expense_date >= ${filters.from}::date` : tx``}
+       ${filters.to ? tx`and e.expense_date <= ${filters.to}::date` : tx``}
+  `;
+  return Number(row?.total ?? 0);
 }
 
 export async function getExpense(

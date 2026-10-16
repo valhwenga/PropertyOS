@@ -40,14 +40,17 @@ export async function runReport(
   // its filters into the exported file, so passing a period to a report that
   // ignores periods would write a period into a file that does not respect
   // one — a caption that contradicts its own figures.
-  const { periodStart, periodEnd, asAt, withinDays, propertyIds } = filters;
+  const { periodStart, periodEnd, asAt, withinDays, propertyIds, overdueOnly } = filters;
   const period = { periodStart, periodEnd, propertyIds };
 
   switch (slug) {
     case 'rent-roll':
       return { kind: 'rent-roll', ...(await rentRoll(tx, organisationId, { asAt, propertyIds })) };
     case 'arrears':
-      return { kind: 'arrears', ...(await arrearsAgeing(tx, organisationId, { propertyIds })) };
+      return {
+        kind: 'arrears',
+        ...(await arrearsAgeing(tx, organisationId, { propertyIds, overdueOnly })),
+      };
     case 'collection':
       return { kind: 'collection', ...(await collectionReport(tx, organisationId, period)) };
     case 'expenses':

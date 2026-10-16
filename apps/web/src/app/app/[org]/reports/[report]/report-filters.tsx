@@ -61,6 +61,20 @@ export function ReportFiltersForm({
           </label>
         ) : null}
 
+        {shape.slug === 'arrears' ? (
+          <label className="flex items-center gap-2 pb-1.5 text-sm text-ink-700">
+            <input
+              type="checkbox"
+              name="overdue"
+              value="true"
+              defaultChecked={filters.overdueOnly}
+            />
+            {/* The distinction the dashboard tile is counting: this month's
+                invoice issued yesterday is outstanding, not arrears. */}
+            <span>Past due only</span>
+          </label>
+        ) : null}
+
         {shape.period === 'now' ? (
           // Said rather than left blank: a report with no date control has one
           // date, and a reader is entitled to know it is today's.

@@ -30,6 +30,13 @@ export interface DashboardMetrics {
   unverifiedEvidence: number;
   maintenanceNeedingAttention: number;
   pendingApprovals: number;
+  /** Files held back from sharing because nothing has scanned them. */
+  quarantinedDocuments: number;
+  /** Costs approved and posted to the books, not yet paid out. */
+  unpaidExpenses: number;
+  unpaidExpensesMinor: string;
+  /** Leases signed off but never activated, so nothing is being billed. */
+  leasesAwaitingActivation: number;
   /** Set when the organisation has no financial activity yet. */
   hasActivity: boolean;
 }
@@ -52,6 +59,8 @@ export async function loadDashboard(
       occupied_units: string; rentable_units: string; expiring_leases: string;
       unmatched_receipts: string; suspense: string; unverified_evidence: string;
       maintenance_attention: string; pending_approvals: string; has_activity: boolean;
+      quarantined_documents: string; unpaid_expenses: string; unpaid_expenses_minor: string;
+      leases_awaiting_activation: string;
     }[]
   >`
     select
@@ -96,16 +105,42 @@ export async function loadDashboard(
        where t.organisation_id = ${organisationId}::uuid
          and t.status in ('submitted', 'triaged', 'awaiting_approval'))::text as maintenance_attention,
 
+      -- The four things the approvals queue can decide. The deposit term used
+      -- to read deposit_events where approved_at is null, which the database
+      -- forbids outright: deposit_events_refund_controls requires an approver
+      -- on every deduction and refund, so that term was always zero and a
+      -- pending payout never reached this count. The queue itself was fixed
+      -- when payout requests got their own table; this was left behind, which
+      -- is the worse half -- a clerk requests a payout, the approvals page
+      -- shows it, and the dashboard an approver actually looks at says there
+      -- is nothing to do.
       ((select count(*) from maintenance_quotes q
         where q.organisation_id = ${organisationId}::uuid and q.status = 'submitted')
-       + (select count(*) from deposit_events de
-          where de.organisation_id = ${organisationId}::uuid
-            and de.event_type in ('deduction', 'refund') and de.approved_at is null)
+       + (select count(*) from deposit_payout_requests r
+          where r.organisation_id = ${organisationId}::uuid and r.status = 'pending')
        + (select count(*) from expenses e
           where e.organisation_id = ${organisationId}::uuid and e.status = 'draft')
        + (select count(*) from billing_runs br
           where br.organisation_id = ${organisationId}::uuid and br.status = 'validated')
       )::text as pending_approvals,
+
+      (select count(*) from documents d
+       where d.organisation_id = ${organisationId}::uuid
+         and d.deleted_at is null and d.quarantined)::text as quarantined_documents,
+
+      -- Approved and in the books, waiting to leave the bank account. This is
+      -- a payables queue, not an approval queue: somebody owes a supplier.
+      (select count(*) from expenses e
+       where e.organisation_id = ${organisationId}::uuid
+         and e.status = 'posted')::text as unpaid_expenses,
+      coalesce((
+        select sum(e.amount_minor) from expenses e
+        where e.organisation_id = ${organisationId}::uuid and e.status = 'posted'
+      ), 0)::text as unpaid_expenses_minor,
+
+      (select count(*) from leases l
+       where l.organisation_id = ${organisationId}::uuid
+         and l.status = 'awaiting_execution')::text as leases_awaiting_activation,
 
       exists (select 1 from journals j where j.organisation_id = ${organisationId}::uuid) as has_activity
   `;
@@ -124,6 +159,10 @@ export async function loadDashboard(
     unverifiedEvidence: Number(row!.unverified_evidence),
     maintenanceNeedingAttention: Number(row!.maintenance_attention),
     pendingApprovals: Number(row!.pending_approvals),
+    quarantinedDocuments: Number(row!.quarantined_documents),
+    unpaidExpenses: Number(row!.unpaid_expenses),
+    unpaidExpensesMinor: row!.unpaid_expenses_minor,
+    leasesAwaitingActivation: Number(row!.leases_awaiting_activation),
     hasActivity: row!.has_activity,
   };
 }
