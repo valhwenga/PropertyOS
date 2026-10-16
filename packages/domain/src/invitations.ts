@@ -185,7 +185,10 @@ export async function acceptInvitation(
   if (!link) throw generic;
   if (link.status !== 'invited') throw generic;
   if (new Date(link.expires_at) < new Date()) {
-    await tx`update portal_links set status = 'expired' where id = ${link.id}`;
+    // Writes nothing. Marking it expired here and then throwing would roll the
+    // marking back with the rest of the transaction: the code would look like
+    // it tidied up and would not have. `expires_at` is the only thing that
+    // decides whether a token works.
     throw generic;
   }
 

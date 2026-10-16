@@ -25,6 +25,13 @@ const SECTIONS = [
       'The accounts residents pay into. Numbers are masked, changes need your authenticator code, and every change is kept.',
   },
   {
+    href: 'staff',
+    title: 'Colleagues',
+    description:
+      'Who can use this organisation, what they can do, and which properties they can reach. '
+      + 'An invitation grants nothing until it is accepted.',
+  },
+  {
     href: 'audit',
     title: 'Audit trail',
     description:
