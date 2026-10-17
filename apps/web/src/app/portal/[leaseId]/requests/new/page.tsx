@@ -17,8 +17,8 @@ export default async function NewRequestPage({
 
   return (
     <div className="space-y-4">
-      <Link href={`/portal/${leaseId}`} className="text-sm text-spike-600 hover:underline">
-        ← Back to your account
+      <Link href={`/portal/${leaseId}/requests`} className="text-sm text-spike-600 hover:underline">
+        ← Back to your requests
       </Link>
       <h1 className="text-xl font-semibold tracking-tight text-ink-900">Report a problem</h1>
 

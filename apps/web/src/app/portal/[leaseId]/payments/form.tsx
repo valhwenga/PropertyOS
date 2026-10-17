@@ -5,9 +5,20 @@ import { Button, Card, ErrorState } from '@propertyos/ui';
 import { submitProofOfPayment } from '../actions';
 import { DateField } from '@/components/date-field';
 
-export function ProofOfPaymentForm({ leaseId }: { leaseId: string }) {
+export function ProofOfPaymentForm({
+  leaseId, today,
+}: {
+  leaseId: string;
+  /**
+   * Today where the resident is, resolved on the server.
+   *
+   * Never computed here. A date read in the browser's zone and rendered again
+   * in the server's is the textbook hydration mismatch, and the two disagree
+   * every night in South Africa between midnight and 02:00.
+   */
+  today: string;
+}) {
   const [state, action, pending] = useActionState(submitProofOfPayment, null);
-  const today = new Date().toISOString().slice(0, 10);
 
   if (state?.ok) {
     return (

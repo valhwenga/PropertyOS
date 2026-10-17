@@ -38,6 +38,37 @@ export async function loadTenancies(tx: Sql, leaseIds: string[]) {
 }
 
 /**
+ * The tenancy itself, with the time zone its dates are read in.
+ *
+ * The time zone matters for one small, resident-facing reason: "when did you
+ * pay?" defaults to today, and the server's today is UTC. Between midnight and
+ * 02:00 in Johannesburg that is yesterday, so a resident recording a payment
+ * late at night was offered the wrong date — and the field, which refuses a
+ * future date, then refused the right one.
+ */
+export async function loadTenancy(tx: Sql, leaseId: string) {
+  const [row] = await tx<
+    { reference: string; unit_label: string; status: string; start_date: string;
+      end_date: string | null; notice_days: number | null; rent_minor: string;
+      currency_code: string; time_zone: string; renewal_option_months: number | null;
+      renewal_notice_months: number | null }[]
+  >`
+    select l.reference, l.status::text, l.start_date::text, l.end_date::text,
+           l.notice_days, l.rent_minor::text, l.currency_code,
+           o.time_zone,
+           t.renewal_option_months, t.renewal_notice_months,
+           p.name || ' / ' || u.code as unit_label
+    from leases l
+    join organisations o on o.id = l.organisation_id
+    join properties p on p.id = l.property_id
+    join units u on u.id = l.unit_id
+    left join lease_agreement_terms t on t.lease_id = l.id
+    where l.id = ${leaseId}::uuid
+  `;
+  return row ?? null;
+}
+
+/**
  * Where to pay, if the landlord has verified an account.
  *
  * Returns nothing rather than something uncertain. An unverified account is

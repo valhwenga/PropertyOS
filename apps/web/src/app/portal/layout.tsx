@@ -18,7 +18,7 @@ export default async function PortalLayout({ children }: { children: React.React
   return (
     <div className="min-h-dvh bg-ink-50">
       <header className="border-b border-ink-100 bg-surface">
-        <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
           <Link href="/portal" className="text-base"><Wordmark compact /></Link>
           <div className="flex items-center gap-2">
             <Link href="/account" className="hidden text-sm text-ink-500 hover:underline sm:inline">
@@ -34,7 +34,9 @@ export default async function PortalLayout({ children }: { children: React.React
           </div>
         </div>
       </header>
-      <main id="main" className="mx-auto max-w-2xl px-4 py-5 pb-24">{children}</main>
+      {/* Wider than the old 2xl, because a tenancy now has its sections down
+          the side on a laptop. The reading column inside stays narrow. */}
+      <main id="main" className="mx-auto max-w-4xl px-4 py-5 pb-24">{children}</main>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { formatDayMonthYear, parseDayMonthYear } from '@propertyos/domain/dates';
+import { todayIn } from './today';
 import type { ReportFilters } from '@propertyos/domain';
 
 /**
@@ -17,6 +18,8 @@ import type { ReportFilters } from '@propertyos/domain';
  * worse than one that is absent, because the figures then look like an answer
  * to a question nobody asked.
  */
+
+export { todayIn };
 
 export type PeriodKind =
   /** Covers a span of business dates: from and to. */
@@ -53,16 +56,6 @@ export const REPORT_SHAPES: Record<string, ReportShape> = {
 /** The horizons offered for lease expiry, in days. */
 export const HORIZONS = [30, 60, 90, 180, 365] as const;
 const DEFAULT_HORIZON = 180;
-
-/** Today where the customer is, not where the server is. */
-export function todayIn(timeZone: string): string {
-  // en-CA formats as YYYY-MM-DD, which is the storable form.
-  try {
-    return new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
-  } catch {
-    return new Date().toISOString().slice(0, 10);
-  }
-}
 
 /** The calendar month containing `today`. */
 export function monthOf(today: string): { from: string; to: string } {

@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Card } from '@propertyos/ui';
-import { requireViewer } from '@/lib/auth';
+import { readAs, requireViewer } from '@/lib/auth';
+import { loadTenancy } from '@/lib/portal-queries';
+import { todayIn } from '@/lib/today';
 import { ProofOfPaymentForm } from './form';
 
 export const metadata = { title: 'Upload proof of payment' };
@@ -14,6 +16,16 @@ export default async function PaymentsPage({
   const { leaseId } = await params;
   const viewer = await requireViewer();
   if (!viewer.residentLeases.some((l) => l.leaseId === leaseId)) notFound();
+
+  // Resolved on the server, in the organisation's own time zone, and handed to
+  // the form. The form used to call `new Date()` itself: the server rendered
+  // the UTC date, the browser re-rendered its local one, and React reported a
+  // mismatch it says it will not patch up. The visible half of that bug was
+  // worse than the warning — a resident paying at half past midnight was
+  // offered yesterday, and the field refuses a date in the future, so it then
+  // refused the real one.
+  const tenancy = await readAs(viewer, (tx) => loadTenancy(tx, leaseId));
+  const today = todayIn(tenancy?.time_zone ?? 'Africa/Johannesburg');
 
   return (
     <div className="space-y-4">
@@ -37,7 +49,7 @@ export default async function PaymentsPage({
       </Card>
 
       <Card className="p-5">
-        <ProofOfPaymentForm leaseId={leaseId} />
+        <ProofOfPaymentForm leaseId={leaseId} today={today} />
       </Card>
     </div>
   );

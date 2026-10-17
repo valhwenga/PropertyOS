@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
  * never sees this page, so the link checker never found it.
  *
  * What the browser proves that the suites beside it cannot: that a resident on
- * a phone can read the whole tenancy without scrolling sideways, that the
+ * a phone can reach every section without scrolling sideways, that the
  * statement's money columns are on screen rather than off the right-hand edge,
  * and that a shared document actually downloads.
  *
@@ -45,7 +45,7 @@ test.describe('resident portal, on a phone', () => {
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 30_000 });
   });
 
-  test('answers what is owed, how to pay it, and what happened to the request', async ({ page }) => {
+  test('answers what is owed and how to pay it on the first page', async ({ page }) => {
     const text = await visibleText(page);
 
     /* ------------------------------------------------- 1. what is owed */
@@ -73,24 +73,50 @@ test.describe('resident portal, on a phone', () => {
     expect(text).toContain('do not pay');
     expect(text).toContain('phone your landlord');
 
-    /* ------------------------------------------ 3. what happened to it */
+  });
 
-    expect(text).toContain('Your requests');
-    expect(text).toContain('shower screen');
-    expect(text).toMatch(/Received|Being assessed|Contractor assigned|Work in progress/);
+  test('reaches every section from the menu, and marks where you are', async ({ page }) => {
+    const nav = page.getByRole('navigation', { name: 'Your tenancy' });
+    await expect(nav).toBeVisible();
+
+    /* ------------------------------------------ what happened to it */
+
+    await nav.getByRole('link', { name: 'Requests' }).click();
+    await page.waitForURL(/\/requests$/, { timeout: 30_000 });
+    await expect(nav.getByRole('link', { name: 'Requests' }))
+      .toHaveAttribute('aria-current', 'page');
+    const requests = await visibleText(page);
+    expect(requests).toContain('shower screen');
+    expect(requests).toMatch(/Received|Being assessed|Contractor assigned|Work in progress/);
     // A portal ticket is not an emergency service, and says so.
-    expect(text).toContain('not an emergency service');
+    expect(requests).toContain('not an emergency service');
 
-    /* -------------------------------------------------- 4. who to ask */
+    /* --------------------------------------------------- who to ask */
 
-    expect(text).toContain('Who to contact');
-    expect(text).toContain('+27 21 000 0000');
+    await nav.getByRole('link', { name: 'Your lease' }).click();
+    await page.waitForURL(/\/lease$/, { timeout: 30_000 });
+    const lease = await visibleText(page);
+    expect(lease).toContain('Who to contact');
+    expect(lease).toContain('+27 21 000 0000');
     // The landlord's identity number is on the same database row as these
     // contact fields and must never come with them.
-    expect(text).not.toMatch(/\b\d{13}\b/);
+    expect(lease).not.toMatch(/\b\d{13}\b/);
+
+    /* ------------------------------- and the form keeps its section */
+
+    await nav.getByRole('link', { name: 'Requests' }).click();
+    await page.waitForURL(/\/requests$/, { timeout: 30_000 });
+    await page.getByRole('link', { name: 'Report a problem' }).click();
+    await page.waitForURL(/\/requests\/new$/, { timeout: 30_000 });
+    await expect(nav.getByRole('link', { name: 'Requests' }))
+      .toHaveAttribute('aria-current', 'page');
   });
 
   test('puts the statement figures on screen rather than off the edge', async ({ page }) => {
+    await page.getByRole('navigation', { name: 'Your tenancy' })
+      .getByRole('link', { name: 'Statement' }).click();
+    await page.waitForURL(/\/statement$/, { timeout: 30_000 });
+
     // The table this replaces is 640px wide at minimum. On a 390px screen the
     // two columns that matter — what it cost and what the balance became —
     // were the two beyond the right-hand edge.
@@ -108,6 +134,9 @@ test.describe('resident portal, on a phone', () => {
   });
 
   test('downloads a document the landlord shared', async ({ page }) => {
+    await page.getByRole('navigation', { name: 'Your tenancy' })
+      .getByRole('link', { name: 'Documents' }).click();
+    await page.waitForURL(/\/documents$/, { timeout: 30_000 });
     const link = page.locator('a[href*="/documents/"]').first();
     await expect(link).toBeVisible();
     const href = await link.getAttribute('href');
@@ -124,6 +153,9 @@ test.describe('resident portal, on a phone', () => {
   });
 
   test('refuses a document that was never shared', async ({ page }) => {
+    await page.goto(page.url().replace(/\/?$/, '') + '/documents', {
+      waitUntil: 'domcontentloaded',
+    });
     const link = await page.locator('a[href*="/documents/"]').first().getAttribute('href');
     const base = link!.replace(/[^/]+$/, '');
     // A well-formed id that is not this resident's shared document. The

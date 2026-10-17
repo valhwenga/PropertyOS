@@ -64,7 +64,12 @@ export async function submitMaintenanceRequest(_previous: unknown, formData: For
     }, { asResident: true });
   });
 
-  if (result.ok) revalidatePath(`/portal/${leaseId}`);
+  // Both, because the sections split: the new request belongs on the requests
+  // page, and the overview counts the open ones.
+  if (result.ok) {
+    revalidatePath(`/portal/${leaseId}`);
+    revalidatePath(`/portal/${leaseId}/requests`);
+  }
   return result;
 }
 

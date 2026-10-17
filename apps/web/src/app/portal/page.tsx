@@ -24,7 +24,7 @@ export default async function PortalHome() {
     loadTenancies(tx, viewer.residentLeases.map((l) => l.leaseId)));
 
   return (
-    <div className="space-y-5">
+    <div className="mx-auto max-w-2xl space-y-5">
       <PageHeader
         title={`Hello, ${viewer.fullName}`}
         description={leases.length === 1 ? 'Your tenancy' : 'Your tenancies'}
