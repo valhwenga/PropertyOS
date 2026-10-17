@@ -199,6 +199,8 @@ const profileSchema = z.object({
   postalAddress: z.string().trim().max(400).optional(),
   phone: z.string().trim().max(60).optional(),
   email: z.string().trim().email().max(200).optional().or(z.literal('')),
+  /** Who a resident should phone out of hours. Shown in the resident portal. */
+  emergencyContact: z.string().trim().max(200).optional(),
   nextOfKinName: z.string().trim().max(200).optional(),
   nextOfKinPhone: z.string().trim().max(60).optional(),
   agentName: z.string().trim().max(200).optional(),
@@ -223,7 +225,8 @@ export async function saveOrganisationProfile(
     insert into organisation_profiles (
       organisation_id, legal_name, trading_name, registration_number, vat_number,
       identity_number_cipher, identity_number_last4, physical_address, postal_address,
-      phone, email, next_of_kin_name, next_of_kin_phone, agent_name, agent_contact,
+      phone, email, emergency_contact, next_of_kin_name, next_of_kin_phone,
+      agent_name, agent_contact,
       agent_registration_number, agent_practitioner, agent_certificate_number,
       updated_by)
     values (
@@ -231,7 +234,8 @@ export async function saveOrganisationProfile(
       ${d.registrationNumber ?? null}, ${d.vatNumber ?? null},
       ${cipher}, ${id ? lastFour(id) : null},
       ${d.physicalAddress ?? null}, ${d.postalAddress ?? null},
-      ${d.phone ?? null}, ${d.email || null}, ${d.nextOfKinName ?? null},
+      ${d.phone ?? null}, ${d.email || null}, ${d.emergencyContact ?? null},
+      ${d.nextOfKinName ?? null},
       ${d.nextOfKinPhone ?? null}, ${d.agentName ?? null}, ${d.agentContact ?? null},
       ${d.agentRegistrationNumber ?? null}, ${d.agentPractitioner ?? null},
       ${d.agentCertificateNumber ?? null},
@@ -245,6 +249,7 @@ export async function saveOrganisationProfile(
       identity_number_last4 = coalesce(excluded.identity_number_last4, organisation_profiles.identity_number_last4),
       physical_address = excluded.physical_address, postal_address = excluded.postal_address,
       phone = excluded.phone, email = excluded.email,
+      emergency_contact = excluded.emergency_contact,
       next_of_kin_name = excluded.next_of_kin_name, next_of_kin_phone = excluded.next_of_kin_phone,
       agent_name = excluded.agent_name, agent_contact = excluded.agent_contact,
       agent_registration_number = excluded.agent_registration_number,

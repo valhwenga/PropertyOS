@@ -1,7 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createTicket, submitPaymentEvidence, parseMajorToMinor } from '@propertyos/domain';
+import {
+  createTicket, parseMajorToMinor, revealResidentAccountNumber, submitPaymentEvidence,
+} from '@propertyos/domain';
 import { DomainError } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { parseDayMonthYear } from '@propertyos/domain/dates';
@@ -103,4 +105,22 @@ export async function submitProofOfPayment(_previous: unknown, formData: FormDat
 
   if (result.ok) revalidatePath(`/portal/${leaseId}`);
   return result;
+}
+
+/**
+ * Shows the resident the full account number they are paying into.
+ *
+ * A read behind a Server Action rather than page data, because the number must
+ * not be in the HTML of every page load. It still goes through `command`, so
+ * it carries the same session check, origin check, single transaction and
+ * correlation id as any other action — and the domain function it calls
+ * re-resolves the lease from the caller's own portal link and writes the audit
+ * entry. The browser never says which account: the lease decides.
+ */
+export async function revealAccountNumber(_previous: unknown, formData: FormData) {
+  const leaseId = String(formData.get('leaseId'));
+  return command(async ({ tx, viewer }) => {
+    organisationForLease(viewer, leaseId);
+    return revealResidentAccountNumber(tx, leaseId, viewer.authUserId);
+  });
 }

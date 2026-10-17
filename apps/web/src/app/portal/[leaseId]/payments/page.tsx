@@ -29,12 +29,13 @@ export default async function PaymentsPage({
 
   return (
     <div className="space-y-4">
-      <Link href={`/portal/${leaseId}`} className="text-sm text-spike-600 hover:underline">
+      <Link href={`/portal/${leaseId}`}
+            className="inline-flex min-h-11 items-center text-sm text-spike-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
         ← Back to your account
       </Link>
-      <h1 className="text-xl font-semibold tracking-tight text-ink-900">
+      <h2 className="text-xl font-semibold tracking-tight text-ink-900">
         Tell us about a payment
-      </h1>
+      </h2>
 
       {/* The honesty requirement, stated plainly to the resident BEFORE they
           submit, so nobody believes their balance has been settled. */}

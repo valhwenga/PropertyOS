@@ -117,6 +117,13 @@ export function LandlordForm({
                  hint="Where legal notices can be served." needed={asks.has('landlord.physical_address')} />
           <Field name="postalAddress" label="Postal address" defaultValue={profile.postal_address}
                  needed={asks.has('landlord.postal_address')} />
+          {/* Shown to residents in their portal, which is why it is worth
+              asking for separately: the office number is not the number for a
+              burst pipe at eleven at night. Left empty, the portal tells them
+              to use the details on their lease rather than inventing one. */}
+          <Field name="emergencyContact" label="Emergency contact for residents"
+                 defaultValue={profile.emergency_contact}
+                 hint="Shown in the resident portal for a burst pipe, an electrical danger or a security risk." />
           <Field name="nextOfKinName" label="Next of kin" defaultValue={profile.next_of_kin_name}
                  hint="Who to contact if the landlord cannot be reached. Lease packs commonly ask for this."
                  needed={asks.has('landlord.next_of_kin_name')} />

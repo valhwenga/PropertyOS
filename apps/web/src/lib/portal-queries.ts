@@ -143,6 +143,123 @@ export async function loadSharedDocuments(tx: Sql, leaseId: string) {
 }
 
 /**
+ * What is owed, split the way a resident reads it.
+ *
+ * One figure called "due now" that includes a rent invoice raised this morning
+ * is not due now; it is simply unpaid. The three measures are kept apart:
+ *
+ *   outstanding — every unpaid posted charge, whatever its due date;
+ *   overdue     — the part of it already past its due date;
+ *   upcoming    — the part not yet due, with the date it falls due.
+ *
+ * Summed from the same `charge_line_balances` view the operator's arrears and
+ * receivable figures come from, so the portal cannot disagree with the console.
+ */
+export async function loadBalanceSplit(tx: Sql, leaseId: string) {
+  const [row] = await tx<
+    { outstanding: string; overdue: string; upcoming: string;
+      oldest_due: string | null; next_due: string | null; as_at: string }[]
+  >`
+    select
+      coalesce(sum(outstanding_minor), 0)::text as outstanding,
+      coalesce(sum(outstanding_minor) filter (where due_date < current_date), 0)::text as overdue,
+      coalesce(sum(outstanding_minor) filter (where due_date >= current_date), 0)::text as upcoming,
+      min(due_date) filter (where due_date < current_date)::text as oldest_due,
+      min(due_date) filter (where due_date >= current_date)::text as next_due,
+      now()::text as as_at
+    from charge_line_balances
+    where lease_id = ${leaseId}::uuid and outstanding_minor > 0
+  `;
+  return {
+    outstandingMinor: BigInt(row?.outstanding ?? '0'),
+    overdueMinor: BigInt(row?.overdue ?? '0'),
+    upcomingMinor: BigInt(row?.upcoming ?? '0'),
+    oldestDueDate: row?.oldest_due ?? null,
+    nextDueDate: row?.next_due ?? null,
+    asAt: row?.as_at ?? new Date().toISOString(),
+  };
+}
+
+/**
+ * Every piece of payment evidence this resident has submitted.
+ *
+ * Including the decided ones, because "what happened to the proof I sent in
+ * March" is a question the portal could not answer at all. The stages come
+ * from the stored record and nowhere else: a submission date, a review date
+ * when somebody reviewed it, the note they left, and whether a receipt was
+ * raised from it. Nothing here infers a stage the database does not hold.
+ */
+export async function loadPaymentEvidence(tx: Sql, leaseId: string) {
+  return tx<
+    { id: string; status: string; claimed_amount_minor: string; claimed_paid_at: string;
+      reference: string | null; submitted_at: string; reviewed_at: string | null;
+      review_note: string | null; receipt_id: string | null;
+      receipt_reference: string | null; allocated_minor: string }[]
+  >`
+    select e.id, e.status::text, e.claimed_amount_minor::text, e.claimed_paid_at::text,
+           e.reference, e.submitted_at::text, e.reviewed_at::text, e.review_note,
+           e.receipt_id, r.receipt_number as receipt_reference,
+           coalesce((
+             select sum(a.amount_minor) from payment_allocations a
+             where a.receipt_id = e.receipt_id and a.reversed_at is null
+           ), 0)::text as allocated_minor
+    from payment_evidence e
+    left join receipts r on r.id = e.receipt_id
+    where e.lease_id = ${leaseId}::uuid
+    order by e.submitted_at desc
+    limit 20
+  `;
+}
+
+/** One request, with everything the resident is allowed to see about it. */
+export async function loadResidentRequest(tx: Sql, leaseId: string, ticketId: string) {
+  const [ticket] = await tx<
+    { id: string; reference: string; status: string; category: string; urgency: string;
+      triaged_urgency: string | null; description: string; location: string | null;
+      created_at: string }[]
+  >`
+    select id, reference, status::text, category, urgency, triaged_urgency,
+           description, location, created_at::text
+    from maintenance_tickets
+    where id = ${ticketId}::uuid and lease_id = ${leaseId}::uuid
+  `;
+  if (!ticket) return null;
+
+  const [events, updates, photos] = await Promise.all([
+    // The real status history. RLS lets a resident read the events on their
+    // own ticket; the note on an event is written for the trail, so only the
+    // transition itself is shown.
+    tx<{ from_status: string | null; to_status: string; occurred_at: string }[]>`
+      select from_status::text, to_status::text, occurred_at::text
+      from maintenance_ticket_events
+      where ticket_id = ${ticketId}::uuid
+      order by occurred_at asc
+    `,
+    // Only what was written for the resident. The policy filters internal
+    // comments away; the audience is stated again here so a future policy
+    // change cannot quietly widen this page.
+    tx<{ body: string; created_at: string; author: string | null }[]>`
+      select c.body, c.created_at::text, up.full_name as author
+      from maintenance_comments c
+      left join user_profiles up on up.auth_user_id = c.author_user_id
+      where c.ticket_id = ${ticketId}::uuid and c.audience = 'resident_visible'
+      order by c.created_at asc
+    `,
+    tx<{ document_id: string; title: string; created_at: string }[]>`
+      select a.document_id, d.title, a.created_at::text
+      from maintenance_attachments a
+      join documents d on d.id = a.document_id
+      where a.ticket_id = ${ticketId}::uuid
+        and a.audience = 'resident_visible'
+        and d.deleted_at is null and d.quarantined = false
+      order by a.created_at asc
+    `,
+  ]);
+
+  return { ticket, events, updates, photos };
+}
+
+/**
  * The next charge that is not yet due.
  *
  * So the headline can say what is coming as well as what is owed. Kept apart

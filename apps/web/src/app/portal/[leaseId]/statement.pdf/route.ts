@@ -21,12 +21,17 @@ export async function GET(
   const link = viewer.residentLeases.find((l) => l.leaseId === leaseId);
   if (!link) return new NextResponse('Not found', { status: 404 });
 
-  const cutOff = new URL(request.url).searchParams.get('cutOff')
-    ?? new Date().toISOString().slice(0, 10);
+  // The same window the screen was showing. The route used to read only the
+  // cut-off, so a resident who chose a period and then downloaded got a
+  // different document from the one they were looking at.
+  const search = new URL(request.url).searchParams;
+  const iso = (value: string | null) => (value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined);
+  const cutOff = iso(search.get('cutOff')) ?? new Date().toISOString().slice(0, 10);
+  const from = iso(search.get('from'));
 
   try {
     const { statement, pdf } = await readAs(viewer, async (tx) => {
-      const built = await buildStatement(tx, link.organisationId, { leaseId, cutOff });
+      const built = await buildStatement(tx, link.organisationId, { leaseId, from, cutOff });
       const [detail] = await tx<
         { property_label: string; organisation_name: string; resident_name: string | null }[]
       >`

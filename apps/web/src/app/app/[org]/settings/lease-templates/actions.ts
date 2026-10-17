@@ -60,6 +60,7 @@ export async function saveOrganisationProfileAction(_previous: unknown, formData
       identityNumber: text('identityNumber'),
       physicalAddress: text('physicalAddress'), postalAddress: text('postalAddress'),
       phone: text('phone'), email: text('email'),
+      emergencyContact: text('emergencyContact'),
       nextOfKinName: text('nextOfKinName'), nextOfKinPhone: text('nextOfKinPhone'),
       agentName: text('agentName'), agentContact: text('agentContact'),
       agentRegistrationNumber: text('agentRegistrationNumber'),

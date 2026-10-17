@@ -1,36 +1,22 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Card, StatusBadge } from '@propertyos/ui';
-import type { StatusTone } from '@propertyos/ui';
+import { residentEmergencyContact } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
-import { loadLandlordContact, loadResidentRequests } from '@/lib/portal-queries';
+import { loadResidentRequests } from '@/lib/portal-queries';
 import { SectionHeading } from '../section';
+import { OPEN_STATES, requestPriority, requestStatus, requestTitle } from './status';
 
-export const metadata = { title: 'Your requests' };
+export const metadata = { title: 'Maintenance' };
 export const dynamic = 'force-dynamic';
 
 /**
- * What happened to the thing they reported.
+ * What the resident has reported, and what has happened to it.
  *
- * A resident could log a request and then never see it again: nothing in the
- * product showed them its state. The status is in the resident's words rather
- * than the workflow's — "Being assessed" instead of "triaged" — and the latest
- * comment the landlord marked visible comes with it, because "we have ordered
- * the part" is the answer to the question they would otherwise phone about.
+ * Each card opens the request itself, because a list that shows a status and
+ * nothing else leaves "when is somebody coming?" unanswered.
  */
-const REQUEST_STATUS: Record<string, { tone: StatusTone; glyph: string; label: string }> = {
-  submitted:             { tone: 'caution',  glyph: '◐', label: 'Received' },
-  triaged:               { tone: 'caution',  glyph: '◐', label: 'Being assessed' },
-  awaiting_approval:     { tone: 'caution',  glyph: '◐', label: 'Awaiting approval' },
-  assigned:              { tone: 'info',     glyph: '◆', label: 'Contractor assigned' },
-  in_progress:           { tone: 'info',     glyph: '◆', label: 'Work in progress' },
-  awaiting_confirmation: { tone: 'info',     glyph: '◆', label: 'Waiting on you' },
-  resolved:              { tone: 'positive', glyph: '✓', label: 'Resolved' },
-  closed:                { tone: 'neutral',  glyph: '■', label: 'Closed' },
-  cancelled:             { tone: 'neutral',  glyph: '✕', label: 'Cancelled' },
-};
-
 export default async function RequestsPage({
   params,
 }: {
@@ -40,11 +26,11 @@ export default async function RequestsPage({
   const viewer = await requireViewer();
   if (!viewer.residentLeases.some((l) => l.leaseId === leaseId)) notFound();
 
-  const { requests, contact } = await readAs(viewer, async (tx) => ({
+  const { requests, emergency } = await readAs(viewer, async (tx) => ({
     requests: await loadResidentRequests(tx, leaseId),
-    contact: await loadLandlordContact(tx, leaseId),
+    emergency: await residentEmergencyContact(tx, leaseId),
   }));
-  const open = requests.filter((r) => !['resolved', 'closed', 'cancelled'].includes(r.status));
+  const open = requests.filter((r) => OPEN_STATES.includes(r.status));
 
   return (
     <section aria-labelledby="requests-heading" className="space-y-3">
@@ -52,13 +38,40 @@ export default async function RequestsPage({
         id="requests-heading"
         action={
           <Link href={`/portal/${leaseId}/requests/new`}
-                className="rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white">
+                className="min-h-11 rounded-lg bg-spike-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-spike-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
             Report a problem
           </Link>
         }
       >
-        Your requests{open.length > 0 ? ` (${open.length} open)` : ''}
+        Maintenance{open.length > 0 ? ` (${open.length} open)` : ''}
       </SectionHeading>
+
+      {/* Who to phone when it cannot wait. Only when the landlord has recorded
+          somebody: a number invented by the product is worse than none, and an
+          unconfigured organisation is told what is missing rather than shown a
+          placeholder. */}
+      <Card className="border-caution-700/25 bg-caution-50 p-4">
+        <p className="text-sm font-semibold text-caution-700">If it cannot wait</p>
+        <p className="mt-1 text-sm text-ink-700">
+          A request logged here is not an emergency service.{' '}
+          {emergency ? (
+            <>
+              For a burst pipe, an electrical danger, a fire or a security risk, phone{' '}
+              <a href={`tel:${emergency.replace(/[^+\d]/g, '')}`}
+                 className="font-medium text-spike-700 underline">
+                {emergency}
+              </a>{' '}
+              as well as reporting it here.
+            </>
+          ) : (
+            <>
+              Your landlord has not given an emergency number for this portal. For a burst pipe,
+              an electrical danger, a fire or a security risk, use the emergency contact details
+              on your lease agreement as well as reporting it here.
+            </>
+          )}
+        </p>
+      </Card>
 
       {requests.length === 0 ? (
         <Card className="px-4 py-8 text-center text-sm text-ink-500">
@@ -68,37 +81,40 @@ export default async function RequestsPage({
       ) : (
         <Card className="divide-y divide-ink-100 p-0">
           {requests.map((request) => {
-            const status = REQUEST_STATUS[request.status]
-              ?? { tone: 'neutral' as StatusTone, glyph: '○', label: request.status };
+            const status = requestStatus(request.status);
+            const priority = requestPriority(request.urgency, null);
             return (
-              <div key={request.id} className="px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium text-ink-900">{request.description}</p>
-                  <StatusBadge tone={status.tone} glyph={status.glyph}>{status.label}</StatusBadge>
+              <Link
+                key={request.id}
+                href={`/portal/${leaseId}/requests/${request.id}`}
+                className="block px-4 py-3 hover:bg-ink-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-spike-500"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-ink-900">
+                    {requestTitle(request.description)}
+                  </p>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {priority ? (
+                      <StatusBadge tone={priority.tone} glyph="▲">{priority.label}</StatusBadge>
+                    ) : null}
+                    <StatusBadge tone={status.tone} glyph={status.glyph}>{status.label}</StatusBadge>
+                  </div>
                 </div>
                 <p className="mt-1 text-xs text-ink-500">
                   <span className="tabular">{request.reference}</span> · reported{' '}
                   {formatDate(request.created_at)}
+                  {request.last_update_at
+                    ? ` · last update ${formatDate(request.last_update_at)}`
+                    : ''}
                 </p>
                 {request.last_update ? (
-                  <p className="mt-2 rounded-lg bg-ink-50 px-3 py-2 text-sm text-ink-700">
-                    {request.last_update}
-                    <span className="mt-0.5 block text-xs text-ink-400">
-                      {request.last_update_at ? formatDate(request.last_update_at) : null}
-                    </span>
-                  </p>
+                  <p className="mt-1.5 line-clamp-2 text-sm text-ink-600">{request.last_update}</p>
                 ) : null}
-              </div>
+              </Link>
             );
           })}
         </Card>
       )}
-
-      <p className="text-xs text-ink-500">
-        A request logged here is not an emergency service. If somebody is in danger, or water
-        or electricity is causing damage right now, phone
-        {contact?.phone ? ` ${contact.phone}` : ' your landlord'} as well.
-      </p>
     </section>
   );
 }

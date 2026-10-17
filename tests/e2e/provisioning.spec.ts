@@ -109,8 +109,14 @@ test.describe('customer provisioning', () => {
     await founder.waitForURL(new RegExp(`/app/${slug}`), { timeout: 30_000 });
 
     const console_ = await visibleText(founder);
-    expect(console_).toContain('Portfolio');
-    expect(console_).toContain('Reconciliation');
+    // Their own organisation, named, and their own overview.
+    expect(console_).toContain(`Karoo Rentals ${stamp}`);
+    expect(console_).toContain('No financial activity yet');
+    // The sidebar is Overview and nothing else, which is correct and used to
+    // read as a broken product: org_admin requires a second factor, so at one
+    // factor the database grants none of its permissions. The count of what
+    // is being withheld, and the way to get it, is the whole point.
+    expect(console_).toMatch(/more sections are yours once you set up an authenticator/);
 
     /* ------------- 4. and the state they land in is explained, not mysterious */
 

@@ -65,6 +65,9 @@ test.describe('audit trail', () => {
     await page.getByRole('link', { name: /Every change to this property/ }).click();
     await page.waitForURL(/\/settings\/audit\?/, { timeout: 30_000 });
 
+    // The console has a loading boundary, so the URL changes before the page
+    // arrives. Reading the text at that moment reads the skeleton.
+    await expect(page.getByText('one record')).toBeVisible({ timeout: 30_000 });
     const history = await visibleText(page);
     // It is one record's history, not a filtered slice of the whole trail, and
     // it says which.
@@ -91,6 +94,7 @@ test.describe('audit trail', () => {
     await page.getByRole('button', { name: 'Apply' }).click();
     await page.waitForURL(/action=property.updated/, { timeout: 30_000 });
 
+    await expect(page.getByLabel('Action')).toBeVisible({ timeout: 30_000 });
     const filtered = await visibleText(page);
     expect(filtered).toContain(reason);
 
@@ -109,6 +113,8 @@ test.describe('audit trail', () => {
       `${org}/settings/audit?from=2026-03-31&to=2026-01-01`,
       { waitUntil: 'domcontentloaded' },
     );
+    await expect(page.getByText('The start of the range is after its end'))
+      .toBeVisible({ timeout: 30_000 });
     const refused = await visibleText(page);
     // A refusal is information, not a crash.
     expect(refused).toContain('The start of the range is after its end');
@@ -120,6 +126,7 @@ test.describe('audit trail', () => {
       `${org}/settings/audit?from=2020-01-01&to=2020-01-02`,
       { waitUntil: 'domcontentloaded' },
     );
+    await expect(page.getByText('Nothing matches')).toBeVisible({ timeout: 30_000 });
     const empty = await visibleText(page);
     expect(empty).toContain('Nothing matches');
     // And it says the trail itself is not empty, so nobody reads an empty

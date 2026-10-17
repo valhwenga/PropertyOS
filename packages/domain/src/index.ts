@@ -1,6 +1,7 @@
 export * from './money';
 export * from './errors';
 export * from './permissions';
+export * from './resident-portal';
 export * from './audit';
 export * from './ledger';
 export * from './numbering';

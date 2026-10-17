@@ -16,17 +16,19 @@ test.describe('resident portal', () => {
   });
 
   test('shows the amount due from posted records', async ({ page }) => {
-    await expect(page.getByText('Due now')).toBeVisible();
+    // "Outstanding balance", not "due now": the whole receivable includes
+    // charges that are not due yet, and the page separates the two.
+    await expect(page.getByText('Outstanding balance')).toBeVisible();
     await expect(page.getByText('R1,850.00').first()).toBeVisible();
   });
 
   test('states that uploaded evidence has not changed the balance', async ({ page }) => {
-    await expect(page.getByText('Awaiting verification')).toBeVisible();
-    // The wording moved with the design pass; the promise did not. Evidence is
-    // a claim awaiting verification, and the figure above it does not move
-    // until the money is confirmed against the bank record.
+    // The wording has moved twice now; the promise has not. An upload is a
+    // claim awaiting bank confirmation, and the balance does not move until
+    // the money is confirmed and applied.
+    await expect(page.getByText('Bank confirmation pending').first()).toBeVisible();
     await expect(
-      page.getByText(/has not changed yet and will not until the money is confirmed/i),
+      page.getByText(/balance will update once the payment is confirmed and applied/i),
     ).toBeVisible();
   });
 

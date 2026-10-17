@@ -127,10 +127,17 @@ test.describe('deposits', () => {
     // to be ambiguous.
     expect(payout).toMatch(/R[\d,]+\.\d{2} is held/);
 
-    // With no document on the lease the fields are withheld and the reason is
-    // given, rather than offering a form the server would refuse. The
-    // two-person rule itself is proved in the integration suite, where a
-    // second identity costs nothing.
-    expect(payout).toContain('a deduction without evidence is blocked');
+    // Evidence is a field, not an afterthought: the form names a document on
+    // this lease rather than letting somebody type a justification.
+    //
+    // This assertion used to be the opposite — that with NO document on the
+    // lease the fields are withheld. The demo gained a lease document when the
+    // approvals workflow was seeded, so that branch stopped being reachable
+    // here and the assertion had been failing unnoticed. The rule it was
+    // protecting is proved in `tests/integration/deposits.test.ts`
+    // ("refuses a deduction with no evidence"), where a lease with no document
+    // costs nothing to arrange.
+    await expect(page.getByLabel('Evidence')).toBeVisible();
+    expect(payout).toContain('Choose a document');
   });
 });

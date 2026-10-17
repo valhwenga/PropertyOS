@@ -38,18 +38,27 @@ export default async function DocumentsPage({
         <Card className="divide-y divide-ink-100 p-0">
           {documents.map((doc) => (
             <a key={doc.id} href={`/portal/${leaseId}/documents/${doc.id}`}
-               className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-ink-50">
+               className="flex min-h-11 items-center justify-between gap-3 px-4 py-3 hover:bg-ink-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-spike-500">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-ink-900">{doc.title}</p>
-                <p className="text-xs capitalize text-ink-500">
-                  {doc.classification.replace(/_/g, ' ')} · {formatDate(doc.uploaded_at)}
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-500">
+                  <span className="rounded bg-ink-50 px-1.5 py-0.5 capitalize text-ink-600">
+                    {doc.classification.replace(/_/g, ' ')}
+                  </span>
+                  <span>{formatDate(doc.uploaded_at)}</span>
                 </p>
               </div>
-              <span aria-hidden="true" className="text-spike-500">↓</span>
+              <span aria-hidden="true" className="shrink-0 text-spike-500">↓</span>
             </a>
           ))}
         </Card>
       )}
+
+      <p className="text-xs text-ink-500">
+        Each file is fetched through a link that is checked and recorded when you use it, and
+        downloads rather than opening in the page. Nothing here is a public address you could
+        forward.
+      </p>
     </section>
   );
 }

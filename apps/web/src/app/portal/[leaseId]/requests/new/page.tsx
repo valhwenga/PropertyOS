@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Card } from '@propertyos/ui';
-import { requireViewer } from '@/lib/auth';
+import { residentEmergencyContact } from '@propertyos/domain';
+import { readAs, requireViewer } from '@/lib/auth';
 import { MaintenanceRequestForm } from './form';
 
 export const metadata = { title: 'Report a problem' };
@@ -15,12 +16,15 @@ export default async function NewRequestPage({
   const viewer = await requireViewer();
   if (!viewer.residentLeases.some((l) => l.leaseId === leaseId)) notFound();
 
+  const emergency = await readAs(viewer, (tx) => residentEmergencyContact(tx, leaseId));
+
   return (
     <div className="space-y-4">
-      <Link href={`/portal/${leaseId}/requests`} className="text-sm text-spike-600 hover:underline">
+      <Link href={`/portal/${leaseId}/requests`}
+            className="inline-flex min-h-11 items-center text-sm text-spike-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
         ← Back to your requests
       </Link>
-      <h1 className="text-xl font-semibold tracking-tight text-ink-900">Report a problem</h1>
+      <h2 className="text-xl font-semibold tracking-tight text-ink-900">Report a problem</h2>
 
       {/* An honest statement about emergencies, as the blueprint requires: a
           portal ticket is not a guarantee of emergency response. */}
@@ -28,8 +32,22 @@ export default async function NewRequestPage({
         <p className="text-sm font-semibold text-caution-700">If this is an emergency</p>
         <p className="mt-1 text-sm text-ink-700">
           Logging a request here does <strong>not</strong> guarantee an emergency response.
-          For a burst pipe, electrical danger, fire or a security risk, use the emergency
-          contact details on your lease agreement as well as submitting this form.
+          For a burst pipe, electrical danger, fire or a security risk,{' '}
+          {emergency ? (
+            <>
+              phone{' '}
+              <a href={`tel:${emergency.replace(/[^+\d]/g, '')}`}
+                 className="font-medium text-spike-700 underline">
+                {emergency}
+              </a>{' '}
+              as well as submitting this form.
+            </>
+          ) : (
+            <>
+              use the emergency contact details on your lease agreement as well as submitting
+              this form. Your landlord has not given an emergency number for this portal.
+            </>
+          )}
         </p>
       </Card>
 

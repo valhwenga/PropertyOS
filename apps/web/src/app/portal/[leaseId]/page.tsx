@@ -1,26 +1,65 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Card, Money, StatusBadge } from '@propertyos/ui';
-import { buildStatement, DomainError } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
-import { formatDate } from '@/lib/format';
-import { loadNextDue, loadPaymentDetails } from '@/lib/portal-queries';
+import { formatDate, formatDateTime } from '@/lib/format';
+import {
+  loadBalanceSplit, loadPaymentEvidence, loadTenancy,
+} from '@/lib/portal-queries';
+import { residentPaymentInstructions } from '@propertyos/domain';
+import { buildStatement, DomainError } from '@propertyos/domain';
+import { CopyField } from './copy-field';
+import { RevealAccountNumber } from './reveal-account';
 import { Row, SectionHeading } from './section';
 
-export const metadata = { title: 'Your account' };
+export const metadata = { title: 'Your home' };
 export const dynamic = 'force-dynamic';
 
 /**
  * What a resident opens the portal to find out: what do I owe, and how do I
  * pay it.
  *
- * Everything else — the statement behind the figure, the requests, the
- * documents, the lease terms — is a section of its own now. This page answers
- * the first question in its first screenful and the second immediately below,
- * because a portal that asks somebody to pay and does not say where is half a
- * feature.
+ * The balance is three measures, not one. "Due now" was the whole receivable,
+ * which includes a rent invoice raised this morning — money nobody has yet
+ * failed to pay. They are separated here, and the word "due" is used only for
+ * the part that genuinely is.
  */
-export default async function TenancyOverviewPage({
+
+/**
+ * The stages the database actually records for a piece of payment evidence.
+ *
+ * `evidence_status` is submitted, under_review, accepted or rejected, with a
+ * review timestamp and a note, and a receipt id once one has been raised from
+ * it. Nothing here invents a stage or a time the backend does not hold: an
+ * accepted claim with no receipt shows "funds confirmed" and stops there,
+ * because the allocation has not happened yet.
+ */
+function evidenceStages(e: {
+  status: string; submitted_at: string; reviewed_at: string | null;
+  receipt_id: string | null; allocated_minor: string;
+}) {
+  const decided = e.status === 'accepted' || e.status === 'rejected';
+  return [
+    { label: 'Proof submitted', at: e.submitted_at, done: true },
+    {
+      label: 'Under review',
+      at: e.status === 'under_review' ? null : decided ? e.reviewed_at : null,
+      done: e.status !== 'submitted',
+    },
+    {
+      label: e.status === 'rejected' ? 'Not accepted' : 'Funds confirmed',
+      at: decided ? e.reviewed_at : null,
+      done: decided,
+    },
+    {
+      label: 'Applied to your account',
+      at: null,
+      done: Boolean(e.receipt_id) && BigInt(e.allocated_minor) > 0n,
+    },
+  ];
+}
+
+export default async function TenancyHomePage({
   params,
 }: {
   params: Promise<{ leaseId: string }>;
@@ -33,131 +72,261 @@ export default async function TenancyOverviewPage({
   const data = await readAs(viewer, async (tx) => {
     try {
       return {
+        balance: await loadBalanceSplit(tx, leaseId),
         statement: await buildStatement(tx, link.organisationId, {
           leaseId, cutOff: new Date().toISOString().slice(0, 10),
         }),
-        payTo: await loadPaymentDetails(tx, leaseId),
-        nextDue: await loadNextDue(tx, leaseId),
+        tenancy: await loadTenancy(tx, leaseId),
+        payTo: await residentPaymentInstructions(tx, leaseId),
+        evidence: await loadPaymentEvidence(tx, leaseId),
       };
     } catch (error) {
       if (error instanceof DomainError && error.code === 'not_found') return null;
       throw error;
     }
   });
-  if (!data) notFound();
+  if (!data?.tenancy) notFound();
 
-  const { statement, payTo, nextDue } = data;
-  const owing = statement.closingReceivableMinor > 0n;
-  const pending = statement.pendingEvidence.reduce((s, e) => s + e.claimedAmountMinor, 0n);
+  const { balance, statement, tenancy, payTo, evidence } = data;
+  const currency = statement.currencyCode;
+  const settled = balance.outstandingMinor === 0n;
+  // Waiting first, then the three most recent decisions. A resident wants
+  // "what is happening to the one I sent" above "what happened in March".
+  const pending = evidence.filter((e) => e.status === 'submitted' || e.status === 'under_review');
+  const recent = evidence
+    .filter((e) => e.status === 'accepted' || e.status === 'rejected')
+    .slice(0, 3);
+  // `lease_status` is draft, awaiting_execution, active, notice_given,
+  // expired, closed or cancelled. An expired lease still carries arrears and
+  // can still have a resident in the property, so it is said plainly rather
+  // than hidden or treated as settled.
+  const closed = ['expired', 'closed', 'cancelled'].includes(tenancy.status);
 
   return (
     <>
-      {/* ----------------------------------------------------- what you owe */}
+      {/* -------------------------------------------------- what you owe */}
       <Card className="p-5">
         <p className="text-xs font-medium uppercase tracking-wide text-ink-500">
-          {owing ? 'Due now' : 'Your balance'}
+          Outstanding balance
         </p>
         <p className="mt-1 text-4xl font-semibold tracking-tight">
-          <Money minor={statement.closingReceivableMinor} currency={statement.currencyCode} />
+          <Money minor={balance.outstandingMinor} currency={currency} />
         </p>
-        <p className="mt-2 text-sm text-ink-500">
-          {owing
-            ? 'Charges that have been raised, less the payments already applied to them.'
-            : 'Nothing is outstanding. Thank you.'}
+        <p className="mt-1.5 text-sm text-ink-500">
+          {settled
+            ? 'Every charge raised on this lease has been paid. Thank you.'
+            : 'Every unpaid charge on your account, whatever its due date.'}
         </p>
 
-        {/* What is coming, kept apart from what is owed. Adding them together
-            would invent arrears out of a rent invoice that is not due yet. */}
-        {nextDue ? (
-          <p className="mt-3 text-sm text-ink-700">
-            Next: <Money minor={nextDue.amount_minor} currency={nextDue.currency_code} /> due{' '}
-            {formatDate(nextDue.due_date)}.
-          </p>
+        {!settled ? (
+          <dl className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-ink-100 p-3">
+              <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">
+                Overdue
+              </dt>
+              <dd className="mt-0.5 text-xl font-semibold text-ink-900">
+                <Money minor={balance.overdueMinor} currency={currency} />
+              </dd>
+              <dd className="mt-0.5 text-xs text-ink-500">
+                {balance.overdueMinor > 0n && balance.oldestDueDate
+                  ? `Oldest fell due ${formatDate(balance.oldestDueDate)}`
+                  : 'Nothing is past its due date'}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-ink-100 p-3">
+              <dt className="text-xs font-medium uppercase tracking-wide text-ink-500">
+                Not yet due
+              </dt>
+              <dd className="mt-0.5 text-xl font-semibold text-ink-900">
+                <Money minor={balance.upcomingMinor} currency={currency} />
+              </dd>
+              <dd className="mt-0.5 text-xs text-ink-500">
+                {balance.upcomingMinor > 0n && balance.nextDueDate
+                  ? `Due ${formatDate(balance.nextDueDate)}`
+                  : 'Nothing is owing in advance'}
+              </dd>
+            </div>
+          </dl>
         ) : null}
 
-        {/* Sits with the balance it does not change. A resident who uploaded a
-            payment yesterday opens this page to ask "did you get it?", and the
-            answer belongs next to the figure, not in another section. */}
-        {pending > 0n ? (
-          <div className="mt-4 rounded-lg border border-caution-700/25 bg-caution-50 p-3">
-            <StatusBadge tone="caution" glyph="◐">Awaiting verification</StatusBadge>
-            <p className="mt-2 text-sm text-ink-700">
-              We have your payment of <Money minor={pending} currency={statement.currencyCode} />,
-              and we are checking it against the bank record. The balance above has not
-              changed yet and will not until the money is confirmed.
-            </p>
-          </div>
+        <p className="mt-3 text-xs text-ink-400">
+          As at {formatDateTime(balance.asAt, tenancy.time_zone)}.
+        </p>
+
+        {closed ? (
+          <p className="mt-3 rounded-lg bg-ink-50 px-3 py-2 text-sm text-ink-700">
+            This lease is {tenancy.status.replace(/_/g, ' ')}. Your statement and documents stay
+            here; anything still outstanding is still owed.
+          </p>
         ) : null}
 
         {statement.unappliedCreditMinor > 0n ? (
           <p className="mt-3 rounded-lg bg-positive-50 px-3 py-2 text-sm text-positive-600">
-            You have <Money minor={statement.unappliedCreditMinor} currency={statement.currencyCode} />{' '}
-            in credit that has not been applied to a charge yet.
+            You have <Money minor={statement.unappliedCreditMinor} currency={currency} /> in
+            credit that has not been applied to a charge yet.
           </p>
         ) : null}
 
         {statement.depositHeldMinor > 0n ? (
           <p className="mt-3 text-sm text-ink-500">
-            Deposit held:{' '}
-            <Money minor={statement.depositHeldMinor} currency={statement.currencyCode} />. This is
-            yours, held separately, and it does not reduce the balance above.
+            <span className="font-medium text-ink-700">Deposit recorded as held:</span>{' '}
+            <Money minor={statement.depositHeldMinor} currency={currency} />. Your landlord
+            records holding this; it is not paid to Spike, and it does not pay your rent or
+            reduce the balance above.
           </p>
         ) : null}
 
-        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+        {/* The primary action first in the markup, so it is first under a
+            thumb and first for a keyboard. A three-column grid on a wide
+            screen keeps the other two equal. */}
+        <div className="mt-5 grid gap-2 sm:grid-cols-3">
           <Link href={`/portal/${leaseId}/payments`}
-                className="rounded-lg bg-spike-500 px-4 py-3 text-center text-sm font-medium text-white">
-            I have paid — tell my landlord
+                className="rounded-lg bg-spike-500 px-4 py-3 text-center text-sm font-medium text-white hover:bg-spike-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
+            Submit proof of payment
+          </Link>
+          <Link href={`/portal/${leaseId}/statement`}
+                className="rounded-lg border border-ink-200 bg-surface px-4 py-3 text-center text-sm font-medium text-ink-700 hover:bg-ink-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
+            View statement
           </Link>
           <Link href={`/portal/${leaseId}/requests/new`}
-                className="rounded-lg border border-ink-200 bg-surface px-4 py-3 text-center text-sm font-medium text-ink-700">
+                className="rounded-lg border border-ink-200 bg-surface px-4 py-3 text-center text-sm font-medium text-ink-700 hover:bg-ink-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
             Report a problem
           </Link>
         </div>
-
-        <p className="mt-4 text-sm">
-          <Link href={`/portal/${leaseId}/statement`} className="text-spike-600 hover:underline">
-            See every charge and payment →
-          </Link>
-        </p>
       </Card>
 
-      {/* -------------------------------------------------------- how to pay */}
+      {/* ------------------------------------------------ payment evidence */}
+      {pending.length > 0 || recent.length > 0 ? (
+        <section aria-labelledby="evidence-heading" className="space-y-3">
+          <SectionHeading id="evidence-heading">Payments you have told us about</SectionHeading>
+          <Card className="divide-y divide-ink-100 p-0">
+            {[...pending, ...recent].map((e) => {
+              const stages = evidenceStages(e);
+              return (
+                <div key={e.id} className="px-4 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-sm font-medium text-ink-900">
+                      <Money minor={e.claimed_amount_minor} currency={currency} />
+                      <span className="font-normal text-ink-500">
+                        {' '}· paid {formatDate(e.claimed_paid_at)}
+                      </span>
+                    </p>
+                    <StatusBadge
+                      tone={e.status === 'rejected' ? 'critical'
+                        : e.status === 'accepted' ? 'positive' : 'caution'}
+                      glyph={e.status === 'rejected' ? '✕'
+                        : e.status === 'accepted' ? '✓' : '◐'}
+                    >
+                      {e.status === 'submitted' ? 'Bank confirmation pending'
+                        : e.status === 'under_review' ? 'Under review'
+                        : e.status === 'accepted' ? 'Confirmed'
+                        : 'Not accepted'}
+                    </StatusBadge>
+                  </div>
+
+                  <p className="mt-1 text-xs text-ink-500">
+                    Submitted {formatDate(e.submitted_at)}
+                    {e.reference ? <> · reference <span className="tabular">{e.reference}</span></> : null}
+                  </p>
+
+                  {/* The sentence that must not overstate what a document is.
+                      An upload is a claim; it establishes nothing about money
+                      having arrived. */}
+                  {e.status === 'submitted' || e.status === 'under_review' ? (
+                    <p className="mt-2 rounded-lg bg-caution-50 px-3 py-2 text-sm text-ink-700">
+                      We received your proof of payment for{' '}
+                      <Money minor={e.claimed_amount_minor} currency={currency} />. Bank
+                      confirmation is pending. Your balance will update once the payment is
+                      confirmed and applied to your account.
+                    </p>
+                  ) : null}
+
+                  {e.status === 'rejected' ? (
+                    <div className="mt-2 rounded-lg bg-critical-50 px-3 py-2 text-sm text-ink-700">
+                      <p className="font-medium text-critical-700">
+                        Your landlord could not match this payment.
+                      </p>
+                      {e.review_note ? <p className="mt-1">{e.review_note}</p> : null}
+                      <p className="mt-2">
+                        <Link href={`/portal/${leaseId}/payments`}
+                              className="font-medium text-spike-600 hover:underline">
+                          Send the details again →
+                        </Link>
+                      </p>
+                    </div>
+                  ) : null}
+
+                  <ol className="mt-3 space-y-1.5">
+                    {stages.map((stage) => (
+                      <li key={stage.label} className="flex items-start gap-2 text-xs">
+                        <span
+                          aria-hidden="true"
+                          className={stage.done ? 'text-positive-600' : 'text-ink-300'}
+                        >
+                          {stage.done ? '●' : '○'}
+                        </span>
+                        <span className={stage.done ? 'text-ink-700' : 'text-ink-400'}>
+                          {stage.label}
+                          {stage.at ? ` · ${formatDate(stage.at)}` : ''}
+                          <span className="sr-only">{stage.done ? ' — done' : ' — not yet'}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              );
+            })}
+          </Card>
+          {pending.length > 0 ? (
+            <p className="text-xs text-ink-500">
+              Please do not send this one again while it is being checked. If you have made a
+              separate payment, tell us about that one too.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* ----------------------------------------------------- how to pay */}
       <section aria-labelledby="pay-heading" className="space-y-3">
         <SectionHeading id="pay-heading">How to pay</SectionHeading>
         {payTo ? (
           <Card className="p-0">
             <dl className="divide-y divide-ink-100">
-              <Row label="Bank">{payTo.bank_name}</Row>
-              <Row label="Account name">{payTo.account_holder}</Row>
+              <Row label="Bank">{payTo.bankName}</Row>
+              <Row label="Account name">{payTo.accountHolder}</Row>
               <Row label="Account number">
-                <span className="tabular">•••• {payTo.account_number_last4}</span>
-                <span className="mt-0.5 block text-xs font-normal text-ink-500">
-                  Only the last four digits are shown. Use the full number your landlord gave
-                  you, and check it ends in these four before you pay.
-                </span>
+                <RevealAccountNumber leaseId={leaseId} last4={payTo.accountNumberLast4} />
               </Row>
-              {payTo.branch_code ? (
-                <Row label="Branch code"><span className="tabular">{payTo.branch_code}</span></Row>
+              {payTo.branchCode ? (
+                <Row label="Branch code">
+                  <CopyField value={payTo.branchCode} label="branch code" />
+                </Row>
               ) : null}
               <Row label="Reference to use">
-                <span className="tabular">{payTo.payment_reference}</span>
-                <span className="mt-0.5 block text-xs font-normal text-ink-500">
+                <CopyField value={payTo.paymentReference} label="payment reference" />
+                <span className="mt-1 block text-xs font-normal text-ink-500">
                   Put this on every payment. Without it, money can sit unmatched instead of
                   clearing your balance.
                 </span>
               </Row>
             </dl>
-            <p className="border-t border-ink-100 px-4 py-3 text-xs text-ink-500">
-              Your landlord confirmed these details
-              {payTo.verification_method ? ` by ${payTo.verification_method.replace(/_/g, ' ')}` : ''}
-              {' '}on {formatDate(payTo.verified_at)}.{' '}
-              <strong className="font-medium text-ink-700">
+            <div className="border-t border-ink-100 px-4 py-3">
+              {/* Said precisely. A person at the landlord confirmed these
+                  details by the method recorded; nobody asked a bank. */}
+              <p className="text-xs text-ink-500">
+                Your landlord confirmed these details
+                {payTo.verificationMethod
+                  ? ` themselves, by ${payTo.verificationMethod.replace(/_/g, ' ')},`
+                  : ' themselves'}
+                {' '}on {formatDate(payTo.verifiedAt)}. They have not been checked with the bank
+                by Spike.
+              </p>
+              <p className="mt-2 text-xs font-medium text-ink-700">
                 If you are ever told by email or message that the banking details have changed,
                 do not pay. Check this page, then phone your landlord on a number you already
                 have.
-              </strong>
-            </p>
+              </p>
+            </div>
           </Card>
         ) : (
           <Card className="p-4">

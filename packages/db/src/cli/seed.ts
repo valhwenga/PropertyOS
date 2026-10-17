@@ -392,6 +392,7 @@ async function main(): Promise<void> {
         physicalAddress: '2nd Floor, 100 Main Road, Claremont, Cape Town, 7708',
         phone: '+27 21 000 0000',
         email: 'rentals@demo.invalid',
+        emergencyContact: '+27 82 000 0002 (24 hours)',
         agentName: '[DEMO] Nomsa Dlamini',
         agentContact: '+27 21 000 0001',
       }),
