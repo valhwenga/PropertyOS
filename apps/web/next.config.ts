@@ -7,6 +7,25 @@ const config: NextConfig = {
   // The domain and db packages are workspace TypeScript sources.
   transpilePackages: ['@propertyos/ui', '@propertyos/domain', '@propertyos/db', '@propertyos/integrations'],
   serverExternalPackages: ['postgres'],
+  experimental: {
+    serverActions: {
+      // Every upload in this product — a scanned lease, a resident's proof of
+      // payment, a photograph of a burst geyser, a portfolio CSV — arrives
+      // through a Server Action, and Next caps an action's request body at 1 MB
+      // by default. The product advertises 25 MB for a document and 5 MB for an
+      // import, and checks both itself with a message that says what to do; but
+      // the framework rejected the request first, so a 1.6 MB spreadsheet got
+      // "A server error occurred" and an operator had no idea why. The limit is
+      // raised past the largest file the product accepts, plus room for
+      // multipart overhead, so that OUR limits are the ones that answer.
+      //
+      // The cost is that any action, including the anonymous ones, will now
+      // buffer a body this large before our code runs. That is the same
+      // exposure any endpoint accepting 25 MB uploads carries, and it is noted
+      // in docs/known-limitations.md rather than papered over.
+      bodySizeLimit: '26mb',
+    },
+  },
   async headers() {
     return [
       {

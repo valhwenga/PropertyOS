@@ -137,6 +137,16 @@ way that fails safe until someone with the relevant authority decides.
   unverified variable by variable, and `pnpm preflight` reports the same for
   whichever environment it is run in — but no staging environment exists, and
   each external account needs its own authorisation before one can.
+* **Server Actions buffer a 26 MB body before any of our code runs.** Every
+  upload in the product — documents, proof of payment, maintenance photographs,
+  import CSVs — arrives through a Server Action, and Next caps an action body at
+  1 MB by default, so a 1.6 MB spreadsheet answered "A server error occurred"
+  while the screen advertised 5 MB. The limit is now set past the largest file
+  the product accepts, so the product's own checks and messages are the ones
+  that answer. The cost is that anonymous actions (sign-in, a rental
+  application, redeeming a tenancy invitation) will also buffer a body that
+  large. Moving uploads to route handlers, which stream and can be limited
+  individually, would remove that exposure and is not done.
 * **No load or capacity testing.** Performance under realistic volume is unknown.
 * **No dependency CVE scanning or SAST in CI**, and no independent penetration
   test. See `docs/security-review.md`.

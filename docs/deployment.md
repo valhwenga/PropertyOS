@@ -25,6 +25,8 @@ A deploy is not ready because the build passes. The following must all be true:
 - [ ] Storage object backup arranged separately — Supabase database backups do
       not include Storage bytes
 - [ ] Migrations applied: `pnpm db:migrate`
+- [ ] `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` set to the same value on every
+      instance, so a Server Action encrypted by one can be read by another
 - [ ] `/healthz` returns 200 with `tenantIsolation: ok`
 
 ## Environment variables

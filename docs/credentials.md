@@ -119,6 +119,7 @@ an object backup would have to contain.
 | `DEFAULT_COUNTRY`, `DEFAULT_CURRENCY`, `DEFAULT_TIME_ZONE` | Operator | ZA / ZAR / Africa-Johannesburg | Defaults apply | Local only |
 | `WORKER_ID`, `WORKER_POLL_INTERVAL_MS`, `WORKER_MAX_ATTEMPTS` | Technical lead | Worker identity and pacing | Defaults apply | Local only |
 | `APP_REVISION` | Build | Correlates a deploy with an incident | `/healthz` reports `unknown` | Local only |
+| `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | Technical lead | A stable key for Server Action closure encryption across instances | Behind more than one instance, or across a restart, actions encrypted by one instance cannot be read by another and fail at the client | **Never** |
 
 ### Rent payment provider — deliberately absent
 
