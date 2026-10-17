@@ -29,6 +29,26 @@ async function visibleText(page: import('@playwright/test').Page): Promise<strin
   });
 }
 
+/**
+ * Opens a disclosure, and checks it actually opened.
+ *
+ * A single click can land before the page has hydrated, in which case nothing
+ * happens and the next step waits for a field that will never appear. Under
+ * the load of a full suite run that is not rare: this spec failed exactly that
+ * way, timing out after four minutes on a form that had never opened.
+ */
+async function reveal(
+  page: import('@playwright/test').Page,
+  button: string,
+  field: import('@playwright/test').Locator,
+): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await page.getByRole('button', { name: button }).first().click();
+    if (await field.isVisible({ timeout: 4_000 }).catch(() => false)) return;
+  }
+  throw new Error(`"${button}" never revealed its form`);
+}
+
 test.describe('deposits', () => {
   test.describe.configure({ timeout: 240_000 });
 
@@ -66,7 +86,7 @@ test.describe('deposits', () => {
     expect(register).toContain('does not reduce any rent receivable');
     expect(register).toContain('A deposit shortfall is never billed as rent');
 
-    await page.getByRole('button', { name: 'Record a deposit received' }).first().click();
+    await reveal(page, 'Record a deposit received', page.getByLabel('Lease'));
     await page.getByLabel('Lease').selectOption({ index: 1 });
     await page.getByLabel('Amount received').fill('1500.00');
     await page.getByLabel('Description').fill('Deposit top-up on review');
@@ -117,7 +137,7 @@ test.describe('deposits', () => {
 
     /* ------------------------------------- approving a payout needs a second person */
 
-    await page.getByRole('button', { name: 'Deduct, refund or transfer' }).click();
+    await reveal(page, 'Deduct, refund or transfer', page.getByLabel('Evidence'));
     const payout = await visibleText(page);
     expect(payout).toContain('an approver who is not the person who asked for it');
     // And the product does not claim to know what is lawful.
