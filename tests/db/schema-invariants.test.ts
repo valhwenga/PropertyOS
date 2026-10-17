@@ -41,6 +41,31 @@ describe('Schema invariants', () => {
     expect(rows.map((r) => r.relname)).toEqual([]);
   });
 
+  it('every table is reachable by the application role, or exempted', async () => {
+    // `app.assert_table_privileges()` has existed since 0017 and was meant to be
+    // called at the end of every migration that adds a table. Nothing made that
+    // happen, and it drifted: `auth_mfa_recovery_codes` sat un-granted and
+    // un-exempted from 0045 until a restore rehearsal ran the guard again.
+    // Asserting it here is what makes the guard hold, because this runs whether
+    // or not a migration remembered.
+    const rows = await ownerSql()<{ relname: string }[]>`
+      select c.relname
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('r', 'p')
+        and not exists (
+          select 1 from app_privilege_exemptions e where e.table_name = c.relname
+        )
+        and not has_table_privilege('propertyos_app', c.oid, 'SELECT')
+      order by c.relname
+    `;
+    expect(
+      rows.map((r) => r.relname),
+      'These tables have no privilege for propertyos_app and are not exempted. ' +
+        'Add a GRANT, or add a row to app_privilege_exemptions explaining why ' +
+        'the application must not reach them.',
+    ).toEqual([]);
+  });
+
   it('every view runs with the invoker’s permissions', async () => {
     const rows = await ownerSql()<{ relname: string }[]>`
       select c.relname

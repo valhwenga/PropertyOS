@@ -5,6 +5,8 @@
 A deploy is not ready because the build passes. The following must all be true:
 
 - [ ] `pnpm test` green, including the isolation and financial invariant suites
+- [ ] `pnpm preflight --probe --strict` reports no failures and no gaps in the
+      target environment
 - [ ] `APP_DATABASE_URL` points at a role that is **not** a superuser and does
       **not** hold `BYPASSRLS` (the app refuses to start otherwise, but verify it
       before the deploy rather than discovering it in the logs)
@@ -14,7 +16,12 @@ A deploy is not ready because the build passes. The following must all be true:
       `NEXT_PUBLIC_SUPABASE_ANON_KEY` set
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` is **absent from the web runtime**. It bypasses
       Row Level Security and must never be reachable from a request path
-- [ ] Database backups configured, **and a restore exercised** (see below)
+- [ ] Database backups configured, **and a restore exercised** into an isolated
+      environment, carried through to a running application — see
+      [`runbooks/recovery.md`](runbooks/recovery.md)
+- [ ] The target cluster carries the `propertyos_app` and `propertyos_worker`
+      roles **before** a restore: the archive keeps its grants, and a restore
+      that drops them produces a database the application cannot read
 - [ ] Storage object backup arranged separately — Supabase database backups do
       not include Storage bytes
 - [ ] Migrations applied: `pnpm db:migrate`
@@ -22,7 +29,21 @@ A deploy is not ready because the build passes. The following must all be true:
 
 ## Environment variables
 
-See [`.env.example`](../.env.example). The two that are security boundaries:
+See [`.env.example`](../.env.example) for the list, and
+[`credentials.md`](credentials.md) for what each one enables, what breaks
+without it, and whether it has ever been exercised against the real service.
+Before a deploy, run it rather than reading it:
+
+```bash
+pnpm preflight            # read the configuration and report on it
+pnpm preflight --probe    # also contact the services it is pointed at
+pnpm preflight --strict   # treat every gap as a failure
+```
+
+`--probe` sends no mail, scans no file and writes no customer record. Without
+it nothing is reported as reachable, because configured is not working.
+
+The two variables that are security boundaries:
 
 | Variable | Role | Must never |
 | --- | --- | --- |

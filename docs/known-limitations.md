@@ -127,9 +127,16 @@ way that fails safe until someone with the relevant authority decides.
   Uploads, exports, statement generation and invitation acceptance are
   unthrottled.
 * **Recovery targets in the blueprint are targets, not capabilities.** A restore
-  exercise HAS now been run and verified (see `docs/runbooks/recovery.md`), but
-  against a 448 KB development dataset on a local machine. That measures the
-  procedure, not a production recovery time.
+  exercise HAS now been run and verified, carried through to the application
+  signing a resident in against the restored database (see
+  `docs/runbooks/recovery.md`), but against a 672 KB development dataset on a
+  local machine. That measures the procedure, not a production recovery time.
+* **No external service has ever been contacted.** Email, authentication,
+  malware scanning and object storage are all standing in for a provider that
+  has never been configured. `docs/credentials.md` records what that leaves
+  unverified variable by variable, and `pnpm preflight` reports the same for
+  whichever environment it is run in — but no staging environment exists, and
+  each external account needs its own authorisation before one can.
 * **No load or capacity testing.** Performance under realistic volume is unknown.
 * **No dependency CVE scanning or SAST in CI**, and no independent penetration
   test. See `docs/security-review.md`.

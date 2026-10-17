@@ -2,21 +2,24 @@
 
 ## Measured results
 
-A restore exercise **has** been performed for this build, against the
-development database, using `scripts/backup.sh` and `scripts/restore-verify.sh`:
+A restore exercise **has** been performed for this build, on 17 October 2026,
+against the development database, using `scripts/backup.sh` and
+`scripts/restore-verify.sh`, and carried through to a running application.
 
 | Measure | Result |
 | --- | --- |
-| Backup size | 448 KB (2 organisations, 1 lease, 12 journal lines) |
+| Backup size | 672 KB (2 organisations, 1 lease, 16 journal lines, 29 audit events) |
 | Archive checksum verified | yes |
-| Restore time into an isolated database | **1 second** |
-| Financial books balancing after restore | all |
-| Unbalanced journals after restore | 0 |
-| Allocations exceeding their receipt | 0 |
-| Posted charges missing a journal | 0 |
-| Cross-organisation references | 0 |
-| Overlapping reserving leases | 0 |
-| Row Level Security still enabled | yes, verified on `leases` and `journals` |
+| Restore into an isolated database | **1 second** (3.5 seconds including all verification) |
+| Automated checks | **18 of 18 passed** |
+| Financial books balancing, journals balanced, allocations within their receipt | all |
+| Every lease statement reproduced from the ledger stream | matched the balance view for every lease |
+| Separation of duties preserved | no deposit movement or payout request decided by its requester |
+| Row Level Security | enabled on **every** table carrying an organisation id, each with policies |
+| Application privileges | `app.assert_table_privileges()` passes on the restored database |
+| Storage objects | manifest written; **every expected object present** (1 of 1, local object store) |
+| Application against the restored database | starts; `/healthz` reports `tenantIsolation: ok` |
+| Sign-in and figures on the restored database | `pnpm preview:check` — 4 of 4 passed, including the second factor, the resident's closing balance and isolation between two landlords |
 
 **These numbers describe a small development dataset on a local machine.** They
 demonstrate that the procedure works and that the verification catches what it
@@ -24,9 +27,37 @@ claims to; they are **not** a production recovery time. Re-run the exercise
 against a production-sized dataset on production-class infrastructure before
 quoting any figure to a customer.
 
-Still not demonstrated: Storage object recovery (no object backup is configured),
-and a full application-level recovery including sign-in and statement
-reproduction.
+### What the rehearsal found
+
+Three defects, two of which a restore would have turned into an outage:
+
+1. **The archive carried no privileges.** `backup.sh` dumped with
+   `--no-privileges`, so a restored database came up clean and then answered
+   `permission denied for table leases` to the application role. The dump now
+   keeps its grants, the restore replays them, and the target cluster must carry
+   the `propertyos_app` and `propertyos_worker` roles first —
+   `restore-verify.sh` creates them, and `docs/deployment.md` has them for a
+   real restore.
+2. **The privilege guard had drifted.** `app.assert_table_privileges()` (0017)
+   was meant to run at the end of every migration that adds a table, and
+   nothing made that happen. `auth_mfa_recovery_codes` had been un-granted and
+   un-exempted since 0045 — correct behaviour, with no record of why. Migration
+   0049 records the exemption, and `tests/db/schema-invariants.test.ts` now
+   asserts the guard on every test run, so it holds whether or not a migration
+   remembers.
+3. **The verification script hid its own failures.** Under `set -e`, a check
+   whose query errored took the whole script down at that line, so every check
+   after it went unreported — the failure mode this script exists to prevent,
+   in the script itself. A failing check now reports `FAIL` and the run
+   continues, and a report whose query errors is a failure rather than a blank.
+
+Both negative paths were confirmed deliberately: a removed storage object fails
+the object check and exits non-zero, and an injected broken query reports `FAIL`
+while the remaining checks still run. The verification is not vacuous.
+
+Still not demonstrated: recovery at production scale or on production-class
+infrastructure, and object storage recovery from a real object backup (there is
+no object backup configured; the manifest says what one would have to contain).
 
 > The targets below remain targets. An ordinary daily backup cannot deliver a
 > one-hour recovery point, whatever the table says.
@@ -58,6 +89,21 @@ non-zero if any check fails.
 
 It deliberately reports what it has **not** verified, so a green run is not
 mistaken for a complete recovery.
+
+Finish the rehearsal by pointing the application at the restored database and
+walking a real path through it, which is the part no SQL check can answer:
+
+```bash
+export APP_DATABASE_URL=".../propertyos_restore_check"
+export DATABASE_URL=".../propertyos_restore_check"
+pnpm dev                                   # or the built image
+curl -s localhost:3000/healthz             # tenantIsolation must read ok
+pnpm preview:check                         # sign-in, a real figure, isolation
+```
+
+`preview:check` expects the demo accounts, so against a customer's restored data
+substitute a sign-in you have been given for the purpose. The point is the same:
+somebody signs in and reads a figure they can check.
 
 ## Manual restore procedure
 

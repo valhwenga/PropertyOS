@@ -36,7 +36,10 @@ export interface EmailAdapter {
 export class SinkEmailAdapter implements EmailAdapter {
   readonly name = 'sink';
   readonly captured: EmailMessage[] = [];
-  constructor(private readonly reason: string) {}
+  /** Why nothing will be delivered. Readable, because callers must be able to
+   *  say so rather than guess: the preflight prints it, and the interface shows
+   *  it beside an undelivered notification. */
+  constructor(readonly reason: string) {}
 
   async send(message: EmailMessage): Promise<EmailOutcome> {
     this.captured.push(message);

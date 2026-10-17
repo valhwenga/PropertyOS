@@ -359,9 +359,12 @@ EMAIL_FROM=no-reply@propertyos.invalid
 LOCAL_STORAGE_ROOT=$HOME/.propertyos-storage
 
 # No malware scanner is configured, so uploads stay quarantined and are not
-# claimed to be scanned. Set MALWARE_SCANNER=clamav with a reachable daemon to
-# turn real scanning on.
-MALWARE_SCANNER=none
+# claimed to be scanned. Left EMPTY deliberately: any other value, "none"
+# included, is an unrecognised scanner, and the product records that as a FAILED
+# scan rather than as no scan. Both quarantine the file; only one of them is
+# true. Set MALWARE_SCANNER=clamav with a reachable daemon to turn real
+# scanning on.
+MALWARE_SCANNER=
 
 APP_BASE_URL=http://localhost:$PORT
 DEFAULT_COUNTRY=ZA

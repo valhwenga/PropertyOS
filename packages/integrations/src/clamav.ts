@@ -113,3 +113,59 @@ export function interpret(response: string): ClamAvResult {
 /** The standard harmless test file every scanner recognises. Used in tests. */
 export const EICAR_TEST_STRING =
   'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
+
+/**
+ * Asks the daemon whether it is there, and which signature database it holds.
+ *
+ * One `VERSION` command, because clamd answers a single command per connection
+ * unless the session is opened with IDSESSION. Its reply carries the signature
+ * database version and date, which is the thing that actually matters: a
+ * scanner running months-old definitions will report a file clean because it
+ * has never heard of what is in it. Nothing is scanned here, and nothing is
+ * claimed about any file.
+ */
+export async function pingClamAv(
+  config: ClamAvConfig,
+): Promise<{ status: 'available'; version: string } | { status: 'unavailable'; detail: string }> {
+  const timeoutMs = config.timeoutMs ?? 5_000;
+
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: config.host, port: config.port });
+    let response = '';
+    let settled = false;
+
+    const finish = (result: { status: 'available'; version: string } | { status: 'unavailable'; detail: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(result);
+    };
+
+    const done = () => {
+      const version = response.replace(/\0/g, '').trim();
+      finish(
+        version
+          ? { status: 'available', version }
+          : { status: 'unavailable', detail: 'clamd closed the connection without answering.' },
+      );
+    };
+
+    const timer = setTimeout(
+      () => finish({
+        status: 'unavailable',
+        detail: `No reply from clamd at ${config.host}:${config.port} within ${timeoutMs}ms.`,
+      }),
+      timeoutMs,
+    );
+
+    socket.on('error', (error) => finish({ status: 'unavailable', detail: error.message }));
+    socket.on('data', (chunk) => {
+      response += chunk.toString('utf8');
+      if (response.includes('\0') || /\n/.test(response)) done();
+    });
+    socket.on('end', done);
+    socket.on('close', done);
+    socket.on('connect', () => socket.write('zVERSION\0'));
+  });
+}

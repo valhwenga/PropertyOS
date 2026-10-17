@@ -132,10 +132,13 @@ function dotStuff(body: string): string {
   return body.replace(/\r?\n/g, '\r\n').replace(/^\./gm, '..');
 }
 
-export async function sendViaSmtp(
-  config: SmtpConfig,
-  message: SmtpMessage,
-): Promise<SmtpAccepted> {
+/**
+ * Connects, greets, upgrades to TLS where the server offers it, and
+ * authenticates — everything up to the point where a message would be handed
+ * over. Shared by sending and by the preflight check, so what the preflight
+ * exercises is the path real delivery takes and not an approximation of it.
+ */
+async function openSmtpSession(config: SmtpConfig): Promise<SmtpSession> {
   const timeoutMs = config.timeoutMs ?? 15_000;
   const rejectUnauthorized = config.rejectUnauthorized ?? true;
 
@@ -170,7 +173,33 @@ export async function sendViaSmtp(
         await session.command(Buffer.from(config.password, 'utf8').toString('base64'), [235]);
       }
     }
+    return session;
+  } catch (error) {
+    session.end();
+    throw error;
+  }
+}
 
+/**
+ * Proves the configured server is reachable and the credentials are accepted,
+ * WITHOUT sending anything. Nothing is queued and no recipient is touched, so
+ * this says exactly one thing: delivery could be attempted from here.
+ */
+export async function verifySmtpConnection(config: SmtpConfig): Promise<void> {
+  const session = await openSmtpSession(config);
+  try {
+    await session.command('QUIT', [221]).catch(() => undefined);
+  } finally {
+    session.end();
+  }
+}
+
+export async function sendViaSmtp(
+  config: SmtpConfig,
+  message: SmtpMessage,
+): Promise<SmtpAccepted> {
+  const session = await openSmtpSession(config);
+  try {
     await session.command(`MAIL FROM:<${addressOf(config.from)}>`, [250]);
     await session.command(`RCPT TO:<${addressOf(message.to)}>`, [250, 251]);
     await session.command('DATA', [354]);

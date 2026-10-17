@@ -15,6 +15,10 @@ sign-off, and an independent security assessment.
 controlled pilot on synthetic or anonymised data once the blockers below are
 closed.
 
+`pnpm preflight` reports, for whichever environment it is run in, which of
+these adapters are configured and which are standing in; `docs/credentials.md`
+records what has and has not ever been exercised against a real provider.
+
 ## Blockers
 
 | # | Blocker | Why it blocks | Owner |
@@ -25,9 +29,9 @@ closed.
 | 4 | **Opening balances not signed off** | Wrong opening balances mean untrusted statements, the second-highest risk in the blueprint's register. The import now **enforces** a cut-off date, a source reference and a named approver before balances can be recorded, and posts them to opening equity rather than rental income — but the sign-off itself is still a human act that has not happened. | Operator + accountant |
 | 5 | **Chart of accounts and tax treatment not confirmed** | The posting model is proposed, not validated. | Accountant |
 | 6 | **Deposit rules not legally reviewed** | Interest basis and refund deadlines are deliberately not hardcoded and fail safe, but they must be configured from a reviewed rule pack before deposits are handled. | Legal adviser |
-| 7 | **No restore exercise at production scale** | A 1-second restore of a 448 KB development database proves the procedure, not the recovery time. | Technical lead |
+| 7 | **No restore exercise at production scale** | The rehearsal now runs 18 checks and carries through to a running application that signs a resident in against the restored database — but on a 672 KB development dataset on a local machine. That proves the procedure, not the recovery time. | Technical lead |
 | 8 | **No independent security review** | Self-assessment is not assurance. | External |
-| 9 | **No storage object backup** | Supabase database backups exclude Storage bytes. A restore today would reference documents that no longer exist. | Technical lead |
+| 9 | **No storage object backup** | Supabase database backups exclude Storage bytes. A restore today would reference documents that no longer exist. `scripts/restore-verify.sh` writes the manifest of keys a restored database expects, and checks them where the object store is reachable — but there is nothing to restore them from. | Technical lead |
 
 ## Not blockers, but required before wider launch
 

@@ -69,7 +69,7 @@ requirements it did not reach, and so could not report on.
 |---|---|---|
 | M1 | §31 *Opening balances need a cut off date, source reference and approval.* | **Open.** Import exists; opening balances have no approval step and no recorded sign-off. The blueprint makes an operator-and-accountant signature a precondition for go-live. |
 | M2 | §31 *Import in order: properties, units, residents, leases, schedules, balances and documents. Show errors by row and field before committing.* | **Open.** Row-and-field error reporting is not built. |
-| M3 | §22 recovery targets; §30 *Backup restored into isolated environment: journals balance and original documents are accessible.* | **Open.** `scripts/backup.sh` and `scripts/restore-verify.sh` exist; no rehearsed restore has been run or recorded. |
+| M3 | §22 recovery targets; §30 *Backup restored into isolated environment: journals balance and original documents are accessible.* | **Exercised at development scale.** A restore into an isolated database, 18 of 18 automated checks passing, carried through to the application: `/healthz` reports `tenantIsolation: ok` against the restored database and `pnpm preview:check` signs in and reads the resident's closing balance from it. Measured numbers and the two defects the rehearsal found are in `docs/runbooks/recovery.md`. **Still open:** the §22 recovery *targets*, which are a production-scale measurement on production-class infrastructure, and object storage recovery, for which no object backup exists. |
 | M4 | §26 *Target ordinary page data reads under one second… Publish findings against the actual plan and dataset.* | **Open.** No load model, no measurements. The blueprint's test dataset is 50 organisations, 5,000 units, five years of charges. |
 | M5 | §13 *Authenticate the sending domain with the provider's required DNS records.* | **Open — external.** Email is behind an adapter and honest about non-delivery, but no provider is configured. Requires a purchase and a DNS change: explicit authorisation needed. |
 | M6 | §21 legal workstream — every row requires review *before activation*. | **Open — not an engineering task.** The master lease is drafted from the user's own two documents and is unreviewed by counsel. It must not be presented as legally settled. |
@@ -181,8 +181,22 @@ complete vertical workflow"*.
 19. ~~Actionable exception queues~~ — **done**. Every tile on the overview
    opens the records it counted, with the same filter applied; the expenses
    screen is paged and its two queues are links into themselves.
-20. Pilot readiness: production-intended adapters exercised in isolated staging,
-   missing credentials documented honestly, restore rehearsed (M3).
+20. Pilot readiness. **Partly done.**
+   * ~~Restore rehearsed~~ — **done** (M3 above), including the application
+     coming up against the restored database and a real sign-in on it.
+   * ~~Missing credentials documented honestly~~ — **done**. `docs/credentials.md`
+     registers every variable, what breaks without it, and whether it has ever
+     been exercised against the real service. No row reads "Real service".
+   * ~~A preflight that reads the environment and says what is standing in for
+     what~~ — **done**. `pnpm preflight` reports configuration; `--probe`
+     contacts the configured services without sending mail, scanning a file or
+     writing a customer record; `--strict` makes a gap a failure.
+   * **Still open: production-intended adapters exercised in isolated staging.**
+     No staging environment exists and every external account (Supabase, an
+     email provider, a clamd host) requires its own authorisation and, in two
+     cases, a purchase. The rehearsal procedure is written down in
+     `docs/credentials.md`; it has not been run, and nothing in this repository
+     claims otherwise.
 
 ## 6. What cannot be verified here, and why
 
@@ -192,7 +206,10 @@ instructions repeat it.
 - **No bank feed and no statement import.** Every receipt in the product was
   entered by a person who saw the money in the account. Nothing invents a
   receipt, and nothing turns a resident's claim into one.
-- **No external service has ever been contacted.** Email, payment, signature
+- **No external service has ever been contacted.** `docs/credentials.md` is the
+  register of what that leaves unverified, variable by variable, and
+  `pnpm preflight` reports the same thing about whichever environment it is run
+  in. Email, payment, signature
   and accounting adapters have never run against a real provider. §24's
   qualification column is unanswered for every integration. In particular
   **PropertyOS never contacts a bank**: a bank account marked verified was
@@ -205,8 +222,11 @@ instructions repeat it.
   service.
 - **No production deployment, and no staging environment exists.** Everything
   below is from a local development container.
-- **No restore has been rehearsed**, so the §22 recovery targets are
-  aspirations, not measurements.
+- **A restore has been rehearsed, at development scale only.** It passes 18
+  automated checks and the application comes up against it, but the §22 recovery
+  *targets* remain aspirations: a 1-second restore of a 672 KB database on a
+  local machine is not a recovery time. No object backup exists, so document
+  bytes have never been recovered from one.
 - **No legal review** of the lease, notices, deposit rules or money flow. This
   matters most for deposits: PropertyOS records who approved a deduction and on
   what evidence, and deliberately encodes no rule about which deductions,

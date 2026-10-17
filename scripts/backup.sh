@@ -15,7 +15,16 @@ mkdir -p "$BACKUP_DIR"
 
 echo "Backing up to ${TARGET}"
 # Custom format so pg_restore can be selective, and compressed.
-pg_dump --format=custom --compress=9 --no-owner --no-privileges \
+#
+# --no-owner, because the role that restores is rarely the role that owned the
+# objects. NOT --no-privileges: the grants to propertyos_app are what make the
+# restored database usable by the application at all. A rehearsal with the
+# privileges stripped restored cleanly and then answered "permission denied for
+# table leases" to the application role, which is a recovery that has not
+# recovered anything. The target cluster must therefore carry the roles before
+# the restore; scripts/restore-verify.sh creates them, and docs/deployment.md
+# has them for a real one.
+pg_dump --format=custom --compress=9 --no-owner \
         --file="$TARGET" "$DATABASE_URL"
 
 # A checksum, so a corrupted archive is detected before it is relied on.

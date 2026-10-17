@@ -7,6 +7,7 @@
   "scripts": {
     "build": "pnpm -r --filter \"./packages/**\" build && pnpm --filter @propertyos/web build",
     "preview": "./scripts/preview.sh",
+    "preflight": "pnpm --filter @propertyos/worker exec tsx src/preflight.ts",
     "preview:reset": "./scripts/preview.sh --reset",
     "preview:check": "pnpm --filter @propertyos/tests exec playwright test -c playwright.config.ts --project=desktop preview-smoke",
     "dev": "pnpm --filter @propertyos/web dev",

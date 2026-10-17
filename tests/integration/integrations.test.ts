@@ -16,8 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   EICAR_TEST_STRING, LocalFilesystemStorage, SmtpEmailAdapter, assertSafeKey,
-  interpret, resolveEmailAdapter, scanDocument, scanWithClamAv, sendViaSmtp,
-  signObjectToken, verifyObjectToken,
+  interpret, pingClamAv, resolveEmailAdapter, scanDocument, scanWithClamAv,
+  sendViaSmtp, signObjectToken, verifyObjectToken, verifySmtpConnection,
 } from '@propertyos/integrations';
 
 /* ------------------------------------------------------------------ SMTP */
@@ -211,6 +211,46 @@ describe('SMTP delivery', () => {
       .toBe('sink');
     expect(resolveEmailAdapter({} as NodeJS.ProcessEnv).name).toBe('sink');
   });
+
+  /* The preflight check. It must prove the path real delivery takes, and must
+     not put anything in anybody's inbox doing it. */
+
+  it('verifies a connection without sending a message', async () => {
+    const { server, port, captured } = await startSmtpServer();
+    open = server;
+
+    await expect(
+      verifySmtpConnection({
+        host: '127.0.0.1', port, user: 'apikey', password: 'secret',
+        from: 'PropertyOS <no-reply@spike.invalid>',
+      }),
+    ).resolves.toBeUndefined();
+
+    // The whole point: authentication was exercised, and no mail exists.
+    expect(captured).toHaveLength(0);
+  });
+
+  it('fails verification when the credentials are rejected', async () => {
+    const { server, port } = await startSmtpServer({ rejectAuth: true });
+    open = server;
+
+    await expect(
+      verifySmtpConnection({
+        host: '127.0.0.1', port, user: 'apikey', password: 'wrong',
+        from: 'PropertyOS <no-reply@spike.invalid>',
+      }),
+    ).rejects.toThrow(/535|Authentication/i);
+  });
+
+  it('fails verification when nothing is listening', async () => {
+    // Port 1 is privileged and unused; connecting refuses immediately.
+    await expect(
+      verifySmtpConnection({
+        host: '127.0.0.1', port: 1, user: 'u', password: 'p',
+        from: 'PropertyOS <no-reply@spike.invalid>',
+      }),
+    ).rejects.toThrow();
+  });
 });
 
 /* --------------------------------------------------------------- ClamAV */
@@ -331,6 +371,29 @@ describe('ClamAV scanning', () => {
     );
     expect(outcome.status).toBe('failed');
   });
+
+  it('reports the daemon version without scanning anything', async () => {
+    // A ping gets the same single-command treatment as a scan: clamd answers
+    // one command per connection unless the session is opened with IDSESSION.
+    const server = createServer((socket) => {
+      socket.on('data', () => { socket.write('ClamAV 1.0.3/27000/Fri Oct 17 2026\0'); socket.end(); });
+      socket.on('error', () => {});
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    open = server;
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const result = await pingClamAv({ host: '127.0.0.1', port });
+    expect(result.status).toBe('available');
+    if (result.status === 'available') expect(result.version).toContain('ClamAV 1.0.3');
+  });
+
+  it('reports the daemon unavailable rather than assuming it is there', async () => {
+    const result = await pingClamAv({ host: '127.0.0.1', port: 1, timeoutMs: 2_000 });
+    expect(result.status).toBe('unavailable');
+  });
+
 });
 
 /* -------------------------------------------------------------- storage */
