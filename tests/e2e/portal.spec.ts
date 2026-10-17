@@ -16,14 +16,17 @@ test.describe('resident portal', () => {
   });
 
   test('shows the amount due from posted records', async ({ page }) => {
-    await expect(page.getByText('Amount due')).toBeVisible();
+    await expect(page.getByText('Due now')).toBeVisible();
     await expect(page.getByText('R1,850.00').first()).toBeVisible();
   });
 
   test('states that uploaded evidence has not changed the balance', async ({ page }) => {
     await expect(page.getByText('Awaiting verification')).toBeVisible();
+    // The wording moved with the design pass; the promise did not. Evidence is
+    // a claim awaiting verification, and the figure above it does not move
+    // until the money is confirmed against the bank record.
     await expect(
-      page.getByText(/balance above will only change once the payment is confirmed/i),
+      page.getByText(/has not changed yet and will not until the money is confirmed/i),
     ).toBeVisible();
   });
 

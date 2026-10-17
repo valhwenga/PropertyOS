@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Card, EmptyState, Money, PageHeader } from '@propertyos/ui';
+import { Card, EmptyState, Money, PageHeader, StatusBadge } from '@propertyos/ui';
 import { readAs, requireViewer } from '@/lib/auth';
+import { loadTenancies } from '@/lib/portal-queries';
+import { formatDate } from '@/lib/format';
 
 export const metadata = { title: 'Your home' };
 export const dynamic = 'force-dynamic';
@@ -12,23 +14,21 @@ export default async function PortalHome() {
     redirect(`/portal/${viewer.residentLeases[0]!.leaseId}`);
   }
 
-  const leases = await readAs(viewer, async (tx) =>
-    tx<{ id: string; reference: string; unit_label: string; currency_code: string;
-         receivable_minor: string }[]>`
-      select l.id, l.reference, l.currency_code,
-             p.name || ' / ' || u.code as unit_label,
-             coalesce(lb.receivable_minor, 0)::text as receivable_minor
-      from leases l
-      join properties p on p.id = l.property_id
-      join units u on u.id = l.unit_id
-      left join lease_balances lb on lb.lease_id = l.id
-      order by l.start_date desc
-    `,
-  );
+  // Scoped to the leases this person holds a portal link to, which is what
+  // the viewer resolved from `portal_links`. The query used to select every
+  // lease row RLS allowed: their own while they are only a resident, and the
+  // whole organisation's for somebody who is also a member of staff. A
+  // landlord renting a flat from their own agency would have opened the portal
+  // and found the portfolio in it.
+  const leases = await readAs(viewer, (tx) =>
+    loadTenancies(tx, viewer.residentLeases.map((l) => l.leaseId)));
 
   return (
     <div className="space-y-5">
-      <PageHeader title={`Hello, ${viewer.fullName}`} description="Your leases" />
+      <PageHeader
+        title={`Hello, ${viewer.fullName}`}
+        description={leases.length === 1 ? 'Your tenancy' : 'Your tenancies'}
+      />
       {leases.length === 0 ? (
         <EmptyState
           title="No active lease access"
@@ -41,11 +41,20 @@ export default async function PortalHome() {
               <Card className="flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-ink-900">{l.unit_label}</p>
-                  <p className="text-xs text-ink-500">{l.reference}</p>
+                  <p className="text-xs text-ink-500">
+                    {l.reference}
+                    {l.end_date ? ` · ends ${formatDate(l.end_date)}` : ''}
+                  </p>
                 </div>
-                <div className="text-right">
-                  <Money minor={l.receivable_minor} currency={l.currency_code} emphasise />
-                  <p className="text-xs text-ink-400">due</p>
+                <div className="shrink-0 text-right">
+                  {BigInt(l.receivable_minor) > 0n ? (
+                    <>
+                      <Money minor={l.receivable_minor} currency={l.currency_code} emphasise />
+                      <p className="text-xs text-ink-400">due</p>
+                    </>
+                  ) : (
+                    <StatusBadge tone="positive" glyph="✓">Up to date</StatusBadge>
+                  )}
                 </div>
               </Card>
             </Link>
