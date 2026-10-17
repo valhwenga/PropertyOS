@@ -87,9 +87,17 @@ test.describe('resident portal invitation', () => {
 
     const inviteButton = coLessee.getByRole('button', { name: /Invite/ });
     if (await inviteButton.count() === 0) {
-      // A previous run already invited them. Take the access away first, so
-      // this run exercises the invitation rather than skipping it.
-      await reveal(page, 'Withdraw the invitation', page.getByLabel('Why'));
+      // A previous run already invited them, or invited AND redeemed: an
+      // invitation is withdrawn and live access is taken away, and the panel
+      // says which, so this takes whichever it is offered. Assuming only the
+      // first left the second run waiting five minutes for a button that was
+      // never going to appear.
+      const undo = (await page
+        .getByRole('button', { name: 'Withdraw the invitation' })
+        .count()) > 0
+        ? 'Withdraw the invitation'
+        : 'Take access away';
+      await reveal(page, undo, page.getByLabel('Why'));
       await page.getByLabel('Why').fill(`Re-running the browser test ${stamp}.`);
       await page.getByRole('button', { name: 'Confirm' }).click();
       await page.waitForTimeout(2_000);
