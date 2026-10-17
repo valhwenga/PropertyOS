@@ -30,13 +30,20 @@ async function visibleText(page: import('@playwright/test').Page): Promise<strin
   });
 }
 
+/**
+ * Opens a disclosure and checks it opened.
+ *
+ * `within` is the locator the BUTTON is looked for in, which is not always the
+ * page: a resident row and a co-lessee row offer the same buttons, so a
+ * page-wide search can act on the wrong person.
+ */
 async function reveal(
-  page: import('@playwright/test').Page,
+  within: import('@playwright/test').Page | import('@playwright/test').Locator,
   button: string,
   field: import('@playwright/test').Locator,
 ): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    await page.getByRole('button', { name: button }).first().click();
+    await within.getByRole('button', { name: button }).first().click();
     if (await field.isVisible({ timeout: 4_000 }).catch(() => false)) return;
   }
   throw new Error(`"${button}" never revealed its form`);
@@ -92,12 +99,16 @@ test.describe('resident portal invitation', () => {
       // says which, so this takes whichever it is offered. Assuming only the
       // first left the second run waiting five minutes for a button that was
       // never going to appear.
-      const undo = (await page
+      // Scoped to this co-lessee's own row. Asked of the whole page, "Take
+      // access away" matches the PRIMARY resident's row too — and taking her
+      // access away broke every resident-portal spec that followed, which is a
+      // far louder way to learn that a locator was too wide.
+      const undo = (await coLessee
         .getByRole('button', { name: 'Withdraw the invitation' })
         .count()) > 0
         ? 'Withdraw the invitation'
         : 'Take access away';
-      await reveal(page, undo, page.getByLabel('Why'));
+      await reveal(coLessee, undo, page.getByLabel('Why'));
       await page.getByLabel('Why').fill(`Re-running the browser test ${stamp}.`);
       await page.getByRole('button', { name: 'Confirm' }).click();
       await page.waitForTimeout(2_000);

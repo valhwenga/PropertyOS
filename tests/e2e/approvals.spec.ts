@@ -78,8 +78,15 @@ test.describe('approvals', () => {
     expect(org).toBeTruthy();
 
     await page.goto(`${org}/deposits`, { waitUntil: 'domcontentloaded' });
-    const depositHref = await page.locator('a[href*="/deposits/"]').first().getAttribute('href');
-    expect(depositHref, 'the demo has no deposit account to act on').toBeTruthy();
+    // The seeded lease, by its reference. Requesting a payout needs a document
+    // on the lease to attach as evidence, and only the seeded one has one —
+    // other specs import portfolios, so "the first deposit" is not a fixture.
+    const depositHref = await page
+      .locator('tr', { hasText: /LSE-\d+/ })
+      .locator('a[href*="/deposits/"]:not([href$="/deposits"])')
+      .first()
+      .getAttribute('href');
+    expect(depositHref, 'the demo has no seeded deposit account to act on').toBeTruthy();
     await page.goto(depositHref!, { waitUntil: 'domcontentloaded' });
 
     const heldBefore = await heldNow(page);
