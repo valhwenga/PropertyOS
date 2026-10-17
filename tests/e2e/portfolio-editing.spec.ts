@@ -97,8 +97,12 @@ test.describe('portfolio editing', () => {
     expect(occupied, 'the demo unit is expected to carry a live lease').toBe(true);
 
     // The refusal is stated before anything is filled in, and names the lease.
+    // Which lease depends on which property the demo lists first, and an
+    // imported portfolio carries the operator's own references rather than the
+    // seed's LSE-nnn — so this asks that a reference is named, not that it
+    // looks like the seed's.
     expect(unit).toContain('cannot be retired');
-    expect(unit).toMatch(/LSE-\d+/);
+    expect(unit).toMatch(/cannot be retired: lease \S+ is still/);
     expect(unit).toContain('would hide the arrangement rather than end it');
     await expect(page.getByRole('button', { name: 'Retire this unit' })).toHaveCount(0);
 
@@ -108,20 +112,35 @@ test.describe('portfolio editing', () => {
     await expect(advertised).toBeVisible();
     expect(unit).toContain('changed by a renewal — never from here');
 
+    // The lease on this unit, and the rent it is actually charging, read from
+    // the row itself. Hard-coding the seed's R8,000 tied this assertion to
+    // whichever property happened to sort first, and an imported portfolio put
+    // a different one there — so the invariant was reported as broken when all
+    // that had changed was the fixture.
+    const leaseReference = /cannot be retired: lease (\S+) is still/.exec(unit)?.[1] ?? '';
+    expect(leaseReference, 'the unit did not name the lease on it').toBeTruthy();
+
+    await page.goto(propertyHref!, { waitUntil: 'domcontentloaded' });
+    const row = page.locator('tr', { hasText: leaseReference }).first();
+    const moneyBefore = (await row.innerText()).match(/R[\d,]+\.\d{2}/g) ?? [];
+    const leaseRent = moneyBefore[0];
+    expect(leaseRent, 'the unit row shows no rent').toBeTruthy();
+    await page.goto(unitHref!, { waitUntil: 'domcontentloaded' });
+
     const rand = 7000 + Number(String(Date.now()).slice(-3));
     const marker = `${rand}.00`;
     // What the table will actually render: grouped with commas and carrying the
     // symbol. Node's own `toLocaleString('en-ZA')` groups with spaces, so
     // borrowing it here would assert a format the app never produces.
     const rendered = `R${String(rand).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.00`;
-    await advertised.fill(marker);
+    await page.getByLabel(/Advertised rent/).fill(marker);
     await page.getByRole('button', { name: 'Save the unit' }).click();
     await page.waitForURL(/\/portfolio\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 
-    const afterUnit = await visibleText(page);
+    const afterRow = await page.locator('tr', { hasText: leaseReference }).first().innerText();
     // The advertised figure moved; the lease's own rent did not follow it.
-    expect(afterUnit).toContain(rendered);
-    expect(afterUnit).toContain('R8,000.00');
+    expect(afterRow).toContain(rendered);
+    expect(afterRow).toContain(leaseRent!);
 
     /* ----------------------- 5. archiving refuses while units are active */
 

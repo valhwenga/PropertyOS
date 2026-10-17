@@ -87,7 +87,18 @@ test.describe('deposits', () => {
     expect(register).toContain('A deposit shortfall is never billed as rent');
 
     await reveal(page, 'Record a deposit received', page.getByLabel('Lease'));
-    await page.getByLabel('Lease').selectOption({ index: 1 });
+
+    // The seeded demo lease, by name rather than by position. Approving a payout
+    // needs a document on the lease to serve as evidence, and only the seeded
+    // one has it — other specs import portfolios, so whichever lease happens to
+    // sort first is not a fixture. Picking by position left this spec on an
+    // imported lease with no documents, where the product correctly offers no
+    // payout at all and the test waited four minutes for a button it was right
+    // to withhold.
+    const leaseField = page.getByLabel('Lease');
+    const seeded = await leaseField.locator('option', { hasText: 'LSE-' }).first().textContent();
+    expect(seeded, 'the demo seed has no LSE- lease to use as a fixture').toBeTruthy();
+    await leaseField.selectOption({ label: seeded! });
     await page.getByLabel('Amount received').fill('1500.00');
     await page.getByLabel('Description').fill('Deposit top-up on review');
     await page.getByRole('button', { name: 'Record deposit' }).click();
@@ -114,11 +125,13 @@ test.describe('deposits', () => {
     // waitForLoadState races: the load state can settle on the page the test
     // started from, and the failure then reads as a missing heading rather
     // than as navigation that never happened.
+    const reference = /LSE-\d+/.exec(seeded!)?.[0] ?? '';
     const href = await page
+      .locator('tr', { hasText: reference })
       .locator('a[href*="/deposits/"]:not([href$="/deposits"])')
       .first()
       .getAttribute('href');
-    expect(href, 'no deposit row linked to a deposit').toBeTruthy();
+    expect(href, `no deposit row linked to ${reference}`).toBeTruthy();
     await page.goto(href!, { waitUntil: 'domcontentloaded' });
 
     const detail = await visibleText(page);

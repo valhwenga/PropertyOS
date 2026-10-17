@@ -27,6 +27,9 @@ const ADMIN = 'admin@demo.invalid';
 
 /** Distinct codes per run, so a second run does not collide with the first. */
 const RUN = String(Date.now()).slice(-6);
+/* Everything this spec creates is labelled [TEST], because it lands in the same
+   demo portfolio an operator is looking at, and because a sibling spec reading
+   "the first property" should at least be able to see what it has picked up. */
 const PROPERTY = `IMP${RUN}`;
 const RESIDENT = `IMPRES${RUN}`;
 const LEASE = `IMPL${RUN}`;
@@ -111,8 +114,8 @@ test.describe('portfolio import', () => {
       'properties',
       [
         'code,name,property_type,address_line1,suburb,city,province,postal_code,portfolio_code',
-        `${PROPERTY},12 Jacaranda Avenue,house,12 Jacaranda Avenue,Rosebank,Johannesburg,Gauteng,2196,`,
-        `${PROPERTY}X,8 Aloe Close,castle,8 Aloe Close,Rosebank,Johannesburg,Gauteng,2196,`,
+        `${PROPERTY},[TEST] Imported house,house,12 Jacaranda Avenue,Rosebank,Johannesburg,Gauteng,2196,`,
+        `${PROPERTY}X,[TEST] Bad row,castle,8 Aloe Close,Rosebank,Johannesburg,Gauteng,2196,`,
       ].join('\n'),
     );
 
@@ -176,7 +179,7 @@ test.describe('portfolio import', () => {
       'properties',
       [
         'code,name,property_type,address_line1,suburb,city,province,postal_code,portfolio_code',
-        `${PROPERTY},12 Jacaranda Avenue,house,12 Jacaranda Avenue,Rosebank,Johannesburg,Gauteng,2196,`,
+        `${PROPERTY},[TEST] Imported house,house,12 Jacaranda Avenue,Rosebank,Johannesburg,Gauteng,2196,`,
       ].join('\n'),
     );
 
