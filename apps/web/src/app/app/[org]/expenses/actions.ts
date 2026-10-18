@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import {
   approveExpense, createVendor, parseMajorToMinor, payExpense, recordExpense,
-  updateDraftExpense, voidExpense,
+  updateDraftExpense, voidExpense, withIdempotency,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
@@ -42,10 +42,21 @@ export async function recordExpenseAction(_previous: unknown, formData: FormData
   const org = str(formData, 'org');
   const result = await command(async ({ tx, viewer }) => {
     const context = await requireOperator(org);
-    return recordExpense(
-      tx, context.organisationId, viewer.authUserId,
-      expenseFields(formData, context.currencyCode),
+    const input = expenseFields(formData, context.currencyCode);
+    const { result: expense, replayed } = await withIdempotency(
+      tx,
+      {
+        organisationId: context.organisationId, actorUserId: viewer.authUserId,
+        command: 'expense.record', key: str(formData, 'submissionKey'), payload: input,
+      },
+      async () => {
+        const drafted = await recordExpense(
+          tx, context.organisationId, viewer.authUserId, input,
+        );
+        return { expenseId: drafted.expenseId };
+      },
     );
+    return { ...expense, replayed };
   });
   if (result.ok) revalidatePath(`/app/${org}/expenses`);
   return result;

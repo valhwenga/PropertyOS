@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import {
   allocateReceipt, confirmReceipt, identifySuspenseReceipt, parseMajorToMinor,
-  reverseAllocation, reviewPaymentEvidence, suggestAllocation,
+  reverseAllocation, reviewPaymentEvidence, suggestAllocation, withIdempotency,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
@@ -41,7 +41,7 @@ export async function recordReceiptAction(_previous: unknown, formData: FormData
   const result = await command(async ({ tx, viewer }) => {
     const context = await requireOperator(org);
     const leaseId = str(formData, 'leaseId');
-    return confirmReceipt(tx, context.organisationId, viewer.authUserId, {
+    const input = {
       // No lease means the payer is not identified, and the domain puts the
       // money in suspense rather than guessing.
       leaseId: leaseId || undefined,
@@ -58,7 +58,35 @@ export async function recordReceiptAction(_previous: unknown, formData: FormData
       // line would stay on the worklist beside the receipt it produced, and
       // somebody would eventually receipt it twice.
       bankTransactionId: str(formData, 'bankTransactionId') || undefined,
-    });
+    };
+
+    // Recording the same money twice is the expensive mistake on this screen,
+    // and the ordinary causes are a second click and a resubmitted request.
+    // The key comes from the form instance, so two deliberate payments of the
+    // same amount on the same day remain two payments.
+    const { result: receipt, replayed } = await withIdempotency(
+      tx,
+      {
+        organisationId: context.organisationId,
+        actorUserId: viewer.authUserId,
+        command: 'receipt.record',
+        key: str(formData, 'submissionKey'),
+        payload: input,
+      },
+      async () => {
+        const recorded = await confirmReceipt(
+          tx, context.organisationId, viewer.authUserId, input,
+        );
+        // Only what the screen needs, and all of it JSON-safe, so a replayed
+        // answer is the same shape as the first one rather than nearly.
+        return {
+          receiptId: recorded.receiptId,
+          receiptNumber: recorded.receiptNumber,
+          inSuspense: recorded.inSuspense,
+        };
+      },
+    );
+    return { ...receipt, replayed };
   });
   if (result.ok) {
     revalidatePath(`/app/${org}/reconciliation`);

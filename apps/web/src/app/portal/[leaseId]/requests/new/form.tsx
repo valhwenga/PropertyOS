@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
+import { useSubmissionKey } from '@/components/submission-key';
 import { Button, Card, ErrorState } from '@propertyos/ui';
 import { submitMaintenanceRequest } from '../../actions';
 
@@ -19,6 +20,7 @@ const CATEGORIES = [
 
 export function MaintenanceRequestForm({ leaseId }: { leaseId: string }) {
   const [state, action, pending] = useActionState(submitMaintenanceRequest, null);
+  const submissionKey = useSubmissionKey(Boolean(state?.ok));
 
   if (state?.ok) {
     return (
@@ -35,6 +37,8 @@ export function MaintenanceRequestForm({ leaseId }: { leaseId: string }) {
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="leaseId" value={leaseId} />
+      {/* One key per intended submission: a second tap adds nothing. */}
+      <input type="hidden" name="submissionKey" value={submissionKey} />
 
       {state && !state.ok ? (
         <ErrorState

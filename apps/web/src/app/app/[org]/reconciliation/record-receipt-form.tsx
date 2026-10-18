@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useActionState, useState } from 'react';
+import { useSubmissionKey } from '@/components/submission-key';
 import { Button, Card, ErrorState } from '@propertyos/ui';
 import { recordReceiptAction, reviewEvidenceAction } from './actions';
 
@@ -39,6 +40,7 @@ export function RecordReceiptForm({
 }) {
   const [state, action, pending] = useActionState(recordReceiptAction, null);
   const [open, setOpen] = useState(Boolean(prefill));
+  const submissionKey = useSubmissionKey(Boolean(state?.ok));
 
   if (!open) {
     return (
@@ -52,6 +54,8 @@ export function RecordReceiptForm({
     <Card className="p-5">
       <form action={action} className="space-y-4">
         <input type="hidden" name="org" value={org} />
+        {/* One key per intended entry: a second click records nothing new. */}
+        <input type="hidden" name="submissionKey" value={submissionKey} />
         {prefill?.bankTransactionId ? (
           <input type="hidden" name="bankTransactionId" value={prefill.bankTransactionId} />
         ) : null}
@@ -71,7 +75,9 @@ export function RecordReceiptForm({
         <Problem state={state} />
         {state?.ok ? (
           <p className="text-sm font-semibold text-positive-600">
-            Receipt recorded.{' '}
+            {'replayed' in state && state.replayed
+              ? 'Already recorded — this was the same entry, so nothing was recorded twice. '
+              : 'Receipt recorded. '}
             {'inSuspense' in state && state.inSuspense
               ? 'It is in suspense until you say whose it is.'
               : 'Open it to apply the money to charges.'}

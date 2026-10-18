@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import {
   approveDepositPayout, approvePayoutRequest, closeDepositAccount, creditDepositInterest,
   declinePayoutRequest, parseMajorToMinor, recordDepositReceipt, requestDepositPayout,
+  withIdempotency,
   withdrawPayoutRequest,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
@@ -25,7 +26,7 @@ export async function recordDepositReceiptAction(_previous: unknown, formData: F
   const org = str(formData, 'org');
   const result = await command(async ({ tx, viewer }) => {
     const context = await requireOperator(org);
-    return recordDepositReceipt(tx, context.organisationId, viewer.authUserId, {
+    const input = {
       leaseId: str(formData, 'leaseId'),
       amountMinor: parseMajorToMinor(str(formData, 'amount'), context.currencyCode),
       receivedOn: str(formData, 'receivedOn'),
@@ -34,7 +35,24 @@ export async function recordDepositReceiptAction(_previous: unknown, formData: F
       holderReference: str(formData, 'holderReference') || undefined,
       bankReference: str(formData, 'bankReference') || undefined,
       description: str(formData, 'description') || undefined,
-    });
+    };
+    // Deposit money is the resident's, and a duplicate here overstates what is
+    // held on their behalf — a worse error than overstating rent, because the
+    // correction is somebody else's money.
+    const { result: recorded, replayed } = await withIdempotency(
+      tx,
+      {
+        organisationId: context.organisationId, actorUserId: viewer.authUserId,
+        command: 'deposit.record', key: str(formData, 'submissionKey'), payload: input,
+      },
+      async () => {
+        const event = await recordDepositReceipt(
+          tx, context.organisationId, viewer.authUserId, input,
+        );
+        return { depositAccountId: event.depositAccountId, eventId: event.eventId };
+      },
+    );
+    return { ...recorded, replayed };
   });
   if (result.ok) revalidatePath(`/app/${org}/deposits`);
   return result;

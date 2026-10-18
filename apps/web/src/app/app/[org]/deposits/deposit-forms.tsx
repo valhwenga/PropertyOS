@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import { useSubmissionKey } from '@/components/submission-key';
 import { Button, Card, ErrorState } from '@propertyos/ui';
 import {
   approveDepositPayoutAction, approvePayoutRequestAction, closeDepositAccountAction, creditDepositInterestAction, decidePayoutRequestAction, recordDepositReceiptAction, requestDepositPayoutAction,
@@ -46,6 +47,7 @@ export function RecordDepositForm({
   org: string; today: string; leases: Choice[];
 }) {
   const [state, action, pending] = useActionState(recordDepositReceiptAction, null);
+  const submissionKey = useSubmissionKey(Boolean(state?.ok));
   const [open, setOpen] = useState(false);
 
   if (!open) {
@@ -60,6 +62,8 @@ export function RecordDepositForm({
     <Card className="p-5">
       <form action={action} className="space-y-4">
         <input type="hidden" name="org" value={org} />
+        {/* One key per intended submission: a second tap adds nothing. */}
+        <input type="hidden" name="submissionKey" value={submissionKey} />
         <h2 className="text-sm font-semibold text-ink-900">Record a deposit received</h2>
         <p className="text-sm text-ink-500">
           Money held on the resident&rsquo;s behalf. It is not rental income, it does not reduce

@@ -147,6 +147,12 @@ way that fails safe until someone with the relevant authority decides.
   application, redeeming a tenancy invitation) will also buffer a body that
   large. Moving uploads to route handlers, which stream and can be limited
   individually, would remove that exposure and is not done.
+* **Idempotency covers the commands that create records, not every command.**
+  Recording a receipt or a deposit, drafting an expense, and a resident's proof
+  of payment or maintenance request are each protected by a per-form key. The
+  approvals, reversals and edits are not: they act on a record that already
+  exists and are guarded by its own state instead — an approved payout cannot
+  be approved twice. Extending the keys to those is worth doing and is not done.
 * **The customer export is built in memory.** The archive is assembled whole
   before it is sent, which bounds it to what the process can hold. That is
   comfortable for the portfolio sizes this product is for and would need to

@@ -11,7 +11,7 @@ import {
   draftLease, parseMajorToMinor, postCharge,
 } from '@propertyos/domain';
 import { validateUpload, scanDocument, resolveEmailAdapter, DOCUMENT_CONSTRAINTS } from '@propertyos/integrations';
-import { as, closeOwner, createOrganisation, ownerSql, type OrganisationFixture } from '../support/factories.js';
+import { addMember, as, closeOwner, createOrganisation, ownerSql, type OrganisationFixture } from '../support/factories.js';
 
 const R = (v: string) => parseMajorToMinor(v, 'ZAR');
 
@@ -249,17 +249,33 @@ describe('Provider events arrive twice or out of order', () => {
     const sql = ownerSql();
     const payloadA = Buffer.from('a'.repeat(64), 'hex');
     await sql`
-      insert into idempotency_keys (organisation_id, command, key, payload_sha256, status)
-      values (${org.organisationId}, 'billing.post', 'run-2026-01', ${payloadA}, 'succeeded')
+      insert into idempotency_keys (organisation_id, actor_user_id, command, key,
+        payload_sha256, status)
+      values (${org.organisationId}, ${org.adminUserId}, 'billing.post', 'run-2026-01',
+              ${payloadA}, 'succeeded')
     `;
     // Replaying the same key is a conflict the caller resolves by reading the
     // stored result, never by performing the work twice.
     await expect(
       sql`
-        insert into idempotency_keys (organisation_id, command, key, payload_sha256, status)
-        values (${org.organisationId}, 'billing.post', 'run-2026-01', ${payloadA}, 'in_progress')
+        insert into idempotency_keys (organisation_id, actor_user_id, command, key,
+          payload_sha256, status)
+        values (${org.organisationId}, ${org.adminUserId}, 'billing.post', 'run-2026-01',
+                ${payloadA}, 'in_progress')
       `,
     ).rejects.toThrow(/duplicate key/);
+
+    // The key binds the ACTOR too (0052), so the same key from a colleague is
+    // a different request rather than a collision they cannot explain.
+    const colleague = await addMember(org.organisationId, 'Idempotency Clerk', ['finance_preparer']);
+    await expect(
+      sql`
+        insert into idempotency_keys (organisation_id, actor_user_id, command, key,
+          payload_sha256, status)
+        values (${org.organisationId}, ${colleague}, 'billing.post', 'run-2026-01',
+                ${payloadA}, 'succeeded')
+      `,
+    ).resolves.toBeDefined();
   });
 });
 

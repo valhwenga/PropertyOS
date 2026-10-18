@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import { useSubmissionKey } from '@/components/submission-key';
 import { Button, Card, ErrorState } from '@propertyos/ui';
 import {
   approveExpenseAction, createVendorAction, payExpenseAction, recordExpenseAction,
@@ -143,6 +144,7 @@ export function RecordExpenseForm({
   org: string; properties: Choice[]; vendors: Choice[]; invoices: Choice[]; today: string;
 }) {
   const [state, action, pending] = useActionState(recordExpenseAction, null);
+  const submissionKey = useSubmissionKey(Boolean(state?.ok));
   const [open, setOpen] = useState(false);
 
   if (!open) {
@@ -157,6 +159,8 @@ export function RecordExpenseForm({
     <Card className="p-5">
       <form action={action} className="space-y-4">
         <input type="hidden" name="org" value={org} />
+        {/* One key per intended submission: a second tap adds nothing. */}
+        <input type="hidden" name="submissionKey" value={submissionKey} />
         <h2 className="text-sm font-semibold text-ink-900">Record a cost</h2>
         <p className="text-sm text-ink-500">
           Saved as a draft. Nothing reaches the ledger until somebody with the approval

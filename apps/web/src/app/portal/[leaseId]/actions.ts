@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import {
   createTicket, parseMajorToMinor, revealResidentAccountNumber, submitPaymentEvidence,
+  withIdempotency,
 } from '@propertyos/domain';
 import { DomainError } from '@propertyos/domain';
 import { command } from '@/lib/actions';
@@ -54,7 +55,7 @@ export async function submitMaintenanceRequest(_previous: unknown, formData: For
       limit 1
     `;
 
-    return createTicket(tx, organisationId, viewer.authUserId, {
+    const input = {
       propertyId: lease.property_id,
       unitId: lease.unit_id,
       leaseId,
@@ -63,7 +64,24 @@ export async function submitMaintenanceRequest(_previous: unknown, formData: For
       description,
       location: location || undefined,
       urgency: urgency as 'normal',
-    }, { asResident: true });
+    };
+    // A resident tapping twice on a slow connection should not open two
+    // tickets for one broken geyser, and then have to explain the duplicate.
+    const { result: ticket, replayed } = await withIdempotency(
+      tx,
+      {
+        organisationId, actorUserId: viewer.authUserId,
+        command: 'maintenance.request', key: String(formData.get('submissionKey') ?? ''),
+        payload: input,
+      },
+      async () => {
+        const created = await createTicket(
+          tx, organisationId, viewer.authUserId, input, { asResident: true },
+        );
+        return { ticketId: created.ticketId, reference: created.reference };
+      },
+    );
+    return { ...ticket, replayed };
   });
 
   // Both, because the sections split: the new request belongs on the requests
@@ -95,12 +113,30 @@ export async function submitProofOfPayment(_previous: unknown, formData: FormDat
 
     // Deliberately records evidence only. No receipt, no journal, no change to
     // the balance until an operator verifies the funds against the bank record.
-    return submitPaymentEvidence(tx, organisationId, viewer.authUserId, {
+    const input = {
       leaseId,
       claimedAmountMinor: amountMinor,
       claimedPaidAt: paidAt,
       reference: reference || undefined,
-    });
+    };
+    // The portal tells residents not to send the same proof twice. This makes
+    // that true rather than a request: a second submission of the same upload
+    // returns the first one instead of adding to an operator's review queue.
+    const { result: evidence, replayed } = await withIdempotency(
+      tx,
+      {
+        organisationId, actorUserId: viewer.authUserId,
+        command: 'payment.evidence', key: String(formData.get('submissionKey') ?? ''),
+        payload: input,
+      },
+      async () => {
+        const submitted = await submitPaymentEvidence(
+          tx, organisationId, viewer.authUserId, input,
+        );
+        return { evidenceId: submitted.evidenceId };
+      },
+    );
+    return { ...evidence, replayed };
   });
 
   if (result.ok) revalidatePath(`/portal/${leaseId}`);
