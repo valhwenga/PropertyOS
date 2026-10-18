@@ -17,7 +17,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   addBankAccount, auditFacets, auditHistoryFor, changedFields, createResident,
   createStandaloneHouse, listAuditEvents, parseMajorToMinor, updateProperty,
-  updateResident, retireUnit, createUnit,
+  updateResident, retireUnit, createUnit, setResidentIdentityNumber,
 } from '@propertyos/domain';
 import {
   addMember, as, closeOwner, createOrganisation, ownerSql, type OrganisationFixture,
@@ -39,10 +39,19 @@ describe('Audit history', () => {
     const resident = await as(org.adminUserId, (tx) =>
       createResident(tx, org.organisationId, org.adminUserId, {
         firstName: 'Thandiwe', lastName: 'Mokoena',
-        identityNumber: '8001015009087',
       }),
     );
     residentId = resident.residentId;
+    // Capturing an identity number is its own command behind its own
+    // permission. Passing it to createResident looked like capture and was
+    // not: the schema has no such field, so the key was silently dropped and
+    // the "never unredacts" test below was describing a number that was never
+    // there.
+    await as(org.adminUserId, (tx) =>
+      setResidentIdentityNumber(tx, org.organisationId, org.adminUserId, {
+        residentId, identityNumber: '8001015009087',
+      }),
+    );
 
     const house = await as(org.adminUserId, (tx) =>
       createStandaloneHouse(tx, org.organisationId, org.adminUserId, {

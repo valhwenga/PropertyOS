@@ -147,6 +147,13 @@ way that fails safe until someone with the relevant authority decides.
   application, redeeming a tenancy invitation) will also buffer a body that
   large. Moving uploads to route handlers, which stream and can be limited
   individually, would remove that exposure and is not done.
+* **The customer export is built in memory.** The archive is assembled whole
+  before it is sent, which bounds it to what the process can hold. That is
+  comfortable for the portfolio sizes this product is for and would need to
+  become a streamed export before it is not. It also carries no document bytes:
+  the manifest names every attachment with its storage key and SHA-256 so the
+  files can be matched to an object backup, but there is no object backup to
+  match them to.
 * **No load or capacity testing.** Performance under realistic volume is unknown.
 * **No dependency CVE scanning or SAST in CI**, and no independent penetration
   test. See `docs/security-review.md`.

@@ -45,6 +45,14 @@ const SECTIONS = [
       + 'Read-only, and nothing in it can be edited or removed.',
   },
   {
+    href: 'export',
+    permission: 'customer.export' as PermissionKey,
+    title: 'Export your data',
+    description:
+      'Every record this organisation holds, as CSV files you can open anywhere. '
+      + 'Yours to take whenever you want it.',
+  },
+  {
     href: 'support-access',
     permission: 'support.access.manage' as PermissionKey,
     title: 'Spike support access',

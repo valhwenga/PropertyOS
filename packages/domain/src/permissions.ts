@@ -15,7 +15,8 @@ export type PermissionKey =
   | 'maintenance.read' | 'maintenance.manage' | 'maintenance.quote.approve'
   | 'inspection.manage'
   | 'document.read' | 'document.manage' | 'document.identity.read'
-  | 'report.read' | 'period.lock' | 'platform.admin' | 'audit.read';
+  | 'report.read' | 'period.lock' | 'platform.admin' | 'audit.read'
+  | 'customer.export';
 
 /**
  * Server-side authorisation for a command.

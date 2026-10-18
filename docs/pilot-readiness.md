@@ -58,6 +58,11 @@ if the guarantee is broken:
   the driver's behaviour so an upgrade cannot silently introduce floats.
 * **MFA enforcement.** Part of permission resolution in the database, so a
   forgotten check in application code cannot bypass it.
+* **Data portability.** An organisation administrator can take every record
+  this product holds for them — properties, units, people, leases, charges,
+  receipts, allocations, deposits, expenses, and a manifest of every
+  attachment — as documented CSV, at any time, without asking Spike. Leaving is
+  a decision they make, not a negotiation they have to win.
 * **Honest reporting.** Unverified payment evidence has no accounting effect.
   Undelivered email is never recorded as sent. Unscanned files are never
   reported as clean. Dashboard figures reconcile to the records they link to,
