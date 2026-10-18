@@ -1,76 +1,76 @@
 {
-  "measuredAt": "2026-10-18T13:06:33.490Z",
+  "measuredAt": "2026-10-18T17:29:46.884Z",
   "runs": 5,
   "screens": [
     {
       "screen": "Overview",
-      "ttfbMedianMs": 50,
-      "ttfbSlowestMs": 128,
-      "contentMedianMs": 3026,
-      "contentSlowestMs": 3479
+      "ttfbMedianMs": 54,
+      "ttfbSlowestMs": 88,
+      "contentMedianMs": 2532,
+      "contentSlowestMs": 3056
     },
     {
       "screen": "Leases (page 1)",
-      "ttfbMedianMs": 65,
-      "ttfbSlowestMs": 100,
-      "contentMedianMs": 2008,
-      "contentSlowestMs": 2508
+      "ttfbMedianMs": 83,
+      "ttfbSlowestMs": 154,
+      "contentMedianMs": 552,
+      "contentSlowestMs": 636
     },
     {
       "screen": "Portfolio",
-      "ttfbMedianMs": 105,
-      "ttfbSlowestMs": 141,
-      "contentMedianMs": 247,
-      "contentSlowestMs": 306
+      "ttfbMedianMs": 78,
+      "ttfbSlowestMs": 99,
+      "contentMedianMs": 227,
+      "contentSlowestMs": 241
     },
     {
       "screen": "Residents",
-      "ttfbMedianMs": 112,
-      "ttfbSlowestMs": 131,
-      "contentMedianMs": 281,
-      "contentSlowestMs": 337
+      "ttfbMedianMs": 83,
+      "ttfbSlowestMs": 156,
+      "contentMedianMs": 295,
+      "contentSlowestMs": 384
     },
     {
       "screen": "Lease account (5 years)",
-      "ttfbMedianMs": 61,
-      "ttfbSlowestMs": 93,
-      "contentMedianMs": 516,
-      "contentSlowestMs": 564
+      "ttfbMedianMs": 41,
+      "ttfbSlowestMs": 68,
+      "contentMedianMs": 497,
+      "contentSlowestMs": 524
     },
     {
       "screen": "Arrears ageing",
-      "ttfbMedianMs": 54,
-      "ttfbSlowestMs": 115,
-      "contentMedianMs": 973,
-      "contentSlowestMs": 1092
+      "ttfbMedianMs": 66,
+      "ttfbSlowestMs": 89,
+      "contentMedianMs": 584,
+      "contentSlowestMs": 611
     },
     {
       "screen": "Collection report",
-      "ttfbMedianMs": 39,
-      "ttfbSlowestMs": 46,
-      "contentMedianMs": 3451,
-      "contentSlowestMs": 4009
+      "ttfbMedianMs": 32,
+      "ttfbSlowestMs": 40,
+      "contentMedianMs": 3003,
+      "contentSlowestMs": 3996
     },
     {
       "screen": "Rent roll",
-      "ttfbMedianMs": 45,
-      "ttfbSlowestMs": 47,
-      "contentMedianMs": 2974,
-      "contentSlowestMs": 3002
+      "ttfbMedianMs": 34,
+      "ttfbSlowestMs": 61,
+      "contentMedianMs": 728,
+      "contentSlowestMs": 960
     },
     {
       "screen": "Reconciliation",
       "ttfbMedianMs": 36,
-      "ttfbSlowestMs": 39,
-      "contentMedianMs": 948,
-      "contentSlowestMs": 967
+      "ttfbSlowestMs": 46,
+      "contentMedianMs": 908,
+      "contentSlowestMs": 936
     },
     {
       "screen": "Audit trail",
-      "ttfbMedianMs": 65,
-      "ttfbSlowestMs": 109,
-      "contentMedianMs": 255,
-      "contentSlowestMs": 536
+      "ttfbMedianMs": 62,
+      "ttfbSlowestMs": 75,
+      "contentMedianMs": 173,
+      "contentSlowestMs": 219
     }
   ]
 }

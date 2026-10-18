@@ -27,60 +27,93 @@ below. The raw figures, including the slowest run of each, are in
 
 | Screen | Median | Slowest | §26 target (1s) |
 | --- | ---: | ---: | --- |
-| Audit trail | 255ms | 536ms | met |
-| Portfolio | 247ms | 306ms | met |
-| Residents | 281ms | 337ms | met |
-| Lease account (five years of history) | 516ms | 564ms | met |
-| Reconciliation | 948ms | 967ms | met |
-| Arrears ageing | 973ms | 1,092ms | met at the median |
-| Leases, page 1 of 5,000 | 2,008ms | 2,508ms | **not met** |
-| Rent roll | 2,974ms | 3,002ms | **not met** |
-| Overview | 3,026ms | 3,479ms | **not met** |
-| Collection report | 3,451ms | 4,009ms | **not met** |
+| Audit trail | 173ms | 219ms | met |
+| Portfolio | 227ms | 241ms | met |
+| Residents | 295ms | 384ms | met |
+| Lease account (five years of history) | 497ms | 524ms | met |
+| Leases, page 1 of 5,000 | 552ms | 636ms | met |
+| Arrears ageing | 584ms | 611ms | met |
+| Rent roll | 728ms | 960ms | met |
+| Reconciliation | 908ms | 936ms | met |
+| Overview | 2,532ms | 3,056ms | **not met** |
+| Collection report | 3,003ms | 3,996ms | **not met** |
 
-A note on what is NOT being reported. Time to first byte sits at 40–130ms on
+A note on what is NOT being reported. Time to first byte sits at 30–150ms on
 every screen, because the server streams the page shell before the data is
 ready. It is a real number and a useless one: it measures the shell, not the
 read §26 is about. The figures above are time until the content is on screen.
 
 ## What was fixed, and what it was worth
 
-Both were found by reading the plans and the slow-query log, not by guessing.
+Every figure below is before and after on the same dataset and the same
+machine. All of them came from reading plans and the slow-query log.
 
-1. **The lease picker read the whole ledger once per lease.** The reconciliation
+| Screen | Before | After |
+| --- | ---: | ---: |
+| Leases, page 1 | 3,043ms | 552ms |
+| Rent roll | 2,974ms | 728ms |
+| Reconciliation | 2,964ms | 908ms |
+| Arrears ageing | 973ms | 584ms |
+| Overview | 3,026ms | 2,532ms |
+| Collection report | 3,451ms | 3,003ms |
+
+1. **The balance views could not use the indexes built for them** (migration
+   0053). `lease_balances` totalled a lease's charges with a lateral filtered on
+   `lease_id` alone. Every index in this schema leads with `organisation_id`,
+   because every query in this product is about one customer — so the leading
+   column was unconstrained, the index was unusable, and the plan read:
+
+   ```
+   Seq Scan on charge_lines cl
+     Filter: (lease_id = l.id)
+     Rows Removed by Filter: 299940
+     loops=100
+   ```
+
+   Thirty million rows examined to total a hundred leases. Adding the
+   organisation to each lateral changes no result — a lease's charges belong to
+   that lease's organisation, and the composite foreign keys make anything else
+   impossible — it only tells the planner what the schema already guarantees.
+   The view went from **2,400ms to 75ms**, and four screens with it.
+
+2. **The lease picker read the whole ledger once per lease.** The reconciliation
    screen's "whose payment is this?" dropdown computed each lease's outstanding
-   balance with a correlated subquery over `charge_line_balances` — five hundred
-   passes over the organisation's open charges to fill one list. It is now a
-   single grouped pass joined to the page.
-   **2,964ms → 948ms.**
-2. **The leases list computed balances for every lease, then showed fifty.**
-   `lease_balances` was joined before the `limit`, so a page view aggregated the
-   whole organisation's ledger. The page is now chosen first and the balances
-   computed only for it.
-   **3,043ms → 2,008ms.**
+   balance with a correlated subquery — five hundred passes over the open
+   charges to fill one list. It is now a single grouped pass joined to the page.
 
-A third change — repeating the organisation predicate on joins to
-`charge_documents`, which the composite key `(organisation_id, id)` exists to
-support — removed a sequential scan of all 300,000 documents from the collection
-metrics plan. It did not move the measured total, because that scan was not what
-dominated; it is kept because a full scan of every customer's documents to
-answer one customer's question is wrong whether or not it is the slowest part.
+3. **The leases list computed balances for every lease, then showed fifty.**
+   `lease_balances` was joined before the `limit`. The page is chosen first now.
+
+4. **Joins to `charge_documents` repeat the organisation** (collection metrics,
+   allocations), which removed a sequential scan of all 300,000 documents from
+   those plans.
+
+### A mistake worth keeping in the history
+
+Migration 0053 also replaced the allocation index — `(charge_line_id)` where not
+reversed — with an organisation-leading version, on the same reasoning that had
+just been right about the laterals. It was wrong here: the allocation lookup
+*inside* the view filters on the charge line alone, so the leading column went
+unconstrained and the lookup fell to a sequential scan of every allocation in
+the database, six thousand times per read. **The view went from 2,400ms to
+194,000ms** — eighty times worse than the problem being fixed.
+
+It was caught immediately, by measuring instead of assuming, and 0054 puts the
+index back with a covering column. The lesson is in the migration: the fix for a
+missing predicate is to add the predicate, not to move the index out from under
+the query that was using it correctly.
 
 ## What is still slow, and why
 
-The four screens above the target share one cause: **`lease_balances` and
-`charge_line_balances` compute a resident's allocated total with a correlated
-subquery per charge line.** At five years of monthly billing that is sixty
-lookups per lease, and a report covering a hundred leases does six thousand of
-them before it can print a row.
+Two screens remain over the target, and both are the same query: the collection
+metrics that answer "what did we bill and what did we collect this period",
+which the overview shows as a summary and the collection report shows per lease.
 
-Rewriting those views so allocations are aggregated once and joined, rather
-than looked up per line, is the fix. It is not done here: they are the views
-every balance in the product is read through, their semantics are pinned by the
-financial invariant suite, and changing them at the end of a long session is
-how a performance improvement becomes a money defect. It is the next piece of
-work on this, and it is sized: two views, one migration, and the existing tests
-to prove the figures did not move.
+Its parts are each fast in isolation — the period's charges resolve in 5ms, the
+allocation totals in 23ms — and slow when combined, which points at the shape of
+the combined statement rather than at a missing index. That is where the next
+piece of work starts, and it has not been done: a wrong guess here costs a
+figure an operator reconciles their bank account against.
 
 Also not done, and worth saying plainly:
 
