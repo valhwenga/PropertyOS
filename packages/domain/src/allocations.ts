@@ -102,7 +102,8 @@ export async function allocateReceipt(
               where pa.charge_line_id = cl.id and pa.reversed_at is null
            ), 0))::text as outstanding
     from charge_lines cl
-    join charge_documents cd on cd.id = cl.document_id
+    join charge_documents cd
+        on cd.organisation_id = cl.organisation_id and cd.id = cl.document_id
     where cl.id = any(${chargeIds}::uuid[])
       and cl.organisation_id = ${organisationId}::uuid
       and cd.status = 'posted'

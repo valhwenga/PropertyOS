@@ -175,12 +175,22 @@ export async function collectionTotals(
     receipts_banked: string; prior_period_collected: string; unapplied: string;
     currency_code: string | null;
   }[]>`
+    /*
+     * The organisation is repeated on every joined document. The composite key
+     * (organisation_id, id) exists for exactly this: without that predicate the
+     * planner cannot tell that only one customer's documents matter, and scans
+     * every charge document in the database. Measured against the blueprint's
+     * dataset, that was a sequential scan of three hundred thousand rows, three
+     * times, on one overview.
+     */
     with scoped as (
       select cl.id, cl.category, cl.amount_minor, cl.currency_code,
              ${period} as billing_period
       from charge_lines cl
-      join charge_documents cd on cd.id = cl.document_id
-      left join charge_documents orig on orig.id = cd.corrects_document_id
+      join charge_documents cd
+        on cd.organisation_id = cl.organisation_id and cd.id = cl.document_id
+      left join charge_documents orig
+        on orig.organisation_id = cd.organisation_id and orig.id = cd.corrects_document_id
       where cl.organisation_id = ${organisationId}::uuid
         and cd.status = 'posted'
         and cd.issue_date <= ${asOf}::date
@@ -309,8 +319,10 @@ export async function collectionByLease(
       coalesce(sum(cl.amount_minor), 0)::text as total_billed,
       coalesce(sum(a.allocated_minor), 0)::text as total_collected
     from charge_lines cl
-    join charge_documents cd on cd.id = cl.document_id
-    left join charge_documents orig on orig.id = cd.corrects_document_id
+    join charge_documents cd
+        on cd.organisation_id = cl.organisation_id and cd.id = cl.document_id
+    left join charge_documents orig
+        on orig.organisation_id = cd.organisation_id and orig.id = cd.corrects_document_id
     left join applied a on a.charge_line_id = cl.id
     join leases l on l.id = cl.lease_id
     join properties p on p.id = l.property_id

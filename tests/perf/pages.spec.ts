@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import postgres from 'postgres';
-import { generateCode } from '@propertyos/integrations';
+import { signIn } from '../e2e/sign-in';
 
 /**
  * How long an ordinary page takes, against the blueprint's dataset.
@@ -28,7 +28,6 @@ import { generateCode } from '@propertyos/integrations';
  *     pnpm --filter @propertyos/web dev -- -p 3100
  */
 
-const PASSWORD = process.env.SEED_PASSWORD ?? 'DemoPassword123!';
 const RUNS = Number(process.env.PERF_RUNS ?? 5);
 const OUTPUT = process.env.PERF_OUTPUT
   ?? '/tmp/claude-0/-home-user-PropertyOS/perf-results.json';
@@ -66,21 +65,10 @@ async function loadFixture(): Promise<{ email: string; slug: string; leaseId: st
 test('ordinary pages, against the blueprint dataset', async ({ page }) => {
   const fixture = await loadFixture();
 
-  // The real sign-in, second factor and all: permission resolution is MFA
-  // aware and is in the path of every query being timed, so skipping it would
-  // measure a session the product never issues.
-  await page.goto('/sign-in');
-  await page.getByLabel('Email address').fill(fixture.email);
-  await page.getByLabel('Password').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-
-  const code = page.getByLabel(/code/i).first();
-  if (await code.isVisible({ timeout: 15_000 }).catch(() => false)) {
-    await page.getByLabel('Password').fill(PASSWORD).catch(() => undefined);
-    await code.fill(generateCode(fixture.secret));
-    await page.getByRole('button', { name: /Verify/ }).click();
-  }
-  await page.waitForURL(/\/app/, { timeout: 60_000 });
+  // The repository's own sign-in helper, second factor and all: permission
+  // resolution is MFA aware and sits in the path of every query being timed,
+  // so a shortcut here would measure a session the product never issues.
+  await signIn(page, fixture.email);
 
   const screens: Array<{ name: string; path: string; settled: string }> = [
     { name: 'Overview', path: `/app/${fixture.slug}`, settled: 'Needs attention' },
@@ -88,8 +76,9 @@ test('ordinary pages, against the blueprint dataset', async ({ page }) => {
     { name: 'Portfolio', path: `/app/${fixture.slug}/portfolio`, settled: 'Property' },
     { name: 'Residents', path: `/app/${fixture.slug}/residents`, settled: 'Resident' },
     { name: 'Lease account (5 years)', path: `/app/${fixture.slug}/leases/${fixture.leaseId}`, settled: 'Closing receivable' },
-    { name: 'Arrears report', path: `/app/${fixture.slug}/reports/arrears`, settled: 'Arrears' },
-    { name: 'Collections report', path: `/app/${fixture.slug}/reports/collections`, settled: 'Collect' },
+    { name: 'Arrears ageing', path: `/app/${fixture.slug}/reports/arrears`, settled: 'Arrears' },
+    { name: 'Collection report', path: `/app/${fixture.slug}/reports/collection`, settled: 'Collection' },
+    { name: 'Rent roll', path: `/app/${fixture.slug}/reports/rent-roll`, settled: 'Rent roll' },
     { name: 'Reconciliation', path: `/app/${fixture.slug}/reconciliation`, settled: 'Receipt' },
     { name: 'Audit trail', path: `/app/${fixture.slug}/settings/audit`, settled: 'Audit' },
   ];

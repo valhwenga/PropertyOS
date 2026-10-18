@@ -160,6 +160,11 @@ way that fails safe until someone with the relevant authority decides.
   the manifest names every attachment with its storage key and SHA-256 so the
   files can be matched to an object backup, but there is no object backup to
   match them to.
-* **No load or capacity testing.** Performance under realistic volume is unknown.
+* **Four screens miss the one-second target at the blueprint's scale.** The
+  overview, the collection report, the rent roll and the leases list take two
+  to three and a half seconds against 5,000 leases and five years of charges.
+  The cause is diagnosed and the two fixes already made are measured, in
+  `docs/performance.md`. Nothing is known about concurrency: every figure there
+  is one user at a time.
 * **No dependency CVE scanning or SAST in CI**, and no independent penetration
   test. See `docs/security-review.md`.

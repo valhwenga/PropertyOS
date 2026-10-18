@@ -1,0 +1,76 @@
+{
+  "measuredAt": "2026-10-18T13:06:33.490Z",
+  "runs": 5,
+  "screens": [
+    {
+      "screen": "Overview",
+      "ttfbMedianMs": 50,
+      "ttfbSlowestMs": 128,
+      "contentMedianMs": 3026,
+      "contentSlowestMs": 3479
+    },
+    {
+      "screen": "Leases (page 1)",
+      "ttfbMedianMs": 65,
+      "ttfbSlowestMs": 100,
+      "contentMedianMs": 2008,
+      "contentSlowestMs": 2508
+    },
+    {
+      "screen": "Portfolio",
+      "ttfbMedianMs": 105,
+      "ttfbSlowestMs": 141,
+      "contentMedianMs": 247,
+      "contentSlowestMs": 306
+    },
+    {
+      "screen": "Residents",
+      "ttfbMedianMs": 112,
+      "ttfbSlowestMs": 131,
+      "contentMedianMs": 281,
+      "contentSlowestMs": 337
+    },
+    {
+      "screen": "Lease account (5 years)",
+      "ttfbMedianMs": 61,
+      "ttfbSlowestMs": 93,
+      "contentMedianMs": 516,
+      "contentSlowestMs": 564
+    },
+    {
+      "screen": "Arrears ageing",
+      "ttfbMedianMs": 54,
+      "ttfbSlowestMs": 115,
+      "contentMedianMs": 973,
+      "contentSlowestMs": 1092
+    },
+    {
+      "screen": "Collection report",
+      "ttfbMedianMs": 39,
+      "ttfbSlowestMs": 46,
+      "contentMedianMs": 3451,
+      "contentSlowestMs": 4009
+    },
+    {
+      "screen": "Rent roll",
+      "ttfbMedianMs": 45,
+      "ttfbSlowestMs": 47,
+      "contentMedianMs": 2974,
+      "contentSlowestMs": 3002
+    },
+    {
+      "screen": "Reconciliation",
+      "ttfbMedianMs": 36,
+      "ttfbSlowestMs": 39,
+      "contentMedianMs": 948,
+      "contentSlowestMs": 967
+    },
+    {
+      "screen": "Audit trail",
+      "ttfbMedianMs": 65,
+      "ttfbSlowestMs": 109,
+      "contentMedianMs": 255,
+      "contentSlowestMs": 536
+    }
+  ]
+}

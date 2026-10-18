@@ -332,7 +332,11 @@ if [ ! -f "$ENV_FILE" ]; then
 # Written by scripts/preview.sh for LOCAL PREVIEW ONLY. Not committed, and not
 # suitable for any deployed environment: the secret below was generated on this
 # machine and the database password is a well-known development default.
-NODE_ENV=development
+# NODE_ENV is deliberately NOT set here. next dev is development already, and a
+# file that forces it leaks into the production build too: Next loads .env.local
+# when building, warns about a non-standard NODE_ENV, resolves React's
+# development build, and then fails prerendering its own error document. A
+# production build that cannot be built is a poor thing to discover on a deploy.
 
 # Owner connection: migrations and the seed only.
 DATABASE_URL=$SUPER_DB_URL
