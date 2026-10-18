@@ -27,8 +27,12 @@ test.describe('resident portal', () => {
     // claim awaiting bank confirmation, and the balance does not move until
     // the money is confirmed and applied.
     await expect(page.getByText('Bank confirmation pending').first()).toBeVisible();
+    // `.first()`: a resident can have more than one claim awaiting
+    // confirmation, and the promise is made about each of them. Asserting a
+    // single match was asserting how many uploads happen to be pending, which
+    // is not what this test is about.
     await expect(
-      page.getByText(/balance will update once the payment is confirmed and applied/i),
+      page.getByText(/balance will update once the payment is confirmed and applied/i).first(),
     ).toBeVisible();
   });
 
