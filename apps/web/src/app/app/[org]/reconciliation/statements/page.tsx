@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { Card, EmptyState, Money, PageHeader, StatusBadge } from '@propertyos/ui';
+import { Card, EmptyState, Money, PageHeader, StatusBadge, Tabs } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
 import { hasPermission, listBankAccounts, listBankImports, listBankLines } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
+import { loadReconciliation } from '@/lib/operations-queries';
 import { IdentifyLineForm, ImportStatementForm, ReopenLineForm } from './statement-forms';
 
 export const metadata = { title: 'Bank statements' };
@@ -47,25 +48,59 @@ export default async function StatementsPage({
     }),
     accounts: await listBankAccounts(tx, context.organisationId),
     canImport: await hasPermission(tx, context.organisationId, 'bank.import'),
+    // Only for the tab counts: the same two queues the reconciliation index
+    // shows, so the tabs agree with each other wherever you stand.
+    queues: await loadReconciliation(tx, context.organisationId),
   }));
-  const { imports, lines, accounts, canImport } = data;
+  const { imports, lines, accounts, canImport, queues } = data;
+  const base = `/app/${org}/reconciliation`;
 
   const stillToIdentify = lines.filter(
     (l) => l.matchStatus !== 'matched' && l.matchStatus !== 'ignored',
   ).length;
 
   return (
-    <div className="space-y-6">
-      <Link
-        href={`/app/${org}/reconciliation`}
-        className="text-sm text-spike-600 hover:underline"
-      >
-        ← Reconciliation
-      </Link>
-
+    <div className="space-y-5">
       <PageHeader
         title="Bank statements"
         description="Lines from a statement you exported yourself. A line is evidence that money arrived — it is not a receipt, and importing one changes nobody's balance."
+        meta={
+          <>
+            <span>
+              {stillToIdentify > 0
+                ? `${stillToIdentify} line${stillToIdentify === 1 ? '' : 's'} still to identify`
+                : 'Nothing left to identify'}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>Times in {context.timeZone}</span>
+          </>
+        }
+      />
+
+      <Tabs
+        label="Reconciliation queues"
+        current="statements"
+        tabs={[
+          { key: 'all', label: 'Everything', href: base },
+          {
+            key: 'unmatched',
+            label: 'Not applied',
+            href: `${base}?filter=unmatched`,
+            count: queues.unmatched.length,
+          },
+          {
+            key: 'evidence',
+            label: 'Payment evidence',
+            href: `${base}?filter=evidence`,
+            count: queues.evidence.length,
+          },
+          {
+            key: 'statements',
+            label: 'Statement lines',
+            href: `${base}/statements`,
+            count: stillToIdentify,
+          },
+        ]}
       />
 
       {canImport ? (
@@ -81,7 +116,7 @@ export default async function StatementsPage({
         />
       ) : (
         <Card className="p-4">
-          <p className="text-sm text-ink-700">
+          <p className="text-[length:var(--text-table)] text-ink-700">
             Importing a statement needs the bank import permission.
           </p>
         </Card>
@@ -91,19 +126,19 @@ export default async function StatementsPage({
 
       <section aria-labelledby="lines" className="space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="lines" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+          <h2 id="lines" className="text-[length:var(--text-section)] font-semibold text-ink-900">
             {show === 'all' ? 'Every line' : 'Still to identify'}
           </h2>
           <Link
             href={`/app/${org}/reconciliation/statements${show === 'all' ? '' : '?show=all'}`}
-            className="text-sm text-spike-600 hover:underline"
+            className="text-[length:var(--text-table)] font-medium text-spike-600 hover:underline"
           >
             {show === 'all' ? 'Show only what is unidentified' : 'Show every line'}
           </Link>
         </div>
 
         {show !== 'all' && stillToIdentify > 0 ? (
-          <p className="text-sm text-ink-500">
+          <p className="text-[length:var(--text-meta)] text-ink-500">
             {stillToIdentify === 1
               ? '1 line has not been tied to anything yet.'
               : `${stillToIdentify} lines have not been tied to anything yet.`}
@@ -127,7 +162,7 @@ export default async function StatementsPage({
                   <div className="flex flex-wrap items-baseline justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-medium text-ink-900">{l.description || 'No description'}</p>
-                      <p className="text-xs text-ink-500">
+                      <p className="text-[length:var(--text-meta)] text-ink-500">
                         {formatDate(l.transactionDate, context.timeZone)} · {l.bankName}
                         {l.filename ? ` · ${l.filename}` : ''}
                       </p>
@@ -147,7 +182,7 @@ export default async function StatementsPage({
 
                   <div className="mt-3 border-t border-ink-100 pt-3">
                     {l.matchStatus === 'matched' ? (
-                      <p className="text-sm text-ink-700">
+                      <p className="text-[length:var(--text-table)] text-ink-700">
                         Receipted as {l.matchedReceiptNumber}.{' '}
                         <Link
                           href={`/app/${org}/reconciliation/${l.matchedReceiptId}`}
@@ -183,15 +218,15 @@ export default async function StatementsPage({
 
       {imports.length > 0 ? (
         <section aria-labelledby="imports" className="space-y-3">
-          <h2 id="imports" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+          <h2 id="imports" className="text-[length:var(--text-section)] font-semibold text-ink-900">
             Statements imported
           </h2>
           <Card className="divide-y divide-ink-100">
             {imports.map((i) => (
               <div key={i.id} className="flex flex-wrap items-baseline justify-between gap-3 p-4">
                 <div>
-                  <p className="text-sm font-medium text-ink-900">{i.filename}</p>
-                  <p className="text-xs text-ink-500">
+                  <p className="text-[length:var(--text-table)] font-medium text-ink-900">{i.filename}</p>
+                  <p className="text-[length:var(--text-meta)] text-ink-500">
                     {i.bankName}
                     {i.statementStart
                       ? ` · ${formatDate(i.statementStart, context.timeZone)} to `
@@ -201,7 +236,7 @@ export default async function StatementsPage({
                     {' · '}{formatDate(i.createdAt, context.timeZone)}
                   </p>
                 </div>
-                <p className="text-xs text-ink-500">
+                <p className="tabular text-[length:var(--text-meta)] text-ink-500">
                   {i.importedCount} imported
                   {i.duplicateCount > 0 ? `, ${i.duplicateCount} already held` : ''}
                   {i.unmatchedCount > 0 ? `, ${i.unmatchedCount} still to identify` : ''}

@@ -77,9 +77,14 @@ test.describe('exception queues', () => {
 
     /* ------------------------- 2. arrears opens arrears, not everything */
 
-    const arrears = await tile(page, 'Arrears');
-    expect(arrears.href).toContain('overdue=true');
-    await page.goto(arrears.href, { waitUntil: 'domcontentloaded' });
+    // Arrears is no longer a tile of its own: the overdue figure qualifies the
+    // outstanding receivable, and the oldest arrears panel links to the ageing
+    // report. The promise under test is unchanged — what it opens is what it
+    // listed, past due only.
+    const ageing = page.getByRole('link', { name: 'Full ageing →' });
+    const ageingHref = await ageing.getAttribute('href');
+    expect(ageingHref).toContain('overdue=true');
+    await page.goto(ageingHref!, { waitUntil: 'domcontentloaded' });
     const report = await visibleText(page);
     // The report now honours the flag it was always being sent, and says so.
     expect(report).toContain('past due as the records stand on');

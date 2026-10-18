@@ -1,8 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  Card, DataTable, Money, PageHeader, StatusBadge, Td, Th,
+  Card, DataTable, Disclosure, Figure, Money, PageHeader, Panel, StatusBadge, Tabs,
+  Td, Th, buttonClass,
 } from '@propertyos/ui';
+import { CONTROL_CLASS } from '@propertyos/ui';
 import {
   buildStatement, DomainError, hasPermission, listLeaseAgreementGenerations,
   listLeaseLifecycleEvents, listLeaseTemplates,
@@ -21,10 +23,10 @@ export default async function LeaseDetailPage({
   params, searchParams,
 }: {
   params: Promise<{ org: string; leaseId: string }>;
-  searchParams: Promise<{ cutOff?: string }>;
+  searchParams: Promise<{ cutOff?: string; tab?: string }>;
 }) {
   const { org, leaseId } = await params;
-  const { cutOff } = await searchParams;
+  const { cutOff, tab } = await searchParams;
   const context = await requireOperator(org);
   const cut = cutOff ?? new Date().toISOString().slice(0, 10);
 
@@ -99,23 +101,55 @@ export default async function LeaseDetailPage({
   if (!data) notFound();
   const { lease, parties, statement } = data;
 
+  const base = `/app/${org}/leases/${leaseId}`;
+  const current = tab === 'agreement' || tab === 'parties' || tab === 'history' ? tab : 'account';
+  const tabHref = (key: string) =>
+    `${base}?${key === 'account' ? '' : `tab=${key}&`}cutOff=${cut}`;
+  const statusTone = lease.status === 'active'
+    ? 'positive'
+    : lease.status === 'draft' || lease.status === 'pending_activation'
+      ? 'neutral'
+      : lease.status === 'notice_given' || lease.status === 'holdover'
+        ? 'caution'
+        : 'neutral';
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
-        title={`Lease ${lease.reference}`}
-        description={`${lease.resident_name} · ${lease.unit_label}`}
+        // The person and the unit first: a reference identifies the record,
+        // but nobody opens this page looking for a reference.
+        title={lease.resident_name}
+        description={lease.unit_label}
+        meta={
+          <>
+            <span className="technical">{lease.reference}</span>
+            <StatusBadge tone={statusTone}>
+              <span className="capitalize">{lease.status.replace(/_/g, ' ')}</span>
+            </StatusBadge>
+            <span>
+              {formatDate(lease.start_date, context.timeZone)} –{' '}
+              {lease.end_date ? formatDate(lease.end_date, context.timeZone) : 'open ended'}
+            </span>
+          </>
+        }
         actions={
           <>
-            <a href={`/app/${org}/leases/${leaseId}/statement.pdf?cutOff=${cut}`}
-               className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700">
+            <a
+              href={`${base}/statement.pdf?cutOff=${cut}`}
+              className={buttonClass('secondary')}
+            >
               Download PDF
             </a>
-            <a href={`/app/${org}/leases/${leaseId}/statement.csv?cutOff=${cut}`}
-               className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700">
+            <a
+              href={`${base}/statement.csv?cutOff=${cut}`}
+              className={buttonClass('secondary')}
+            >
               Export CSV
             </a>
-            <Link href={`/app/${org}/reconciliation?lease=${leaseId}`}
-                  className="rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white">
+            <Link
+              href={`/app/${org}/reconciliation?lease=${leaseId}`}
+              className={buttonClass('primary')}
+            >
               Record a receipt
             </Link>
           </>
@@ -125,58 +159,69 @@ export default async function LeaseDetailPage({
       {/* Summary. Receivable, credit and deposit are shown as three SEPARATE
           figures, because conflating them is how a resident gets told they owe
           nothing when they do. */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Closing receivable</p>
-          <p className="mt-1 text-2xl font-semibold">
-            <Money minor={statement.closingReceivableMinor} currency={statement.currencyCode} />
-          </p>
-          <p className="mt-1 text-xs text-ink-400">As at {formatDate(cut, context.timeZone)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Unapplied credit</p>
-          <p className="mt-1 text-2xl font-semibold">
-            <Money minor={statement.unappliedCreditMinor} currency={statement.currencyCode} />
-          </p>
-          <p className="mt-1 text-xs text-ink-400">Overpayment held, not yet applied to a charge</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Deposit held</p>
-          <p className="mt-1 text-2xl font-semibold">
-            <Money minor={statement.depositHeldMinor} currency={statement.currencyCode} />
-          </p>
-          <p className="mt-1 text-xs text-ink-400">
-            A separate liability. It does not reduce the receivable.
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Contracted rent</p>
-          <p className="mt-1 text-2xl font-semibold">
-            <Money minor={lease.rent_minor} currency={lease.currency_code} />
-          </p>
-          <p className="mt-1 text-xs text-ink-400">
-            {formatDate(lease.start_date, context.timeZone)} –{' '}
-            {lease.end_date ? formatDate(lease.end_date, context.timeZone) : 'open ended'}
-          </p>
-        </Card>
-      </div>
+      <Panel title="Account summary" titleId="account-summary">
+        <dl className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Figure
+            label="Closing receivable"
+            value={
+              <Money
+                minor={statement.closingReceivableMinor} currency={statement.currencyCode}
+                tone="auto"
+              />
+            }
+            hint={
+              statement.closingReceivableMinor < 0n
+                ? `In credit as at ${formatDate(cut, context.timeZone)}`
+                : `Owed as at ${formatDate(cut, context.timeZone)}`
+            }
+          />
+          <Figure
+            label="Unapplied credit"
+            value={
+              <Money
+                minor={statement.unappliedCreditMinor} currency={statement.currencyCode}
+                tone="plain"
+              />
+            }
+            hint="Overpayment held, not yet applied to a charge"
+          />
+          <Figure
+            label="Deposit held"
+            value={
+              <Money
+                minor={statement.depositHeldMinor} currency={statement.currencyCode}
+                tone="plain"
+              />
+            }
+            hint="A separate liability. It does not reduce the receivable."
+          />
+          <Figure
+            label="Contracted rent"
+            value={<Money minor={lease.rent_minor} currency={lease.currency_code} tone="plain" />}
+            hint="Per month, before any utilities or recoveries"
+          />
+        </dl>
+      </Panel>
 
       {statement.pendingEvidence.length > 0 ? (
         <Card className="border-caution-700/25 bg-caution-50 p-4">
-          <p className="text-sm font-semibold text-caution-700">
+          <p className="text-[length:var(--text-table)] font-semibold text-caution-700">
             {statement.pendingEvidence.length} proof of payment awaiting verification
           </p>
-          <p className="mt-1 text-sm text-ink-700">
+          <p className="mt-1 text-[length:var(--text-table)] text-ink-700">
             The resident has uploaded evidence totalling{' '}
             <Money
               minor={statement.pendingEvidence.reduce((s, e) => s + e.claimedAmountMinor, 0n)}
               currency={statement.currencyCode}
+              tone="plain"
             />
             . This has <strong>not</strong> reduced the balance above and will not until the funds
             are confirmed against the bank record and a receipt is created.
           </p>
-          <Link href={`/app/${org}/reconciliation?filter=evidence&lease=${leaseId}`}
-                className="mt-2 inline-block text-sm font-medium text-spike-600 hover:underline">
+          <Link
+            href={`/app/${org}/reconciliation?filter=evidence&lease=${leaseId}`}
+            className="mt-2 inline-block text-[length:var(--text-table)] font-medium text-spike-600 hover:underline"
+          >
             Review the evidence →
           </Link>
         </Card>
@@ -184,155 +229,242 @@ export default async function LeaseDetailPage({
 
       {lease.execution_exception_reason ? (
         <Card className="border-info-700/25 bg-info-50 p-4">
-          <p className="text-sm font-semibold text-info-700">Activated without an attached contract</p>
-          <p className="mt-1 text-sm text-ink-700">{lease.execution_exception_reason}</p>
+          <p className="text-[length:var(--text-table)] font-semibold text-info-700">
+            Activated without an attached contract
+          </p>
+          <p className="mt-1 text-[length:var(--text-table)] text-ink-700">
+            {lease.execution_exception_reason}
+          </p>
         </Card>
       ) : null}
 
-      <section aria-labelledby="parties-heading" className="space-y-3">
-        <h2 id="parties-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
-          Lease parties
-        </h2>
-        <Card className="divide-y divide-ink-100">
-          {parties.map((p) => (
-            <div key={`${p.name}-${p.role}`} className="flex items-center justify-between px-4 py-3">
-              <div>
-                <p className="text-sm font-medium text-ink-900">{p.name}</p>
-                <p className="text-xs capitalize text-ink-500">{p.role.replace(/_/g, ' ')}</p>
-              </div>
-              {/* Joint parties share ONE rent receivable; the badge makes that
-                  explicit so nobody expects a second invoice. */}
-              {p.can_view_financials
-                ? <StatusBadge tone="info" glyph="●">Sees shared financials</StatusBadge>
-                : <StatusBadge tone="neutral" glyph="○">No financial access</StatusBadge>}
-            </div>
-          ))}
-        </Card>
-        <p className="text-xs text-ink-400">
-          Joint parties share a single rent receivable on this lease. Adding a co-lessee never
-          creates a second rent charge.
-        </p>
-      </section>
+      {/* Four tabs, each backed by data this page already loads and a route
+          that already exists. The cut-off travels with them, so moving between
+          tabs never silently re-dates the statement. */}
+      <Tabs
+        label="Lease sections"
+        current={current}
+        tabs={[
+          { key: 'account', label: 'Account', href: tabHref('account') },
+          { key: 'agreement', label: 'Agreement', href: tabHref('agreement') },
+          { key: 'parties', label: 'Parties', href: tabHref('parties'), count: parties.length },
+          { key: 'history', label: 'History', href: tabHref('history'), count: data.lifecycle.length },
+        ]}
+      />
 
-      <section aria-labelledby="statement-heading" className="space-y-3">
-        <h2 id="statement-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
-          Statement
-        </h2>
+      {current === 'account' ? (
+        <section aria-labelledby="statement-heading" className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h2
+              id="statement-heading"
+              className="text-[length:var(--text-section)] font-semibold text-ink-900"
+            >
+              Statement
+            </h2>
+            {/* The statement runs from the start of the lease to a date you
+                choose. There is no "from", because the exported PDF and CSV
+                take a cut-off only, and a screen that could be narrowed where
+                the file could not would be a scope the export silently
+                widened. */}
+            <form method="get" className="flex items-end gap-2">
+              <label
+                htmlFor="cutOff"
+                className="text-[length:var(--text-meta)] font-medium text-ink-500"
+              >
+                Everything to
+                <input
+                  id="cutOff" type="date" name="cutOff" defaultValue={cut}
+                  className={`ml-2 ${CONTROL_CLASS}`}
+                />
+              </label>
+              <button type="submit" className={buttonClass('secondary')}>Show</button>
+            </form>
+          </div>
 
-        <DataTable
-          caption={`Statement for lease ${lease.reference} to ${formatDate(cut, context.timeZone)}`}
-          head={
-            <tr>
-              <Th>Date</Th><Th>Reference</Th><Th>Description</Th>
-              <Th numeric>Debit</Th><Th numeric>Credit</Th><Th numeric>Balance</Th>
-            </tr>
-          }
-        >
-          <tr className="bg-ink-50/60">
-            <Td className="text-ink-500">—</Td>
-            <Td className="text-ink-500">—</Td>
-            <Td className="font-medium">
-              Opening balance
-              <span className="ml-2 text-xs text-ink-400">
-                ({statement.openingBalanceSource === 'prior_activity'
-                  ? 'from posted activity before this window'
-                  : 'no prior activity'})
-              </span>
-            </Td>
-            <Td numeric className="text-ink-400">—</Td>
-            <Td numeric className="text-ink-400">—</Td>
-            <Td numeric>
-              <Money minor={statement.openingBalanceMinor} currency={statement.currencyCode} />
-            </Td>
-          </tr>
-
-          {statement.lines.map((line, index) => (
-            <tr key={`${line.reference}-${index}`} className="hover:bg-ink-50">
-              <Td className="whitespace-nowrap text-ink-500">
-                {formatDate(line.entryDate, context.timeZone)}
+          <DataTable
+            caption={`Statement for lease ${lease.reference} to ${formatDate(cut, context.timeZone)}`}
+            stickyHead
+            minWidth="48rem"
+            head={
+              <tr>
+                <Th>Date</Th><Th>Reference</Th><Th>Description</Th>
+                <Th numeric>Debit</Th><Th numeric>Credit</Th><Th numeric>Balance</Th>
+              </tr>
+            }
+          >
+            <tr className="bg-ink-50/60">
+              <Td className="text-ink-500">—</Td>
+              <Td className="text-ink-500">—</Td>
+              <Td className="font-medium">
+                Opening balance
+                <span className="ml-2 text-[length:var(--text-meta)] text-ink-400">
+                  ({statement.openingBalanceSource === 'prior_activity'
+                    ? 'from posted activity before this window'
+                    : 'no prior activity'})
+                </span>
               </Td>
-              <Td className="tabular text-ink-500">{line.reference}</Td>
-              <Td>{line.description}</Td>
+              <Td numeric className="text-ink-300">—</Td>
+              <Td numeric className="text-ink-300">—</Td>
               <Td numeric>
-                {line.debitMinor > 0n
-                  ? <Money minor={line.debitMinor} currency={statement.currencyCode} />
-                  : <span className="text-ink-300">—</span>}
-              </Td>
-              <Td numeric>
-                {line.creditMinor > 0n
-                  ? <Money minor={line.creditMinor} currency={statement.currencyCode} />
-                  : <span className="text-ink-300">—</span>}
-              </Td>
-              <Td numeric>
-                <Money minor={line.runningBalanceMinor} currency={statement.currencyCode} />
+                <Money minor={statement.openingBalanceMinor} currency={statement.currencyCode} />
               </Td>
             </tr>
-          ))}
 
-          <tr className="border-t-2 border-ink-200 bg-ink-50/60 font-semibold">
-            <Td> </Td><Td> </Td>
-            <Td>Closing receivable</Td>
-            <Td numeric> </Td><Td numeric> </Td>
-            <Td numeric>
-              <Money minor={statement.closingReceivableMinor} currency={statement.currencyCode} emphasise />
-            </Td>
-          </tr>
-        </DataTable>
+            {statement.lines.map((line, index) => (
+              <tr key={`${line.reference}-${index}`}>
+                <Td className="whitespace-nowrap text-ink-500">
+                  {formatDate(line.entryDate, context.timeZone)}
+                </Td>
+                <Td className="technical whitespace-nowrap text-ink-500">{line.reference}</Td>
+                <Td>
+                  {line.description}
+                  {line.kind === 'allocation' ? (
+                    <span className="ml-2 text-[length:var(--text-meta)] text-ink-400">
+                      payment applied
+                    </span>
+                  ) : null}
+                </Td>
+                <Td numeric>
+                  {line.debitMinor > 0n
+                    ? <Money minor={line.debitMinor} currency={statement.currencyCode} tone="plain" />
+                    : <span className="text-ink-300">—</span>}
+                </Td>
+                <Td numeric>
+                  {line.creditMinor > 0n
+                    ? <Money minor={line.creditMinor} currency={statement.currencyCode} tone="plain" />
+                    : <span className="text-ink-300">—</span>}
+                </Td>
+                {/* The running balance is the one figure where the sign means
+                    something: below zero the resident is in credit, and it is
+                    labelled as such rather than printed in red. */}
+                <Td numeric>
+                  <Money minor={line.runningBalanceMinor} currency={statement.currencyCode} />
+                </Td>
+              </tr>
+            ))}
 
-        <p className="text-xs text-ink-400">
-          Generated {formatDate(statement.generatedAt, context.timeZone)} · cut off{' '}
-          {formatDate(cut, context.timeZone)} · every line traces to a posted charge or a live
-          allocation. Deposits and unverified payment evidence are excluded from this balance.
-        </p>
-      </section>
+            <tr className="border-t-2 border-ink-200 bg-ink-50/70 font-semibold text-ink-900">
+              <th scope="row" colSpan={3} className="px-3 py-2 text-left font-semibold">
+                {statement.closingReceivableMinor < 0n
+                  ? 'Closing balance — in credit'
+                  : 'Closing receivable'}
+              </th>
+              <Td numeric> </Td><Td numeric> </Td>
+              <Td numeric>
+                <Money
+                  minor={statement.closingReceivableMinor} currency={statement.currencyCode}
+                  emphasise
+                />
+              </Td>
+            </tr>
+          </DataTable>
 
-      {/* The reason a term changed is part of the lease's story, so it sits
-          with the lease rather than in an audit log nobody opens. */}
-      <LifecyclePanel
-        org={org}
-        leaseId={leaseId}
-        status={data.lease.status}
-        endDateDisplay={data.lease.end_date ? formatDate(data.lease.end_date, context.timeZone) : null}
-        events={data.lifecycle.map((e) => ({
-          id: e.id, kind: e.kind, reason: e.reason, recordedBy: e.recordedBy,
-          effectiveDateDisplay: formatDate(e.effectiveDate, context.timeZone),
-          previousEndDateDisplay: e.previousEndDate
-            ? formatDate(e.previousEndDate, context.timeZone) : null,
-          recordedAtDisplay: formatDate(e.recordedAt, context.timeZone),
-        }))}
-      />
+          <Disclosure summary="How this statement is put together">
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                Generated {formatDate(statement.generatedAt, context.timeZone)}, cut off{' '}
+                {formatDate(cut, context.timeZone)}. Every line traces to a posted charge or a
+                live allocation.
+              </li>
+              <li>
+                On one day, charges are listed before the payments applied to them, so the
+                running balance follows the order the accounting happened in rather than the
+                order entries were captured.
+              </li>
+              <li>
+                Deposits and unverified payment evidence are excluded from this balance; both
+                are shown separately above.
+              </li>
+              <li>The PDF and CSV cover exactly this period and these lines.</li>
+            </ul>
+          </Disclosure>
+        </section>
+      ) : null}
 
-      {/* The portal invitation commands have existed since §8 with no screen
-          at all: an operator could not invite a resident, and a resident could
-          not have redeemed a link if one had been issued. */}
-      <PortalAccessPanel
-        org={org}
-        leaseId={leaseId}
-        baseUrl={process.env.APP_BASE_URL ?? ''}
-        canManage={data.canManageResidents}
-        parties={data.portalParties.map((party) => ({
-          residentId: party.resident_id,
-          name: party.name,
-          email: party.email,
-          role: party.role,
-          canViewFinancials: party.can_view_financials,
-          portalLinkId: party.portal_link_id,
-          status: party.status,
-          invitedEmail: party.invited_email,
-          expiresAt: party.expires_at,
-          lapsed: party.lapsed,
-        }))}
-      />
+      {current === 'parties' ? (
+        <div className="space-y-5">
+          <Panel
+            title="Lease parties"
+            titleId="parties-heading"
+            description="Joint parties share a single rent receivable. Adding a co-lessee never creates a second rent charge."
+          >
+            <ul className="divide-y divide-ink-100">
+              {parties.map((p) => (
+                <li
+                  key={`${p.name}-${p.role}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[length:var(--text-table)] font-medium text-ink-900">
+                      {p.name}
+                    </p>
+                    <p className="text-[length:var(--text-meta)] capitalize text-ink-500">
+                      {p.role.replace(/_/g, ' ')}
+                    </p>
+                  </div>
+                  {/* Joint parties share ONE rent receivable; the badge makes
+                      that explicit so nobody expects a second invoice. */}
+                  {p.can_view_financials
+                    ? <StatusBadge tone="info">Sees shared financials</StatusBadge>
+                    : <StatusBadge tone="neutral">No financial access</StatusBadge>}
+                </li>
+              ))}
+            </ul>
+          </Panel>
 
-      <AgreementPanel
-        org={org}
-        leaseId={leaseId}
-        templates={data.templates.map((t) => ({
-          id: t.id, name: t.name, publishedVersion: t.publishedVersion,
-        }))}
-        terms={data.terms}
-        generations={data.generations}
-      />
+          {/* The portal invitation commands have existed since §8 with no screen
+              at all: an operator could not invite a resident, and a resident could
+              not have redeemed a link if one had been issued. */}
+          <PortalAccessPanel
+            org={org}
+            leaseId={leaseId}
+            baseUrl={process.env.APP_BASE_URL ?? ''}
+            canManage={data.canManageResidents}
+            parties={data.portalParties.map((party) => ({
+              residentId: party.resident_id,
+              name: party.name,
+              email: party.email,
+              role: party.role,
+              canViewFinancials: party.can_view_financials,
+              portalLinkId: party.portal_link_id,
+              status: party.status,
+              invitedEmail: party.invited_email,
+              expiresAt: party.expires_at,
+              lapsed: party.lapsed,
+            }))}
+          />
+        </div>
+      ) : null}
+
+      {current === 'history' ? (
+        /* The reason a term changed is part of the lease's story, so it sits
+           with the lease rather than in an audit log nobody opens. */
+        <LifecyclePanel
+          org={org}
+          leaseId={leaseId}
+          status={data.lease.status}
+          endDateDisplay={data.lease.end_date ? formatDate(data.lease.end_date, context.timeZone) : null}
+          events={data.lifecycle.map((e) => ({
+            id: e.id, kind: e.kind, reason: e.reason, recordedBy: e.recordedBy,
+            effectiveDateDisplay: formatDate(e.effectiveDate, context.timeZone),
+            previousEndDateDisplay: e.previousEndDate
+              ? formatDate(e.previousEndDate, context.timeZone) : null,
+            recordedAtDisplay: formatDate(e.recordedAt, context.timeZone),
+          }))}
+        />
+      ) : null}
+
+      {current === 'agreement' ? (
+        <AgreementPanel
+          org={org}
+          leaseId={leaseId}
+          templates={data.templates.map((t) => ({
+            id: t.id, name: t.name, publishedVersion: t.publishedVersion,
+          }))}
+          terms={data.terms}
+          generations={data.generations}
+        />
+      ) : null}
     </div>
   );
 }

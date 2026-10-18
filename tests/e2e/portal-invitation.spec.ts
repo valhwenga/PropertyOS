@@ -74,7 +74,10 @@ test.describe('resident portal invitation', () => {
       .locator('a[href*="/leases/"]:not([href$="/new"])')
       .first().getAttribute('href');
     expect(leaseHref, 'the demo has no lease to invite against').toBeTruthy();
-    await page.goto(leaseHref!, { waitUntil: 'domcontentloaded' });
+    // Portal access lives under the lease's Parties tab, with the people it
+    // concerns, rather than below the statement.
+    const partiesHref = `${leaseHref}?tab=parties`;
+    await page.goto(partiesHref, { waitUntil: 'domcontentloaded' });
 
     const panel = page.locator('section').filter({ hasText: 'Resident portal access' });
     await expect(panel).toHaveCount(1);
@@ -112,7 +115,7 @@ test.describe('resident portal invitation', () => {
       await page.getByLabel('Why').fill(`Re-running the browser test ${stamp}.`);
       await page.getByRole('button', { name: 'Confirm' }).click();
       await page.waitForTimeout(2_000);
-      await page.goto(leaseHref!, { waitUntil: 'domcontentloaded' });
+      await page.goto(partiesHref, { waitUntil: 'domcontentloaded' });
     }
 
     const row = page.locator('li').filter({ hasText: 'Sipho Mokoena' }).first();
@@ -174,7 +177,7 @@ test.describe('resident portal invitation', () => {
 
     /* ------------------------------------------ 5. the operator sees it taken up */
 
-    await page.goto(leaseHref!, { waitUntil: 'domcontentloaded' });
+    await page.goto(partiesHref, { waitUntil: 'domcontentloaded' });
     const after = page.locator('li').filter({ hasText: 'Sipho Mokoena' }).first();
     const afterText = await after.innerText();
     expect(afterText).toContain('has access');

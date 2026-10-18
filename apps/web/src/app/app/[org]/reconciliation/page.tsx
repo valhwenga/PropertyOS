@@ -1,6 +1,9 @@
 import Link from 'next/link';
-import { Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
-import { formatMinor } from '@propertyos/domain';
+import {
+  DataTable, Disclosure, EmptyState, Money, PageHeader, Panel, StatusBadge,
+  Tabs, Td, Th, buttonClass,
+} from '@propertyos/ui';
+import { formatMinor, listBankLines } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadLeaseChoices, loadReconciliation } from '@/lib/operations-queries';
@@ -18,10 +21,13 @@ export const dynamic = 'force-dynamic';
  * payment is a CLAIM, carries no ledger effect at all, and must not be read as
  * money in hand until it is verified against the bank record.
  *
- * A statement a landlord exported themselves can now be imported, and its
- * lines are identified from the Bank statements screen. There is still no bank
- * FEED and no automatic matching: a line is evidence money arrived, and who it
- * came from is a judgement somebody makes.
+ * The tabs are links, not client state, so the overview's tiles can point
+ * straight at one queue — which they do. Absent the parameter both queues are
+ * shown, because on a quiet day the whole of reconciliation fits on a screen.
+ *
+ * On what is and is not automated, see the disclosure at the foot of the page;
+ * it is the one place that describes the capability, so there is nowhere for a
+ * second, staler description to contradict it.
  */
 export default async function ReconciliationPage({
   params, searchParams,
@@ -35,10 +41,12 @@ export default async function ReconciliationPage({
   const { org } = await params;
   const { filter, lease, amount, bankLine, on, reference } = await searchParams;
   const context = await requireOperator(org);
-  const { unmatched, evidence, leases } = await readAs(context.viewer, async (tx) => ({
-    ...(await loadReconciliation(tx, context.organisationId)),
-    leases: await loadLeaseChoices(tx, context.organisationId),
-  }));
+  const { unmatched, evidence, everRecordedAReceipt, everReceivedEvidence, leases, openLines } =
+    await readAs(context.viewer, async (tx) => ({
+      ...(await loadReconciliation(tx, context.organisationId)),
+      leases: await loadLeaseChoices(tx, context.organisationId),
+      openLines: (await listBankLines(tx, context.organisationId, { onlyUnmatched: true })).length,
+    }));
   const today = new Date().toISOString().slice(0, 10);
 
   // Arrived from a statement line: the bank's own figures are carried over so
@@ -57,51 +65,95 @@ export default async function ReconciliationPage({
       }
     : undefined;
 
-  const showUnmatched = filter !== 'evidence';
-  const showEvidence = filter !== 'unmatched';
+  const base = `/app/${org}/reconciliation`;
+  const current = filter === 'unmatched' || filter === 'evidence' ? filter : 'all';
+  const showUnmatched = current !== 'evidence';
+  const showEvidence = current !== 'unmatched';
+
+  const inSuspense = unmatched.filter((r) => r.in_suspense).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         title="Reconciliation"
-        description="Receipts not yet applied to a charge, and resident payment claims not yet verified."
+        description="Money received that is not yet on a charge, and resident payment claims not yet verified."
+        meta={
+          <>
+            <span>
+              {inSuspense > 0
+                ? `${inSuspense} receipt${inSuspense === 1 ? '' : 's'} in suspense`
+                : 'Nothing in suspense'}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>Times in {context.timeZone}</span>
+          </>
+        }
         actions={
-          <RecordReceiptForm org={org} leases={leases} today={today} prefill={prefill} />
+          <>
+            <Link href={`${base}/statements`} className={buttonClass('secondary')}>
+              Bank statements →
+            </Link>
+            <RecordReceiptForm org={org} leases={leases} today={today} prefill={prefill} />
+          </>
         }
       />
 
-      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-        <p className="text-sm text-ink-700">
-          Working from a bank statement? Import it and identify each line there. Importing
-          creates no receipt and moves no balance.
-        </p>
-        <Link
-          href={`/app/${org}/reconciliation/statements`}
-          className="whitespace-nowrap rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-spike-600"
-        >
-          Bank statements →
-        </Link>
-      </Card>
+      <Tabs
+        label="Reconciliation queues"
+        current={current}
+        tabs={[
+          { key: 'all', label: 'Everything', href: base },
+          {
+            key: 'unmatched',
+            label: 'Not applied',
+            href: `${base}?filter=unmatched`,
+            count: unmatched.length,
+          },
+          {
+            key: 'evidence',
+            label: 'Payment evidence',
+            href: `${base}?filter=evidence`,
+            count: evidence.length,
+          },
+          {
+            key: 'statements',
+            label: 'Statement lines',
+            href: `${base}/statements`,
+            count: openLines,
+          },
+        ]}
+      />
 
-      {filter ? (
-        <Link href={`/app/${org}/reconciliation`} className="inline-block text-sm text-spike-700">
-          ← Show everything
-        </Link>
-      ) : null}
+      {/* The capability, said once and said plainly, where somebody deciding
+          what to do next will read it. The disclosure at the foot carries the
+          detail; this is the sentence that must not be missed. */}
+      <p className="text-[length:var(--text-table)] text-ink-500">
+        Statement lines come from a CSV you export from your own bank — importing creates no
+        receipt and moves no balance. No bank feed is connected.
+      </p>
 
       {showUnmatched ? (
-        <section aria-labelledby="unmatched" className="space-y-3">
-          <h2 id="unmatched" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
-            Received but not applied
-          </h2>
+        <Panel
+          title="Received but not applied"
+          titleId="unmatched"
+          description="Money in the account that is not yet sitting on a charge."
+        >
           {unmatched.length === 0 ? (
-            <EmptyState
-              title="Every receipt is applied"
-              description="Money received has been allocated to charges. Nothing is sitting in suspense."
-            />
+            <div className="p-4">
+              <EmptyState
+                compact
+                title={everRecordedAReceipt ? 'Every receipt is applied' : 'No receipts recorded yet'}
+                description={
+                  everRecordedAReceipt
+                    ? 'Money received has been allocated to charges. Nothing is sitting in suspense.'
+                    : 'Record money once you have seen it in the bank account, or import a statement and identify its lines.'
+                }
+              />
+            </div>
           ) : (
             <DataTable
               caption="Receipts with an unapplied balance"
+              stickyHead
               head={
                 <tr>
                   <Th>Received</Th><Th>Receipt</Th><Th>Lease</Th>
@@ -115,28 +167,33 @@ export default async function ReconciliationPage({
                   <Td className="whitespace-nowrap text-ink-500">
                     {formatDate(r.received_on, context.timeZone)}
                   </Td>
-                  <Td className="tabular">
+                  <Td>
                     <Link
-                      href={`/app/${org}/reconciliation/${r.receipt_id}`}
-                      className="font-medium text-spike-600 hover:underline"
+                      href={`${base}/${r.receipt_id}`}
+                      className="technical font-medium text-spike-600 hover:underline"
                     >
                       {r.receipt_number}
                     </Link>
                   </Td>
-                  <Td>{r.lease_reference ?? '—'}</Td>
+                  <Td className="technical text-ink-700">{r.lease_reference ?? '—'}</Td>
                   <Td>
                     {r.in_suspense ? (
-                      <StatusBadge tone="caution" glyph="◐">In suspense</StatusBadge>
-                    ) : null}
+                      <StatusBadge tone="caution">In suspense</StatusBadge>
+                    ) : (
+                      <StatusBadge tone="neutral">Partly applied</StatusBadge>
+                    )}
                   </Td>
                   <Td numeric><Money minor={BigInt(r.amount_minor)} currency={r.currency_code} /></Td>
                   <Td numeric>
-                    <Money minor={BigInt(r.unapplied_minor)} currency={r.currency_code} emphasise />
+                    <Money
+                      minor={BigInt(r.unapplied_minor)} currency={r.currency_code}
+                      emphasise tone="plain"
+                    />
                   </Td>
                   <Td>
                     <Link
-                      href={`/app/${org}/reconciliation/${r.receipt_id}`}
-                      className="text-sm font-medium text-spike-600 hover:underline"
+                      href={`${base}/${r.receipt_id}`}
+                      className="text-[length:var(--text-table)] font-medium text-spike-600 hover:underline"
                     >
                       {r.in_suspense ? 'Identify →' : 'Apply →'}
                     </Link>
@@ -145,71 +202,99 @@ export default async function ReconciliationPage({
               ))}
             </DataTable>
           )}
-        </section>
+        </Panel>
       ) : null}
 
       {showEvidence ? (
-        <section aria-labelledby="evidence" className="space-y-3">
-          <h2 id="evidence" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
-            Payment claims awaiting verification
-          </h2>
-          <p className="text-sm text-ink-500">
-            Evidence a resident uploaded. It has <strong>not</strong> reduced any balance and will
-            not until the funds are confirmed against the bank record and a receipt is created.
-          </p>
+        <Panel
+          title="Payment evidence awaiting verification"
+          titleId="evidence"
+          description="A claim a resident uploaded. It has not reduced any balance and will not until the funds are confirmed against the bank record and a receipt is recorded."
+        >
           {evidence.length === 0 ? (
-            <EmptyState
-              title="Nothing awaiting verification"
-              description="Proof of payment uploaded by a resident appears here for checking."
-            />
+            <div className="p-4">
+              <EmptyState
+                compact
+                title={
+                  everReceivedEvidence
+                    ? 'Nothing awaiting verification'
+                    : 'No resident has uploaded proof of payment'
+                }
+                description={
+                  everReceivedEvidence
+                    ? 'Every claim submitted has been reviewed.'
+                    : 'Proof of payment uploaded from the resident portal appears here for checking.'
+                }
+              />
+            </div>
           ) : (
-            <DataTable
-              caption="Payment evidence awaiting verification"
-              head={
-                <tr>
-                  <Th>Submitted</Th><Th>Resident</Th><Th>Lease</Th>
-                  <Th>Reference</Th><Th>Claimed paid</Th><Th numeric>Claimed</Th>
-                  <Th><span className="sr-only">Action</span></Th>
-                </tr>
-              }
-            >
+            <ul className="divide-y divide-ink-100">
               {evidence.map((e) => (
-                <tr key={e.id}>
-                  <Td className="whitespace-nowrap text-ink-500">
-                    {formatDate(e.submitted_at, context.timeZone)}
-                  </Td>
-                  <Td>{e.resident_name ?? '—'}</Td>
-                  <Td>
-                    {e.lease_reference ?? '—'}
-                  </Td>
-                  <Td className="tabular text-ink-500">{e.reference ?? '—'}</Td>
-                  <Td className="whitespace-nowrap text-ink-500">
-                    {e.claimed_paid_at ? formatDate(e.claimed_paid_at, context.timeZone) : '—'}
-                  </Td>
-                  <Td numeric>
-                    <Money minor={BigInt(e.claimed_amount_minor)} currency={context.currencyCode} />
-                  </Td>
-                  <Td>
-                    <ReviewEvidenceForm
-                      org={org} evidenceId={e.id} leaseReference={e.lease_reference}
-                    />
-                  </Td>
-                </tr>
+                <li key={e.id} className="px-4 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <div className="min-w-0">
+                      <p className="text-[length:var(--text-body)] font-medium text-ink-900">
+                        {e.resident_name ?? 'Unnamed resident'}
+                      </p>
+                      <p className="text-[length:var(--text-meta)] text-ink-500">
+                        <span className="technical">{e.lease_reference ?? 'No lease'}</span>
+                        {' · submitted '}
+                        {formatDate(e.submitted_at, context.timeZone)}
+                        {e.claimed_paid_at
+                          ? ` · claims paid ${formatDate(e.claimed_paid_at, context.timeZone)}`
+                          : ''}
+                        {e.reference ? ' · ' : ''}
+                        {e.reference ? <span className="technical">{e.reference}</span> : null}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className="tabular text-[length:var(--text-body)] font-semibold text-ink-700">
+                        <Money
+                          minor={BigInt(e.claimed_amount_minor)}
+                          currency={context.currencyCode}
+                          tone="plain"
+                        />
+                      </span>
+                      <span className="text-[length:var(--text-meta)] text-ink-500">claimed</span>
+                    </div>
+                  </div>
+                  <ReviewEvidenceForm
+                    org={org} evidenceId={e.id} leaseReference={e.lease_reference}
+                  />
+                </li>
               ))}
-            </DataTable>
+            </ul>
           )}
-        </section>
+        </Panel>
       ) : null}
 
-      <Card className="p-4">
-        <p className="text-sm font-medium text-ink-900">No bank feed is connected</p>
-        <p className="mt-1 text-sm text-ink-500">
-          Importing a bank statement and matching transactions automatically is not built, so
-          every receipt here was entered by a person who saw the money in the account. That is
-          deliberate: nothing in PropertyOS invents a receipt, and nothing turns a resident&rsquo;s
-          claim into one.
-        </p>
-      </Card>
+      <Disclosure summary="What is automated here, and what is not">
+        <ul className="space-y-2">
+          <li>
+            <strong className="font-semibold text-ink-900">Importing a statement: yes.</strong>{' '}
+            A CSV you export from your own bank is previewed, then imported on{' '}
+            <Link href={`${base}/statements`} className="text-spike-600 hover:underline">
+              Bank statements
+            </Link>
+            . Importing creates no receipt and moves no balance — a line is evidence that money
+            arrived, and an overlapping statement is refused rather than counted twice.
+          </li>
+          <li>
+            <strong className="font-semibold text-ink-900">
+              Suggesting who paid: yes, as suggestions.
+            </strong>{' '}
+            Asked for a line, PropertyOS looks for a resident&rsquo;s name or a lease reference in
+            the bank&rsquo;s description and in payments already recorded, and says in words why
+            each candidate is offered. It never records the receipt for you.
+          </li>
+          <li>
+            <strong className="font-semibold text-ink-900">A live bank feed: no.</strong>{' '}
+            No bank is contacted and no integration is connected. Every receipt on this page was
+            entered by a person who saw the money in the account. That is deliberate: nothing
+            invents a receipt, and nothing turns a resident&rsquo;s claim into one.
+          </li>
+        </ul>
+      </Disclosure>
     </div>
   );
 }

@@ -18,6 +18,14 @@ export interface Section {
   href: string;
   label: string;
   /**
+   * The line icon beside the label, by name.
+   *
+   * A string rather than a component, so this file stays free of JSX and of
+   * React: the rules below are tested directly, and nothing about them depends
+   * on where they are rendered.
+   */
+  icon?: string;
+  /**
    * The permissions that make this section worth offering. Holding ANY of them
    * is enough, because several sections serve more than one job: Approvals is
    * useful to a deposit approver and to a spend approver, and neither holds
@@ -41,7 +49,7 @@ export interface SectionGroup {
  * giving it a heading of its own would put a one-item group above the four
  * that matter.
  */
-export const OVERVIEW: Section = { href: '', label: 'Overview', anyOf: [] };
+export const OVERVIEW: Section = { href: '', label: 'Overview', icon: 'overview', anyOf: [] };
 
 /**
  * The four areas, in the order a month is worked: what you own, what it earns,
@@ -56,49 +64,52 @@ export const NAV_GROUPS: readonly SectionGroup[] = [
     key: 'portfolio',
     label: 'Portfolio',
     sections: [
-      { href: '/portfolio', label: 'Properties', anyOf: ['portfolio.read'] },
-      { href: '/residents', label: 'Residents', anyOf: ['resident.read'] },
-      { href: '/applications', label: 'Applications', anyOf: ['lease.create'] },
-      { href: '/leases', label: 'Leases', anyOf: ['lease.read'] },
+      { href: '/portfolio', label: 'Properties', icon: 'properties', anyOf: ['portfolio.read'] },
+      { href: '/residents', label: 'Residents', icon: 'residents', anyOf: ['resident.read'] },
+      { href: '/applications', label: 'Applications', icon: 'applications', anyOf: ['lease.create'] },
+      { href: '/leases', label: 'Leases', icon: 'leases', anyOf: ['lease.read'] },
     ],
   },
   {
     key: 'finance',
     label: 'Finance',
     sections: [
-      { href: '/billing', label: 'Billing', anyOf: ['billing.preview', 'billing.post'] },
+      { href: '/billing', label: 'Billing', icon: 'billing', anyOf: ['billing.preview', 'billing.post'] },
       {
         href: '/reconciliation',
         label: 'Reconciliation',
+        icon: 'reconciliation',
         anyOf: ['payment.record', 'payment.allocate', 'bank.import'],
       },
-      { href: '/deposits', label: 'Deposits', anyOf: ['deposit.read'] },
-      { href: '/expenses', label: 'Expenses', anyOf: ['expense.record', 'expense.approve'] },
+      { href: '/deposits', label: 'Deposits', icon: 'deposits', anyOf: ['deposit.read'] },
+      { href: '/expenses', label: 'Expenses', icon: 'expenses', anyOf: ['expense.record', 'expense.approve'] },
       {
         href: '/approvals',
         label: 'Approvals',
+        icon: 'approvals',
         anyOf: ['deposit.refund.approve', 'expense.approve', 'maintenance.quote.approve'],
       },
-      { href: '/reports', label: 'Reports', anyOf: ['report.read'] },
+      { href: '/reports', label: 'Reports', icon: 'reports', anyOf: ['report.read'] },
     ],
   },
   {
     key: 'operations',
     label: 'Operations',
     sections: [
-      { href: '/maintenance', label: 'Maintenance', anyOf: ['maintenance.read'] },
-      { href: '/inspections', label: 'Inspections', anyOf: ['inspection.manage'] },
-      { href: '/documents', label: 'Documents', anyOf: ['document.read'] },
+      { href: '/maintenance', label: 'Maintenance', icon: 'maintenance', anyOf: ['maintenance.read'] },
+      { href: '/inspections', label: 'Inspections', icon: 'inspections', anyOf: ['inspection.manage'] },
+      { href: '/documents', label: 'Documents', icon: 'documents', anyOf: ['document.read'] },
     ],
   },
   {
     key: 'administration',
     label: 'Administration',
     sections: [
-      { href: '/onboarding', label: 'Import', anyOf: ['property.create'] },
+      { href: '/onboarding', label: 'Import', icon: 'import', anyOf: ['property.create'] },
       {
         href: '/settings',
         label: 'Settings',
+        icon: 'settings',
         anyOf: [
           'organisation.settings.manage', 'membership.manage', 'lease.template.manage',
           'bank_account.read', 'audit.read', 'support.access.manage',

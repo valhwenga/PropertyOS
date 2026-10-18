@@ -338,7 +338,26 @@ export async function loadReconciliation(tx: Sql, organisationId: string) {
     limit 200
   `;
 
-  return { unmatched, evidence };
+  // Whether anything has EVER arrived here, so an empty section can say which
+  // kind of empty it is: nothing recorded yet, or everything dealt with. Two
+  // cheap existence probes rather than counts — the number is not shown.
+  const [seen] = await tx<{ any_receipt: boolean; any_evidence: boolean }[]>`
+    select exists (
+             select 1 from receipts
+              where organisation_id = ${organisationId}::uuid limit 1
+           ) as any_receipt,
+           exists (
+             select 1 from payment_evidence
+              where organisation_id = ${organisationId}::uuid limit 1
+           ) as any_evidence
+  `;
+
+  return {
+    unmatched,
+    evidence,
+    everRecordedAReceipt: seen?.any_receipt ?? false,
+    everReceivedEvidence: seen?.any_evidence ?? false,
+  };
 }
 
 /**

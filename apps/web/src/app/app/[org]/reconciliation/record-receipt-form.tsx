@@ -3,10 +3,19 @@
 import Link from 'next/link';
 import { useActionState, useState } from 'react';
 import { useSubmissionKey } from '@/components/submission-key';
-import { Button, Card, ErrorState } from '@propertyos/ui';
+import { Modal } from '@/components/modal';
+import { Button, ErrorState } from '@propertyos/ui';
 import { recordReceiptAction, reviewEvidenceAction } from './actions';
 
 interface Outcome { ok: boolean; message?: string; correlationId?: string }
+
+/* One set of control styles, so a form does not drift from the tables and
+   toolbars around it. */
+const FIELD =
+  'w-full rounded-[var(--radius-control)] border border-ink-200 bg-surface px-3 py-2 '
+  + 'text-[length:var(--text-table)] text-ink-900';
+const LABEL = 'block text-[length:var(--text-table)] font-medium text-ink-700';
+const HINT = 'text-[length:var(--text-meta)] text-ink-500';
 
 function Problem({ state, title = 'Not saved' }: { state: Outcome | null; title?: string }) {
   if (!state || state.ok) return null;
@@ -51,7 +60,12 @@ export function RecordReceiptForm({
   }
 
   return (
-    <Card className="p-5">
+    <Modal
+      title="Record money received"
+      description="For funds you have confirmed are in the bank account. A resident’s proof of payment is not this: it is reviewed separately and changes no balance."
+      onClose={() => setOpen(false)}
+      width="lg"
+    >
       <form action={action} className="space-y-4">
         <input type="hidden" name="org" value={org} />
         {/* One key per intended entry: a second click records nothing new. */}
@@ -59,13 +73,8 @@ export function RecordReceiptForm({
         {prefill?.bankTransactionId ? (
           <input type="hidden" name="bankTransactionId" value={prefill.bankTransactionId} />
         ) : null}
-        <h2 className="text-sm font-semibold text-ink-900">Record money received</h2>
-        <p className="text-sm text-ink-500">
-          For funds you have confirmed are in the bank account. A resident&rsquo;s proof of
-          payment is not this: it is reviewed separately and changes no balance.
-        </p>
         {prefill?.bankTransactionId ? (
-          <p className="text-sm text-ink-700">
+          <p className="text-[length:var(--text-table)] text-ink-700">
             Started from a statement line, so the amount and date come from the bank. The lease
             below is a suggestion — check it before recording, because this is the moment the
             money lands on somebody&rsquo;s account.
@@ -74,7 +83,7 @@ export function RecordReceiptForm({
 
         <Problem state={state} />
         {state?.ok ? (
-          <p className="text-sm font-semibold text-positive-600">
+          <p className="text-[length:var(--text-table)] font-semibold text-positive-600">
             {'replayed' in state && state.replayed
               ? 'Already recorded — this was the same entry, so nothing was recorded twice. '
               : 'Receipt recorded. '}
@@ -86,53 +95,53 @@ export function RecordReceiptForm({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <label htmlFor="amount" className="block text-sm font-medium text-ink-700">
+            <label htmlFor="amount" className={LABEL}>
               Amount received
             </label>
             <input
               id="amount" name="amount" inputMode="decimal" required placeholder="8000.00"
               defaultValue={prefill?.amountMajor ?? ''}
-              className="tabular w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              className={`tabular ${FIELD}`}
             />
-            <p className="text-xs text-ink-500">
+            <p className={HINT}>
               The gross amount that reached the account, before any processing fee.
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="receivedOn" className="block text-sm font-medium text-ink-700">
+            <label htmlFor="receivedOn" className={LABEL}>
               Date received
             </label>
             <input
               id="receivedOn" name="receivedOn" type="date" required
               defaultValue={prefill?.receivedOn ?? today}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              className={FIELD}
             />
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="receiptLeaseId" className="block text-sm font-medium text-ink-700">
+            <label htmlFor="receiptLeaseId" className={LABEL}>
               Whose payment is this?
             </label>
             <select
               id="receiptLeaseId" name="leaseId" defaultValue={prefill?.leaseId ?? ''}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              className={FIELD}
             >
               <option value="">Not identified — hold in suspense</option>
               {leases.map((l) => (
                 <option key={l.id} value={l.id}>{l.reference} — {l.label}</option>
               ))}
             </select>
-            <p className="text-xs text-ink-500">
+            <p className={HINT}>
               Leave it unidentified if you are not sure. Guessing is worse than suspense.
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="method" className="block text-sm font-medium text-ink-700">How</label>
+            <label htmlFor="method" className={LABEL}>How</label>
             <select
               id="method" name="method"
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              className={FIELD}
             >
               <option value="eft">EFT</option>
               <option value="cash">Cash</option>
@@ -143,35 +152,35 @@ export function RecordReceiptForm({
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="payerReference" className="block text-sm font-medium text-ink-700">
+            <label htmlFor="payerReference" className={LABEL}>
               Reference on the statement
             </label>
             <input
               id="payerReference" name="payerReference" placeholder="MOKOENA T"
               defaultValue={prefill?.payerReference ?? ''}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              className={FIELD}
             />
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="fee" className="block text-sm font-medium text-ink-700">
+            <label htmlFor="fee" className={LABEL}>
               Processing fee, if any
             </label>
             <input
               id="fee" name="fee" inputMode="decimal" placeholder="0.00"
-              className="tabular w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+              className={`tabular ${FIELD}`}
             />
-            <p className="text-xs text-ink-500">
+            <p className={HINT}>
               Recorded separately. A R8,000 payment with a R120 fee still pays R8,000 of rent.
             </p>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <label htmlFor="notes" className="block text-sm font-medium text-ink-700">Notes</label>
+          <label htmlFor="notes" className={LABEL}>Notes</label>
           <input
             id="notes" name="notes"
-            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+            className={FIELD}
           />
         </div>
 
@@ -182,7 +191,7 @@ export function RecordReceiptForm({
           <Button type="button" variant="secondary" onClick={() => setOpen(false)}>Close</Button>
         </div>
       </form>
-    </Card>
+    </Modal>
   );
 }
 
@@ -214,7 +223,7 @@ export function ReviewEvidenceForm({
       <input type="hidden" name="evidenceId" value={evidenceId} />
       <Problem state={state} title="Could not record the review" />
 
-      <p className="text-xs text-ink-700">
+      <p className="text-[length:var(--text-meta)] text-ink-700">
         This records a decision only. It does not reduce what the resident owes, whichever
         outcome you choose — that happens when the money is confirmed in the account and
         recorded as a receipt.
@@ -233,12 +242,12 @@ export function ReviewEvidenceForm({
       </p>
 
       <div className="space-y-1.5">
-        <label htmlFor={`outcome-${evidenceId}`} className="block text-sm font-medium text-ink-700">
+        <label htmlFor={`outcome-${evidenceId}`} className={LABEL}>
           Outcome
         </label>
         <select
           id={`outcome-${evidenceId}`} name="outcome" required
-          className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+          className={FIELD}
         >
           <option value="under_review">Still checking</option>
           <option value="accepted">Looks genuine</option>
@@ -247,14 +256,14 @@ export function ReviewEvidenceForm({
       </div>
 
       <div className="space-y-1.5">
-        <label htmlFor={`note-${evidenceId}`} className="block text-sm font-medium text-ink-700">
+        <label htmlFor={`note-${evidenceId}`} className={LABEL}>
           Note
         </label>
         <input
           id={`note-${evidenceId}`} name="note"
-          className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm"
+          className={FIELD}
         />
-        <p className="text-xs text-ink-500">Required when rejecting. The resident is told why.</p>
+        <p className={HINT}>Required when rejecting. The resident is told why.</p>
       </div>
 
       <div className="flex gap-2">

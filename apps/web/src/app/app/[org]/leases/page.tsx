@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
+import {
+  DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th, buttonClass,
+} from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
@@ -56,31 +58,39 @@ export default async function LeasesPage({
             : 'Lease status is tracked separately from physical occupancy. An expired lease can still carry arrears.'
         }
         actions={
-          <Link href={`/app/${org}/leases/new`} className="rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white">
+          <Link href={`/app/${org}/leases/new`} className={buttonClass('primary')}>
             Draft lease
           </Link>
         }
+        toolbar={
+          <ListToolbar
+            action={`/app/${org}/leases`}
+            query={query.q}
+            placeholder="Reference, resident or unit"
+            customised={Object.keys(query).length > 0}
+            // Only when something is actually applied: "Every status" under an
+            // untouched toolbar is a line that says nothing.
+            scope={filtered ? [
+              status ? `Status: ${STATUS[status]!.label}` : 'Every status',
+              expiringWithinDays !== undefined ? `Ending within ${expiringWithinDays} days` : null,
+              query.q ? `Matching “${query.q}”` : null,
+            ].filter(Boolean).join(' · ') : undefined}
+          >
+            {/* Carried through the form, or searching inside "expiring in 60
+                days" would quietly widen the list back to every lease. */}
+            {expiring !== undefined ? (
+              <input type="hidden" name="expiring" value={expiring} />
+            ) : null}
+            <ListSelect
+              name="status"
+              label="Status"
+              value={status}
+              anyLabel="Any status"
+              options={Object.entries(STATUS).map(([value, s]) => ({ value, label: s.label }))}
+            />
+          </ListToolbar>
+        }
       />
-
-      <ListToolbar
-        action={`/app/${org}/leases`}
-        query={query.q}
-        placeholder="Reference, resident or unit"
-        customised={Object.keys(query).length > 0}
-      >
-        {/* Carried through the form, or searching inside "expiring in 60
-            days" would quietly widen the list back to every lease. */}
-        {expiring !== undefined ? (
-          <input type="hidden" name="expiring" value={expiring} />
-        ) : null}
-        <ListSelect
-          name="status"
-          label="Status"
-          value={status}
-          anyLabel="Any status"
-          options={Object.entries(STATUS).map(([value, s]) => ({ value, label: s.label }))}
-        />
-      </ListToolbar>
 
       <PageBar summary={summary} href={(page) => `/app/${org}/leases${pageHref(query, page)}`} />
 
@@ -96,9 +106,11 @@ export default async function LeasesPage({
       ) : (
         <DataTable
           caption="Leases"
+          stickyHead
+          minWidth="52rem"
           head={
             <tr>
-              <Th>Reference</Th><Th>Resident</Th><Th>Unit</Th><Th>Term</Th>
+              <Th>Resident</Th><Th>Unit</Th><Th>Reference</Th><Th>Term</Th>
               <Th numeric>Rent</Th><Th numeric>Receivable</Th><Th>Status</Th>
             </tr>
           }
@@ -106,25 +118,30 @@ export default async function LeasesPage({
           {leases.map((l) => {
             const status = STATUS[l.status] ?? { tone: 'neutral' as StatusTone, glyph: '○', label: l.status };
             return (
-              <tr key={l.id} className="hover:bg-ink-50">
+              <tr key={l.id}>
+                {/* The person first: a reference identifies the record, but
+                    nobody scans this list looking for one. */}
                 <Td>
-                  <Link href={`/app/${org}/leases/${l.id}`} className="font-medium text-spike-600 hover:underline">
-                    {l.reference}
+                  <Link
+                    href={`/app/${org}/leases/${l.id}`}
+                    className="font-medium text-spike-600 hover:underline"
+                  >
+                    {l.resident_name}
                   </Link>
                 </Td>
-                <Td>{l.resident_name}</Td>
-                <Td className="text-ink-500">{l.unit_label}</Td>
-                <Td className="text-ink-500">
+                <Td className="text-ink-700">{l.unit_label}</Td>
+                <Td className="technical whitespace-nowrap text-ink-500">{l.reference}</Td>
+                <Td className="whitespace-nowrap text-ink-500">
                   {formatDate(l.start_date, context.timeZone)} –{' '}
                   {l.end_date ? formatDate(l.end_date, context.timeZone) : 'open ended'}
                 </Td>
-                <Td numeric><Money minor={l.rent_minor} currency={l.currency_code} /></Td>
+                <Td numeric><Money minor={l.rent_minor} currency={l.currency_code} tone="plain" /></Td>
                 <Td numeric>
-                  <Money minor={l.receivable_minor} currency={l.currency_code}
+                  <Money minor={l.receivable_minor} currency={l.currency_code} tone="debt"
                          emphasise={BigInt(l.receivable_minor) > 0n} />
                 </Td>
                 <Td>
-                  <StatusBadge tone={status.tone} glyph={status.glyph}>{status.label}</StatusBadge>
+                  <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
                 </Td>
               </tr>
             );

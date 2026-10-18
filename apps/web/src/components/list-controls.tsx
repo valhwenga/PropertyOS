@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Card } from '@propertyos/ui';
+import { CONTROL_CLASS, FilterToolbar, ToolbarField } from '@propertyos/ui';
 import type { PageSummary } from '@/lib/listing';
 
 /**
@@ -10,10 +10,12 @@ import type { PageSummary } from '@/lib/listing';
  * nothing here needs JavaScript to work.
  *
  * One component for every list so they agree with each other. A product where
- * the search box is in a different place on each screen teaches nothing.
+ * the search box is in a different place on each screen teaches nothing — and
+ * now one strip rather than a card with its own heading, because narrowing a
+ * list is not a section of the page.
  */
 export function ListToolbar({
-  action, query, placeholder, customised, children,
+  action, query, placeholder, customised, children, scope,
 }: {
   /** Where Reset goes: the same list with nothing asked of it. */
   action: string;
@@ -22,34 +24,29 @@ export function ListToolbar({
   customised: boolean;
   /** The per-list selects. */
   children?: React.ReactNode;
+  /** What the filters currently add up to, in words. */
+  scope?: React.ReactNode;
 }) {
   return (
-    <Card className="p-4">
-      <form method="get" className="flex flex-wrap items-end gap-4">
-        <label className="block min-w-[16rem] flex-1 text-sm">
-          <span className="mb-1 block font-medium text-ink-700">Search</span>
+    <FilterToolbar
+      action={action}
+      reset={customised ? action : undefined}
+      scope={scope}
+    >
+      <div className="min-w-[16rem] flex-1">
+        <ToolbarField label="Search" htmlFor="list-search">
           <input
+            id="list-search"
             type="search"
             name="q"
             defaultValue={query ?? ''}
             placeholder={placeholder}
-            className="w-full rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm"
+            className={`w-full ${CONTROL_CLASS}`}
           />
-        </label>
-        {children}
-        <div className="flex items-center gap-2">
-          <button
-            type="submit"
-            className="rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white"
-          >
-            Apply
-          </button>
-          {customised ? (
-            <Link href={action} className="text-sm text-ink-500 hover:underline">Reset</Link>
-          ) : null}
-        </div>
-      </form>
-    </Card>
+        </ToolbarField>
+      </div>
+      {children}
+    </FilterToolbar>
   );
 }
 
@@ -64,19 +61,19 @@ export function ListSelect({
   anyLabel: string;
 }) {
   return (
-    <label className="block text-sm">
-      <span className="mb-1 block font-medium text-ink-700">{label}</span>
+    <ToolbarField label={label} htmlFor={`list-${name}`}>
       <select
+        id={`list-${name}`}
         name={name}
         defaultValue={value ?? ''}
-        className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm"
+        className={CONTROL_CLASS}
       >
         <option value="">{anyLabel}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
       </select>
-    </label>
+    </ToolbarField>
   );
 }
 
@@ -94,15 +91,17 @@ export function PageBar({
   /** Builds the link for a page number, carrying every other filter. */
   href: (page: number) => string;
 }) {
+  const step = 'inline-flex items-center rounded-[var(--radius-control)] border border-ink-200 '
+    + 'bg-surface px-2.5 py-1 font-medium text-ink-700 hover:bg-ink-50';
   return (
-    <div className="flex items-center justify-between gap-4 text-sm text-ink-500">
+    <div className="flex items-center justify-between gap-4 text-[length:var(--text-meta)] text-ink-500">
       <p>{summary.sentence}{summary.filtered ? ' matching your filters' : ''}</p>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         {summary.previous !== null ? (
-          <Link href={href(summary.previous)} className="hover:underline">← Previous</Link>
+          <Link href={href(summary.previous)} className={step}>← Previous</Link>
         ) : null}
         {summary.next !== null ? (
-          <Link href={href(summary.next)} className="hover:underline">Next →</Link>
+          <Link href={href(summary.next)} className={step}>Next →</Link>
         ) : null}
       </div>
     </div>

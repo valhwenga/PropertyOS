@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { SectionIcon } from './icons';
 import { isCurrentSection, OVERVIEW, type Section } from './operator-sections';
 
 /**
@@ -34,16 +35,25 @@ function Item({ base, section }: { base: string; section: Section }) {
       <Link
         href={`${base}${section.href}`}
         // aria-current is what tells a screen reader which section this is;
-        // the colour is the sighted equivalent. Neither carries it alone.
+        // the colour and the left marker are the sighted equivalents. None of
+        // the three carries it alone.
         aria-current={current ? 'page' : undefined}
         className={[
-          'block whitespace-nowrap rounded-lg px-3 py-1.5 text-sm md:py-1',
+          'group relative flex items-center gap-2.5 rounded-[var(--radius-control)]',
+          'px-2.5 py-1.5 text-[length:var(--text-table)] transition-colors',
           current
-            ? 'bg-spike-50 font-medium text-spike-700'
-            : 'text-ink-700 hover:bg-spike-50 hover:text-spike-700',
+            ? 'bg-spike-50 font-semibold text-spike-700'
+            : 'font-medium text-ink-700 hover:bg-ink-100 hover:text-ink-900',
         ].join(' ')}
       >
-        {section.label}
+        <SectionIcon
+          name={section.icon}
+          className={[
+            'size-[18px] shrink-0 transition-colors',
+            current ? 'text-spike-600' : 'text-ink-400 group-hover:text-ink-700',
+          ].join(' ')}
+        />
+        <span className="truncate">{section.label}</span>
       </Link>
     </li>
   );
@@ -62,47 +72,35 @@ export function OperatorNav({
   awaitingSecondFactor: number;
 }) {
   return (
-    <nav aria-label="Sections" className="overflow-x-auto px-4 md:overflow-x-visible md:pb-4">
-      {/* Narrow screens keep the single scrolling row they already had: four
-          stacked groups down a phone would eat the top of every page. The
-          groups are still groups in the markup, their headings hidden from
-          sight only, so a screen reader on a phone keeps the structure the
-          sidebar shows on a laptop. */}
-      <div className="flex md:block">
-        <ul className="flex gap-1 pb-2 md:flex-col md:gap-0.5 md:pb-0">
-          <Item base={base} section={OVERVIEW} />
-        </ul>
+    <nav aria-label="Sections" className="px-3 py-2">
+      <ul className="space-y-0.5">
+        <Item base={base} section={OVERVIEW} />
+      </ul>
 
-        {groups.map((group) => (
-          <section key={group.key} aria-labelledby={`nav-${group.key}`} className="md:mt-3">
-            <h2
-              id={`nav-${group.key}`}
-              className="
-                sr-only
-                md:not-sr-only md:px-3 md:pb-0.5 md:text-[11px] md:font-semibold
-                md:uppercase md:tracking-wide md:text-ink-400
-              "
-            >
-              {group.label}
-            </h2>
-            <ul className="flex gap-1 pb-2 md:flex-col md:gap-0.5 md:pb-0">
-              {group.sections.map((section) => (
-                <Item key={section.href} base={base} section={section} />
-              ))}
-            </ul>
-          </section>
-        ))}
-      </div>
+      {groups.map((group) => (
+        <section key={group.key} aria-labelledby={`nav-${group.key}`} className="mt-5">
+          <h2
+            id={`nav-${group.key}`}
+            className="
+              px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-400
+            "
+          >
+            {group.label}
+          </h2>
+          <ul className="space-y-0.5">
+            {group.sections.map((section) => (
+              <Item key={section.href} base={base} section={section} />
+            ))}
+          </ul>
+        </section>
+      ))}
 
-      {/* Shown at every width. On a phone it is a second line under the
-          scrolling row, which is a cost worth paying: the member most likely
-          to see it is an administrator whose sidebar is otherwise empty. */}
       {awaitingSecondFactor > 0 ? (
-        <p className="mb-2 rounded-lg bg-caution-50 px-3 py-2 text-xs text-caution-700 md:mb-0 md:mt-4">
+        <p className="mt-5 rounded-[var(--radius-control)] bg-caution-50 px-2.5 py-2 text-[length:var(--text-meta)] text-caution-700">
           {awaitingSecondFactor === 1
             ? 'One more section is yours once you set up an authenticator.'
             : `${awaitingSecondFactor} more sections are yours once you set up an authenticator.`}{' '}
-          <Link href="/account/security" className="font-medium underline">
+          <Link href="/account/security" className="font-semibold underline">
             Set one up
           </Link>
           .

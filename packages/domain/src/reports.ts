@@ -109,7 +109,14 @@ export async function rentRoll(
       and o.id = ${organisationId}::uuid
       and u.status = 'active'
       ${filters.propertyIds?.length ? tx`and u.property_id = any(${filters.propertyIds}::uuid[])` : tx``}
-    order by p.name, u.code
+    -- Natural order, so U2 comes before U10. Plain text ordering puts U10
+    -- between U1 and U2, which reads as a mistake in a report somebody is
+    -- checking unit by unit. The letters sort first, then the first run of
+    -- digits as a number, then the code itself to break any remaining tie.
+    order by p.name,
+             regexp_replace(u.code, '[0-9]+', '', 'g'),
+             coalesce(nullif(substring(u.code from '[0-9]{1,9}'), '')::int, 0),
+             u.code
   `;
 
   const mapped: RentRollRow[] = rows.map((r) => ({

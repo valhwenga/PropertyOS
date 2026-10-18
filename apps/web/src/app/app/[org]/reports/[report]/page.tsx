@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th,
+  Card, DataTable, Disclosure, EmptyState, Figure, Money, PageHeader, Panel, StatusBadge,
+  Td, Th, TotalRow, buttonClass,
 } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
@@ -53,89 +54,127 @@ export default async function ReportPage({
       : `${chosen.length} of ${properties.length} properties`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         title={data.meta.name}
         // The period is the first thing the page says. A rent roll with no
         // date on it is a rent roll somebody will still be reading in March.
-        description={`${label.sentence} · ${scope} · generated ${formatDate(data.meta.generatedAt, context.timeZone)}`}
+        meta={
+          <>
+            <span className="font-medium text-ink-700">{label.sentence}</span>
+            <span aria-hidden="true">·</span>
+            <span>{scope}</span>
+            <span aria-hidden="true">·</span>
+            <span>Generated {formatDate(data.meta.generatedAt, context.timeZone)}</span>
+          </>
+        }
         actions={
           <>
-            <Link href={`/app/${org}/reports`} className="rounded-lg border border-ink-200 bg-surface px-3.5 py-2 text-sm font-medium text-ink-700">
+            <Link href={`/app/${org}/reports`} className={buttonClass('ghost')}>
               All reports
             </Link>
             <a
               href={`/app/${org}/reports/${report}/export.csv?${reportQueryString(shape, resolved.filters)}`}
-              className="rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white"
+              className={buttonClass('primary')}
             >
               Export CSV
             </a>
           </>
         }
+        toolbar={
+          <ReportFiltersForm
+            base={`/app/${org}`}
+            shape={shape}
+            resolved={resolved}
+            properties={properties}
+            customised={Object.keys(query).length > 0}
+            scope={`${label.sentence} · ${scope}. The export covers exactly this.`}
+          />
+        }
       />
 
-      <ReportFiltersForm
-        base={`/app/${org}`}
-        shape={shape}
-        resolved={resolved}
-        properties={properties}
-        customised={Object.keys(query).length > 0}
-      />
-
-      {/* The definitions travel with the figures, on screen and in the export. */}
-      <Card className="border-info-700/25 bg-info-50 p-4">
-        <p className="text-sm font-semibold text-info-700">How to read this report</p>
-        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-ink-700">
+      {/* The definitions travel with the figures, on screen and in the export.
+          Folded away by default: they are a reference, not the report. */}
+      <Disclosure summary="How to read this report">
+        <ul className="list-disc space-y-1 pl-5">
           {data.meta.qualifications.map((q) => <li key={q}>{q}</li>)}
         </ul>
-      </Card>
+      </Disclosure>
 
       {data.kind === 'occupancy' ? (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Card className="p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Physical occupancy</p>
-            <p className="mt-1 text-3xl font-semibold">
-              {data.physicalOccupancyPercent === null ? '—' : `${data.physicalOccupancyPercent}%`}
-            </p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Occupied unit days</p>
-            <p className="tabular mt-1 text-3xl font-semibold">{data.occupiedUnitDays}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Available unit days</p>
-            <p className="tabular mt-1 text-3xl font-semibold">{data.availableUnitDays}</p>
-            <p className="mt-1 text-xs text-ink-400">
-              {data.outOfServiceUnitDays} day{data.outOfServiceUnitDays === 1 ? '' : 's'} out of service excluded
-            </p>
-          </Card>
-        </div>
+        <Panel title="Occupancy over the period" titleId="occupancy-summary">
+          <dl className="grid gap-4 p-4 sm:grid-cols-3">
+            <Figure
+              label="Physical occupancy"
+              value={data.physicalOccupancyPercent === null
+                ? 'Not available'
+                : `${data.physicalOccupancyPercent}%`}
+              hint={data.physicalOccupancyPercent === null
+                ? 'No unit was available for any day of this period.'
+                : 'Occupied unit days over available unit days.'}
+              numeric={data.physicalOccupancyPercent !== null}
+            />
+            <Figure label="Occupied unit days" value={data.occupiedUnitDays} />
+            <Figure
+              label="Available unit days"
+              value={data.availableUnitDays}
+              hint={`${data.outOfServiceUnitDays} day${data.outOfServiceUnitDays === 1 ? '' : 's'} out of service excluded`}
+            />
+          </dl>
+        </Panel>
       ) : null}
 
       {data.kind === 'rent-roll' ? (
-        data.rows.length === 0 ? <EmptyState title="No units in scope" description="Add a property and a unit to see a rent roll." /> : (
+        data.rows.length === 0 ? (
+          <EmptyState
+            title="No units in scope"
+            description={
+              properties.length === 0
+                ? 'Add a property and a unit to see a rent roll.'
+                : 'Every unit was excluded by the properties chosen above, or none is active at this date.'
+            }
+          />
+        ) : (
           <DataTable
             caption="Rent roll"
-            head={<tr><Th>Property</Th><Th>Unit</Th><Th>Resident</Th><Th>Lease</Th><Th>Occupied</Th><Th numeric>Rent</Th><Th numeric>Receivable</Th></tr>}
+            stickyHead
+            minWidth="56rem"
+            head={(
+              <tr>
+                <Th>Property</Th><Th>Unit</Th><Th>Resident</Th><Th>Lease</Th>
+                <Th>Lease status</Th><Th>Occupied</Th>
+                <Th numeric>Rent</Th><Th numeric>Receivable</Th>
+              </tr>
+            )}
           >
             {data.rows.map((r, i) => (
-              <tr key={`${r.propertyName}-${r.unitCode}-${i}`} className="hover:bg-ink-50">
+              <tr key={`${r.propertyName}-${r.unitCode}-${i}`}>
                 <Td>{r.propertyName}</Td>
-                <Td className="tabular">{r.unitCode}</Td>
-                <Td>{r.residentName ?? <span className="text-ink-400">Vacant</span>}</Td>
-                <Td className="text-ink-500">{r.leaseReference ?? '—'}</Td>
+                <Td className="technical">{r.unitCode}</Td>
+                <Td>
+                  {r.residentName ?? <span className="text-ink-400">No resident</span>}
+                </Td>
+                <Td className="technical text-ink-500">{r.leaseReference ?? '—'}</Td>
+                {/* Lease status and physical occupancy are different questions
+                    and are answered in separate columns. A unit can be let and
+                    empty, or occupied under a lease that has expired. */}
+                <Td className="capitalize text-ink-700">
+                  {r.leaseStatus ? r.leaseStatus.replace(/_/g, ' ') : '—'}
+                </Td>
                 <Td>{r.occupied
-                  ? <StatusBadge tone="positive" glyph="●">Occupied</StatusBadge>
-                  : <StatusBadge tone="neutral" glyph="○">Vacant</StatusBadge>}</Td>
-                <Td numeric><Money minor={r.contractedRentMinor} currency={currency} /></Td>
-                <Td numeric><Money minor={r.receivableMinor} currency={currency} emphasise={r.receivableMinor > 0n} /></Td>
+                  ? <StatusBadge tone="positive">Occupied</StatusBadge>
+                  : <StatusBadge tone="neutral">Vacant</StatusBadge>}</Td>
+                <Td numeric><Money minor={r.contractedRentMinor} currency={currency} tone="plain" /></Td>
+                <Td numeric><Money minor={r.receivableMinor} currency={currency} tone="debt" emphasise={r.receivableMinor > 0n} /></Td>
               </tr>
             ))}
-            <tr className="border-t-2 border-ink-200 bg-ink-50/60 font-semibold">
-              <Td>Total</Td><Td> </Td><Td> </Td><Td> </Td><Td> </Td>
-              <Td numeric><Money minor={data.totalRentMinor} currency={currency} emphasise /></Td>
-              <Td numeric><Money minor={data.totalReceivableMinor} currency={currency} emphasise /></Td>
-            </tr>
+            <TotalRow
+              span={6}
+              label={`Total · ${data.rows.length} unit${data.rows.length === 1 ? '' : 's'} in scope`}
+            >
+              <Td numeric><Money minor={data.totalRentMinor} currency={currency} emphasise tone="plain" /></Td>
+              <Td numeric><Money minor={data.totalReceivableMinor} currency={currency} emphasise tone="plain" /></Td>
+            </TotalRow>
           </DataTable>
         )
       ) : null}
@@ -163,15 +202,14 @@ export default async function ReportPage({
                 <Td numeric><Money minor={r.totalMinor} currency={currency} emphasise /></Td>
               </tr>
             ))}
-            <tr className="border-t-2 border-ink-200 bg-ink-50/60 font-semibold">
-              <Td>Total</Td><Td> </Td>
+            <TotalRow span={2} label={`Total · ${data.rows.length} lease${data.rows.length === 1 ? '' : 's'}`}>
               <Td numeric><Money minor={data.totals.notYetDueMinor!} currency={currency} /></Td>
               <Td numeric><Money minor={data.totals.days1to30Minor!} currency={currency} /></Td>
               <Td numeric><Money minor={data.totals.days31to60Minor!} currency={currency} /></Td>
               <Td numeric><Money minor={data.totals.days61to90Minor!} currency={currency} /></Td>
               <Td numeric><Money minor={data.totals.daysOver90Minor!} currency={currency} /></Td>
-              <Td numeric><Money minor={data.totals.totalMinor!} currency={currency} emphasise /></Td>
-            </tr>
+              <Td numeric><Money minor={data.totals.totalMinor!} currency={currency} emphasise tone="plain" /></Td>
+            </TotalRow>
           </DataTable>
         )
       ) : null}
@@ -181,65 +219,46 @@ export default async function ReportPage({
           {/* Two labelled measures. Rent collection is the one a landlord
               means; the all-category rate includes utilities and recoveries.
               They are never averaged together into a single "collection". */}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2">
             {([
               { title: 'Rent', m: data.totals.rent, note: 'Rent charges only. Deposits and utilities excluded.' },
               { title: 'All charges', m: data.totals.total, note: 'Rent, utilities, recoveries and every other billed category.' },
             ] as const).map(({ title, m, note }) => (
-              <Card key={title} className="p-4">
-                <p className="text-sm font-semibold text-ink-900">{title}</p>
-                <div className="mt-3 grid grid-cols-3 gap-3">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Billed</p>
-                    <p className="mt-1 text-xl font-semibold"><Money minor={m.billedMinor} currency={currency} /></p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Collected</p>
-                    <p className="mt-1 text-xl font-semibold"><Money minor={m.collectedMinor} currency={currency} /></p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Rate</p>
-                    <p className="mt-1 text-xl font-semibold">
-                      {m.ratePercent === null ? '—' : `${m.ratePercent.toFixed(2)}%`}
-                    </p>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-ink-400">
-                  {m.ratePercent === null ? 'Nothing was billed for this period.' : note}
-                </p>
-              </Card>
+              <Panel key={title} title={title} description={m.ratePercent === null ? 'Nothing was billed for this period.' : note}>
+                <dl className="grid grid-cols-3 gap-3 p-4">
+                  <Figure label="Billed" value={<Money minor={m.billedMinor} currency={currency} tone="plain" />} />
+                  <Figure label="Collected" value={<Money minor={m.collectedMinor} currency={currency} tone="plain" />} />
+                  <Figure
+                    label="Rate"
+                    value={m.ratePercent === null ? 'Not available' : `${m.ratePercent.toFixed(2)}%`}
+                    numeric={m.ratePercent !== null}
+                  />
+                </dl>
+              </Panel>
             ))}
           </div>
 
           {/* Cash is a different question from collection, so it is reported
               separately rather than folded into the rate above. */}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Cash banked</p>
-              <p className="mt-1 text-2xl font-semibold">
-                <Money minor={data.totals.receiptsBankedMinor} currency={currency} />
-              </p>
-              <p className="mt-1 text-xs text-ink-400">Confirmed receipts received in this period.</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">
-                Applied to earlier periods
-              </p>
-              <p className="mt-1 text-2xl font-semibold">
-                <Money minor={data.totals.priorPeriodCollectedMinor} currency={currency} />
-              </p>
-              <p className="mt-1 text-xs text-ink-400">Allocated this period against older arrears.</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Unapplied credit</p>
-              <p className="mt-1 text-2xl font-semibold">
-                <Money minor={data.totals.unappliedCreditMinor} currency={currency} />
-              </p>
-              <p className="mt-1 text-xs text-ink-400">
-                Confirmed money not yet allocated. Not counted as collected.
-              </p>
-            </Card>
-          </div>
+          <Panel title="Cash movement" titleId="cash-movement">
+            <dl className="grid gap-4 p-4 sm:grid-cols-3">
+              <Figure
+                label="Cash banked"
+                value={<Money minor={data.totals.receiptsBankedMinor} currency={currency} tone="plain" />}
+                hint="Confirmed receipts received in this period."
+              />
+              <Figure
+                label="Applied to earlier periods"
+                value={<Money minor={data.totals.priorPeriodCollectedMinor} currency={currency} tone="plain" />}
+                hint="Allocated this period against older arrears."
+              />
+              <Figure
+                label="Unapplied credit"
+                value={<Money minor={data.totals.unappliedCreditMinor} currency={currency} tone="plain" />}
+                hint="Confirmed money not yet allocated. Not counted as collected."
+              />
+            </dl>
+          </Panel>
 
           <DataTable
             caption="Collection by lease"
@@ -276,22 +295,24 @@ export default async function ReportPage({
 
       {data.kind === 'expenses' ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Operating</p>
-              <p className="mt-1 text-2xl font-semibold"><Money minor={data.totalOperatingMinor} currency={currency} /></p>
-              <p className="mt-1 text-xs text-ink-400">Counts towards net operating income</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Capital</p>
-              <p className="mt-1 text-2xl font-semibold"><Money minor={data.totalCapitalMinor} currency={currency} /></p>
-              <p className="mt-1 text-xs text-ink-400">Excluded from net operating income</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">All costs</p>
-              <p className="mt-1 text-2xl font-semibold"><Money minor={data.totalMinor} currency={currency} /></p>
-            </Card>
-          </div>
+          <Panel title="Cost summary" titleId="cost-summary">
+            <dl className="grid gap-4 p-4 sm:grid-cols-3">
+              <Figure
+                label="Operating"
+                value={<Money minor={data.totalOperatingMinor} currency={currency} tone="plain" />}
+                hint="Counts towards net operating income"
+              />
+              <Figure
+                label="Capital"
+                value={<Money minor={data.totalCapitalMinor} currency={currency} tone="plain" />}
+                hint="Excluded from net operating income"
+              />
+              <Figure
+                label="All costs"
+                value={<Money minor={data.totalMinor} currency={currency} tone="plain" />}
+              />
+            </dl>
+          </Panel>
           <DataTable
             caption="Expenses"
             head={<tr><Th>Date</Th><Th>Property</Th><Th>Description</Th><Th>Supplier</Th><Th>Class</Th><Th numeric>Amount</Th><Th>Status</Th></tr>}

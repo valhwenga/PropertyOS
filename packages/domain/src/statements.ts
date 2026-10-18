@@ -91,7 +91,14 @@ export async function buildStatement(
       and lease_id = ${params.leaseId}::uuid
       and entry_date <= ${params.cutOff}::date
       and (${from}::date is null or entry_date >= ${from}::date)
-    order by entry_date asc, entry_kind asc, reference asc
+    -- Same-day ordering follows the accounting model rather than the alphabet:
+    -- a charge exists before the money that settles it, so charges come first
+    -- and allocations after, whatever order they were entered in. The
+    -- reference breaks any remaining tie, so the sequence — and therefore the
+    -- running balance — is the same every time this is built.
+    order by entry_date asc,
+             case entry_kind when 'charge' then 0 else 1 end,
+             reference asc
   `;
 
   let running = openingBalance;

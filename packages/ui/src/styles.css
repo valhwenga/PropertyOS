@@ -27,15 +27,27 @@
   --color-surface: #ffffff;
   /* Chrome that is dark in BOTH themes — the Spike platform header, which
      carries white text and would otherwise invert into white-on-white. */
-  --color-chrome-900: #14121f;
+  --color-chrome-900: #171719;
 
-  --color-ink-900: #14121f;
-  --color-ink-700: #35314a;
-  --color-ink-500: #5c5775;
-  --color-ink-400: #7d7996;
-  --color-ink-200: #d8d5e4;
-  --color-ink-100: #eceaf3;
-  --color-ink-50:  #f7f6fb;
+  /*
+   * A NEUTRAL scale, not a tinted one.
+   *
+   * Every grey here used to carry the brand's purple. Spread across a page
+   * background, a dozen card borders and every line of secondary text, that
+   * tint read as a wash rather than as brand: the interface looked lavender
+   * and the purple that was supposed to mean "this is the action" meant
+   * nothing in particular. Purple now appears where it is deliberate — a
+   * primary action, the selected section, an intentional emphasis — and the
+   * surfaces around it are plain.
+   */
+  --color-ink-900: #16161a;  /* headings, figures */
+  --color-ink-700: #3c3c43;  /* body */
+  --color-ink-500: #6a6a75;  /* secondary */
+  --color-ink-400: #8e8e99;  /* metadata */
+  --color-ink-300: #c3c3cb;  /* dividers on a tinted surface */
+  --color-ink-200: #dcdce2;  /* control borders */
+  --color-ink-100: #e9e9ee;  /* surface borders, dividers */
+  --color-ink-50:  #f6f6f7;  /* page background */
 
   --color-positive-600: #107a52;
   --color-positive-50:  #e7f6ef;
@@ -46,12 +58,33 @@
   --color-info-700:     #1b4f8f;
   --color-info-50:      #e9f1fb;
 
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  /* Tabular figures: money columns must align vertically. */
-  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+  /*
+   * The loaded-font variables come from next/font/local in the root layout and
+   * carry its metric-matched fallbacks. If the font never arrives — or this
+   * stylesheet is used somewhere the layout is not — the stack below still
+   * resolves to something readable.
+   */
+  --font-sans: var(--font-sans-loaded), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: var(--font-display-loaded), var(--font-sans);
+  /* Reserved for references and technical identifiers. NOT for money: Inter's
+     tabular numerals align a column without making every figure look typed. */
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', monospace;
 
-  --radius-card: 0.875rem;
-  --shadow-card: 0 1px 2px rgb(20 18 31 / 0.04), 0 8px 24px -12px rgb(20 18 31 / 0.10);
+  --radius-card: 0.75rem;
+  --radius-control: 0.5rem;
+  /* Restrained: a border does the work of separating a surface, and a shadow
+     only suggests which of two surfaces is in front. */
+  --shadow-card: 0 1px 2px rgb(22 22 26 / 0.04);
+  --shadow-raised: 0 1px 2px rgb(22 22 26 / 0.06), 0 8px 24px -12px rgb(22 22 26 / 0.18);
+
+  /* Type scale. Desktop first; the few places that need a smaller step down
+     do it with a utility rather than by redefining these. */
+  --text-page-title: 1.75rem;      /* 28px */
+  --text-section: 1.0625rem;       /* 17px */
+  --text-metric: 2rem;             /* 32px */
+  --text-body: 0.9375rem;          /* 15px */
+  --text-table: 0.875rem;          /* 14px */
+  --text-meta: 0.8125rem;          /* 13px */
 }
 
 @layer base {
@@ -60,7 +93,9 @@
     background-color: var(--color-ink-50);
     color: var(--color-ink-900);
     font-family: var(--font-sans);
-    font-feature-settings: 'cv11', 'ss01';
+    font-size: var(--text-body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
   /* Visible focus for keyboard users everywhere, never removed. */
   :where(a, button, input, select, textarea, [tabindex]):focus-visible {
@@ -68,8 +103,22 @@
     outline-offset: 2px;
     border-radius: 4px;
   }
-  /* Money and other figures always align on the decimal point. */
-  .tabular { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+  /*
+   * Figures align on the decimal point.
+   *
+   * This used to switch to the monospace family as well, which is why every
+   * amount in the product looked typed rather than set. Inter carries true
+   * tabular numerals, so a column lines up without the typewriter.
+   */
+  .tabular { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+  /* For a reference or an identifier — a receipt number, a correlation id —
+     where the shape of the characters is the point. */
+  .technical {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    letter-spacing: -0.01em;
+  }
+  h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.015em; }
 }
 
 @layer components {
@@ -121,15 +170,16 @@
   :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --color-surface: #16141f;
+  --color-surface: #1a1a1e;
 
-  --color-ink-50:  #0f0e17;
-  --color-ink-100: #1d1a2b;
-  --color-ink-200: #302c45;
-  --color-ink-400: #908bab;
-  --color-ink-500: #aaa5c4;
-  --color-ink-700: #d7d4e5;
-  --color-ink-900: #f5f4fa;
+  --color-ink-50:  #121214;
+  --color-ink-100: #27272c;
+  --color-ink-200: #3a3a42;
+  --color-ink-300: #4d4d57;
+  --color-ink-400: #8d8d99;
+  --color-ink-500: #a8a8b3;
+  --color-ink-700: #d6d6dd;
+  --color-ink-900: #f6f6f8;
 
   --color-spike-50:  #241a4d;
   --color-spike-100: #2d2160;
@@ -145,24 +195,26 @@
   --color-info-50:      #0f1f33;
   --color-info-700:     #85b8f0;
 
-  --color-chrome-900: #0b0a12;
+  --color-chrome-900: #0d0d0f;
 
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.7);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.45);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.7);
   }
 
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
   color-scheme: dark;
 
-  --color-surface: #16141f;
+  --color-surface: #1a1a1e;
 
-  --color-ink-50:  #0f0e17;
-  --color-ink-100: #1d1a2b;
-  --color-ink-200: #302c45;
-  --color-ink-400: #908bab;
-  --color-ink-500: #aaa5c4;
-  --color-ink-700: #d7d4e5;
-  --color-ink-900: #f5f4fa;
+  --color-ink-50:  #121214;
+  --color-ink-100: #27272c;
+  --color-ink-200: #3a3a42;
+  --color-ink-300: #4d4d57;
+  --color-ink-400: #8d8d99;
+  --color-ink-500: #a8a8b3;
+  --color-ink-700: #d6d6dd;
+  --color-ink-900: #f6f6f8;
 
   --color-spike-50:  #241a4d;
   --color-spike-100: #2d2160;
@@ -178,9 +230,10 @@
   --color-info-50:      #0f1f33;
   --color-info-700:     #85b8f0;
 
-  --color-chrome-900: #0b0a12;
+  --color-chrome-900: #0d0d0f;
 
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.7);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.45);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.7);
     }
   }
 

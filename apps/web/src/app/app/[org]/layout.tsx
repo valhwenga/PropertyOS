@@ -28,6 +28,9 @@ export default async function OrgLayout({
       userName={context.viewer.fullName}
       unreadNotices={unreadNotices}
       groups={visibleGroups(menu.held)}
+      // Every organisation this person belongs to, for the switcher. Resolved
+      // from their own memberships, so it can never offer one they are not in.
+      organisations={context.viewer.organisations.map((o) => ({ slug: o.slug, name: o.name }))}
       awaitingSecondFactor={
         sectionsAwaitingSecondFactor(menu.held, menu.withheldForSecondFactor)
       }
