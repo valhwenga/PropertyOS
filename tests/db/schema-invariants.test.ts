@@ -126,6 +126,39 @@ describe('Schema invariants', () => {
     ).toEqual([]);
   });
 
+  it('no policy decides access one row at a time', async () => {
+    // A policy written as `app.is_org_member(organisation_id)` is a function
+    // call per row, and its argument changes per row, so Postgres cannot cache
+    // it. On the blueprint's dataset that cost more than every query it was
+    // guarding put together: one join of ninety-four allocations to their
+    // charge lines took 878ms, of which 840 was re-deciding who the reader is.
+    //
+    // The set form — `organisation_id in (select app.member_organisation_ids())`
+    // — says the same thing and is evaluated once per query. Migration 0057
+    // converted them all; this is what stops the next one being written the
+    // old way. See docs/performance.md.
+    const rows = await ownerSql()<{ relname: string; polname: string }[]>`
+      select c.relname, p.polname
+      from pg_policy p
+      join pg_class c on c.oid = p.polrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public'
+        and (
+          coalesce(pg_get_expr(p.polqual, p.polrelid), '') ~
+            'app\\.(is_org_member|has_support_access|can_access_lease_as_resident)\\('
+          or coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') ~
+            'app\\.(is_org_member|has_support_access|can_access_lease_as_resident)\\('
+        )
+      order by c.relname, p.polname
+    `;
+    expect(
+      rows.map((r) => `${r.relname}.${r.polname}`),
+      'These policies call a membership helper on every row. Use the set form: '
+        + 'organisation_id in (select app.member_organisation_ids()), '
+        + 'lease_id in (select app.resident_lease_ids()).',
+    ).toEqual([]);
+  });
+
   it('the application role cannot bypass Row Level Security', async () => {
     const [row] = await ownerSql()<{ rolsuper: boolean; rolbypassrls: boolean }[]>`
       select rolsuper, rolbypassrls from pg_roles where rolname = 'propertyos_app'

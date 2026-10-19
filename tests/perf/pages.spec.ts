@@ -70,6 +70,10 @@ test('ordinary pages, against the blueprint dataset', async ({ page }) => {
   // so a shortcut here would measure a session the product never issues.
   await signIn(page, fixture.email);
 
+  // Each `settled` is matched inside <main>, not the whole document: the
+  // sidebar wordmark contains "PropertyOS", which an unscoped search for
+  // "Property" finds first — and finds hidden, so the wait never ends.
+  const main = page.locator('#main');
   const screens: Array<{ name: string; path: string; settled: string }> = [
     { name: 'Overview', path: `/app/${fixture.slug}`, settled: 'Needs attention' },
     { name: 'Leases (page 1)', path: `/app/${fixture.slug}/leases`, settled: 'Reference' },
@@ -91,7 +95,8 @@ test('ordinary pages, against the blueprint dataset', async ({ page }) => {
     // One warm-up that is not recorded. The first hit of a route in a dev
     // server compiles it, which measures the bundler rather than the query.
     await page.goto(screen.path, { waitUntil: 'domcontentloaded' });
-    await page.getByText(screen.settled).first().waitFor({ timeout: 120_000 }).catch(() => undefined);
+    await main.getByText(screen.settled).first().waitFor({ timeout: 120_000 })
+      .catch(() => undefined);
 
     for (let run = 0; run < RUNS; run += 1) {
       const started = Date.now();
@@ -102,7 +107,7 @@ test('ordinary pages, against the blueprint dataset', async ({ page }) => {
           ? Math.round(timing.responseStart - timing.requestStart)
           : Date.now() - started,
       );
-      await page.getByText(screen.settled).first().waitFor({ timeout: 120_000 });
+      await main.getByText(screen.settled).first().waitFor({ timeout: 120_000 });
       measurement.content.push(Date.now() - started);
     }
 

@@ -27,16 +27,22 @@ below. The raw figures, including the slowest run of each, are in
 
 | Screen | Median | Slowest | §26 target (1s) |
 | --- | ---: | ---: | --- |
-| Audit trail | 173ms | 219ms | met |
-| Portfolio | 227ms | 241ms | met |
-| Residents | 295ms | 384ms | met |
-| Lease account (five years of history) | 497ms | 524ms | met |
-| Leases, page 1 of 5,000 | 552ms | 636ms | met |
-| Arrears ageing | 584ms | 611ms | met |
-| Rent roll | 728ms | 960ms | met |
-| Reconciliation | 908ms | 936ms | met |
-| Overview | 2,532ms | 3,056ms | **not met** |
-| Collection report | 3,003ms | 3,996ms | **not met** |
+| Portfolio | 173ms | 187ms | met |
+| Audit trail | 211ms | 437ms | met |
+| Residents | 218ms | 284ms | met |
+| Collection report | 427ms | 433ms | met |
+| Reconciliation | 428ms | 446ms | met |
+| Rent roll | 440ms | 493ms | met |
+| Leases, page 1 of 5,000 | 484ms | 526ms | met |
+| Lease account (five years of history) | 491ms | 496ms | met |
+| Arrears ageing | 534ms | 557ms | met |
+| Overview | 948ms | 1,469ms | met, with the least room |
+
+**All ten screens meet the target.** The two that did not are the two that
+moved most: the collection report from 3,003ms to 427ms, and the overview from
+2,532ms to 948ms. The overview is now the slowest screen in the product and the
+one worth looking at next; it reads eight separate measures and a queue, and
+none of them is slow on its own.
 
 A note on what is NOT being reported. Time to first byte sits at 30–150ms on
 every screen, because the server streams the page shell before the data is
@@ -48,14 +54,14 @@ read §26 is about. The figures above are time until the content is on screen.
 Every figure below is before and after on the same dataset and the same
 machine. All of them came from reading plans and the slow-query log.
 
-| Screen | Before | After |
-| --- | ---: | ---: |
-| Leases, page 1 | 3,043ms | 552ms |
-| Rent roll | 2,974ms | 728ms |
-| Reconciliation | 2,964ms | 908ms |
-| Arrears ageing | 973ms | 584ms |
-| Overview | 3,026ms | 2,532ms |
-| Collection report | 3,451ms | 3,003ms |
+| Screen | Before | After the query fixes | After the policy fix (0057) |
+| --- | ---: | ---: | ---: |
+| Leases, page 1 | 3,043ms | 552ms | 484ms |
+| Rent roll | 2,974ms | 728ms | 440ms |
+| Reconciliation | 2,964ms | 908ms | 428ms |
+| Arrears ageing | 973ms | 584ms | 534ms |
+| Overview | 3,026ms | 2,532ms | 948ms |
+| Collection report | 3,451ms | 3,003ms | 427ms |
 
 1. **The balance views could not use the indexes built for them** (migration
    0053). `lease_balances` totalled a lease's charges with a lateral filtered on
@@ -103,17 +109,58 @@ index back with a covering column. The lesson is in the migration: the fix for a
 missing predicate is to add the predicate, not to move the index out from under
 the query that was using it correctly.
 
+### The policies cost more than the queries (migration 0057)
+
+The two screens that missed the target were both the collection metrics — the
+summary on the overview, the per-lease table on the report. The guess recorded
+here last time was that the combined statement had the wrong shape. That was
+wrong, and the way it was established is worth keeping.
+
+The query was timed twice against the same data, on the same machine, in the
+same second: **27ms** as the database owner, **1,300ms** as the application
+role. The data work was never the problem. Row Level Security was.
+
+Every policy in the schema was written as a function call on the row:
+
+```sql
+using (app.is_org_member(organisation_id) or app.has_support_access(organisation_id))
+```
+
+`app.is_org_member` is STABLE, but its argument changes with every row, so
+Postgres calls it per row — a query against `memberships` for each of six
+thousand charge lines. The resident policies were worse: being separate
+PERMISSIVE policies they are OR-ed in, and two of them wrapped a *correlated*
+EXISTS around a second table, which brought that table's own policies with it.
+One join of ninety-four allocations to their charge lines cost 878ms.
+
+The fix is the shape, not the logic. A set the caller belongs to is computed
+once per query and hashed:
+
+```sql
+using (organisation_id in (select app.member_organisation_ids()))
+```
+
+Same rows, same rules — active membership, live support session, unexpired
+portal link — evaluated once. Measured on that same join: **878ms to 38ms**.
+Measured end to end on the two screens that failed:
+
+| | Before | After |
+| --- | ---: | ---: |
+| `collectionTotals`, under the app role | 1,699ms | 217ms |
+| `collectionByLease`, under the app role | 1,343ms | 138ms |
+
+Nothing about the collection query itself changed. The index this work was
+expected to need was built, measured, found unused, and dropped again.
+
+Two things keep it from coming back. `tests/db/schema-invariants.test.ts` fails
+if any policy calls one of those helpers on a row, and the isolation suites —
+which did not change — are what prove the rewrite kept every rule it found.
+
 ## What is still slow, and why
 
-Two screens remain over the target, and both are the same query: the collection
-metrics that answer "what did we bill and what did we collect this period",
-which the overview shows as a summary and the collection report shows per lease.
-
-Its parts are each fast in isolation — the period's charges resolve in 5ms, the
-allocation totals in 23ms — and slow when combined, which points at the shape of
-the combined statement rather than at a missing index. That is where the next
-piece of work starts, and it has not been done: a wrong guess here costs a
-figure an operator reconciles their bank account against.
+Nothing is over the §26 target. The overview is the closest at 948ms, and it is
+the next thing worth reading plans for: eight measures and a queue, none slow
+alone.
 
 Also not done, and worth saying plainly:
 
@@ -140,3 +187,15 @@ DATABASE_URL=...propertyos_load APP_BASE_URL=http://127.0.0.1:3100 pnpm perf
 `pnpm db:loadgen` takes `--organisations`, `--units`, `--months` and
 `--database`. It refuses to run against a database whose name does not say what
 it holds.
+
+For iterating on one query rather than ten screens, there is a smaller tool
+that calls the same domain functions through `withActor`, so the policies and
+the permission resolution are production's:
+
+```bash
+DATABASE_URL=...propertyos_load APP_DATABASE_URL=...propertyos_load \
+  pnpm --filter @propertyos/worker exec tsx src/collection-timing.ts
+```
+
+Point it at the app login role, not the owner — the difference between those
+two is the whole of the finding above.
