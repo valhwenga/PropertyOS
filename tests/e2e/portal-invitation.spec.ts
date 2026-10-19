@@ -118,7 +118,10 @@ test.describe('resident portal invitation', () => {
       await page.goto(partiesHref, { waitUntil: 'domcontentloaded' });
     }
 
-    const row = page.locator('li').filter({ hasText: 'Sipho Mokoena' }).first();
+    // Scoped to the portal panel. The Parties tab also lists the lease's
+    // parties, so this co-lessee now appears in two lists on one page and an
+    // unscoped match finds the one with no buttons in it.
+    const row = panel.locator('li').filter({ hasText: 'Sipho Mokoena' }).first();
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await row.getByRole('button', { name: /Invite/ }).click();
       if (await page.getByLabel('Their email address')
@@ -178,7 +181,7 @@ test.describe('resident portal invitation', () => {
     /* ------------------------------------------ 5. the operator sees it taken up */
 
     await page.goto(partiesHref, { waitUntil: 'domcontentloaded' });
-    const after = page.locator('li').filter({ hasText: 'Sipho Mokoena' }).first();
+    const after = panel.locator('li').filter({ hasText: 'Sipho Mokoena' }).first();
     const afterText = await after.innerText();
     expect(afterText).toContain('has access');
     expect(afterText).toContain(email);
@@ -196,7 +199,7 @@ test.describe('resident portal invitation', () => {
     await page.getByRole('button', { name: 'Confirm' }).click();
 
     await expect(
-      page.locator('li').filter({ hasText: 'Sipho Mokoena' })
+      panel.locator('li').filter({ hasText: 'Sipho Mokoena' })
         .filter({ hasText: 'access revoked' }),
     ).toHaveCount(1, { timeout: 30_000 });
   });

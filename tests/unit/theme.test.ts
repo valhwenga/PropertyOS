@@ -36,6 +36,26 @@ describe('theme choice', () => {
 });
 
 describe('the inline no-flash script', () => {
+  /** Executes the real script against a stubbed document, storage and window. */
+  const run = (stored: string | null, prefersDark: boolean, rendered: string | null = null) => {
+    let written: string | null = null;
+    const sandbox = {
+      localStorage: { getItem: () => stored },
+      document: {
+        documentElement: {
+          getAttribute: () => rendered,
+          setAttribute: (_k: string, v: string) => { written = v; },
+        },
+      },
+      window: { matchMedia: () => ({ matches: prefersDark }) },
+    };
+    new Function('localStorage', 'document', 'window', THEME_INIT_SCRIPT)(
+      sandbox.localStorage, sandbox.document, sandbox.window,
+    );
+    return written;
+  };
+
+
   it('uses the same storage key as the toggle', () => {
     expect(THEME_INIT_SCRIPT).toContain(THEME_STORAGE_KEY);
   });
@@ -46,20 +66,7 @@ describe('the inline no-flash script', () => {
   });
 
   it('agrees with resolveTheme when run', () => {
-    // Executed for real against a stubbed document and storage, so the script
-    // and the pure rule cannot drift apart.
-    const run = (stored: string | null, prefersDark: boolean) => {
-      let written: string | null = null;
-      const sandbox = {
-        localStorage: { getItem: () => stored },
-        document: { documentElement: { setAttribute: (_k: string, v: string) => { written = v; } } },
-        window: { matchMedia: () => ({ matches: prefersDark }) },
-      };
-      new Function('localStorage', 'document', 'window', THEME_INIT_SCRIPT)(
-        sandbox.localStorage, sandbox.document, sandbox.window,
-      );
-      return written;
-    };
+    // Run for real, so the script and the pure rule cannot drift apart.
     for (const [stored, prefersDark] of [
       ['dark', false], ['light', true], [null, true], [null, false], ['nonsense', true],
     ] as const) {
@@ -68,15 +75,33 @@ describe('the inline no-flash script', () => {
     }
   });
 
+  it('keeps what the server rendered when this device has no override', () => {
+    // The account's saved choice arrives as a data-theme the server wrote from
+    // the cookie. Without this the script would overwrite a signed-in person's
+    // dark theme with the machine's light one, on every single page load.
+    expect(run(null, false, 'dark')).toBe('dark');
+    expect(run(null, true, 'light')).toBe('light');
+    // And a device override still wins over it, because somebody who just
+    // clicked the toggle expects the toggle to have worked.
+    expect(run('light', true, 'dark')).toBe('light');
+  });
+
   it('survives storage that throws outright', () => {
     let written: string | null = null;
     const throwing = { getItem: () => { throw new Error('denied'); } };
     expect(() => new Function('localStorage', 'document', 'window', THEME_INIT_SCRIPT)(
       throwing,
-      { documentElement: { setAttribute: (_k: string, v: string) => { written = v; } } },
+      {
+        documentElement: {
+          getAttribute: () => null,
+          setAttribute: (_k: string, v: string) => { written = v; },
+        },
+      },
       { matchMedia: () => ({ matches: true }) },
     )).not.toThrow();
-    expect(written).toBeNull();
+    // Storage being refused must not cost the reader dark mode: the script
+    // falls through to the device preference rather than giving up.
+    expect(written).toBe('dark');
   });
 });
 

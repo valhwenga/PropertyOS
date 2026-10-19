@@ -130,7 +130,17 @@ export default async function LeasesPage({
                   </Link>
                 </Td>
                 <Td className="text-ink-700">{l.unit_label}</Td>
-                <Td className="technical whitespace-nowrap text-ink-500">{l.reference}</Td>
+                {/* The reference is quiet, but it is still a way in: somebody
+                    who has it — from an import, a statement, a bank line —
+                    arrives looking for exactly that row. */}
+                <Td className="whitespace-nowrap">
+                  <Link
+                    href={`/app/${org}/leases/${l.id}`}
+                    className="technical text-ink-500 hover:text-spike-600 hover:underline"
+                  >
+                    {l.reference}
+                  </Link>
+                </Td>
                 <Td className="whitespace-nowrap text-ink-500">
                   {formatDate(l.start_date, context.timeZone)} –{' '}
                   {l.end_date ? formatDate(l.end_date, context.timeZone) : 'open ended'}

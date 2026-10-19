@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
-import { countUnreadNotifications } from '@propertyos/domain';
+import { countUnreadNotifications, getThemeChoice } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
 import { ProfileForm } from './profile-form';
+import { ThemeForm } from './theme-form';
 
 export const metadata = { title: 'Your profile' };
 export const dynamic = 'force-dynamic';
@@ -14,13 +15,14 @@ export const dynamic = 'force-dynamic';
  */
 export default async function AccountPage() {
   const viewer = await requireViewer();
-  const [unread, profile] = await readAs(viewer, async (tx) => [
+  const [unread, profile, theme] = await readAs(viewer, async (tx) => [
     await countUnreadNotifications(tx, viewer.authUserId),
     // The phone is not part of the session, so it is read here rather than
     // carried around on every request that does not need it.
     (await tx<{ phone: string | null }[]>`
       select phone from user_profiles where auth_user_id = ${viewer.authUserId}::uuid
     `)[0] ?? { phone: null },
+    await getThemeChoice(tx, viewer.authUserId),
   ] as const);
 
   return (
@@ -32,6 +34,16 @@ export default async function AccountPage() {
         email={viewer.email}
         phone={profile.phone ?? ''}
       />
+
+      <Card className="space-y-3 p-4">
+        <div>
+          <p className="text-sm font-medium text-ink-900">Appearance</p>
+          <p className="text-sm text-ink-500">
+            Light or dark, saved against your account rather than this browser.
+          </p>
+        </div>
+        <ThemeForm saved={theme} />
+      </Card>
 
       <Card className="flex items-center justify-between gap-3 p-4">
         <div>

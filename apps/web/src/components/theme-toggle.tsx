@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
+import { saveThemeAction } from '@/app/account/actions';
 import {
   nextChoice, parseChoice, resolveTheme, THEME_STORAGE_KEY,
   type ResolvedTheme,
@@ -14,10 +15,13 @@ import {
  * guessing, which is what keeps the first render from disagreeing with the
  * screen.
  *
- * The choice is per-browser, not per-account: it lives in localStorage and is
- * never sent anywhere.
+ * The choice applies immediately on this device and is then saved against the
+ * account, so it follows the person to their next machine. The save is not
+ * awaited: a colour scheme must not wait on a round trip, and if the request
+ * fails the device still looks the way the reader just asked for.
  */
 export function ThemeToggle({ className = '' }: { className?: string }) {
+  const [, save] = useTransition();
   // Null until mounted. The server cannot know the device's theme, so rendering
   // a definite icon here would be a guess that flips after hydration.
   const [theme, setTheme] = useState<ResolvedTheme | null>(null);
@@ -46,6 +50,13 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       // page; it simply will not be remembered, which is better than failing.
     }
     setTheme(resolved);
+
+    // Saved for the account too. A signed-out page has nobody to save it
+    // against, and the action simply refuses — which is why nothing here
+    // depends on the result.
+    const form = new FormData();
+    form.set('theme', resolved);
+    save(() => { void saveThemeAction(null, form); });
   }
 
   const label = theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme';

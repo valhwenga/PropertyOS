@@ -22,6 +22,14 @@ const SECTIONS = [
       'Who the lease names as the letting party, its registration or identity number, addresses and managing agent.',
   },
   {
+    href: 'appearance',
+    permission: 'organisation.settings.manage' as PermissionKey,
+    title: 'Appearance',
+    description:
+      'Your accent colour, typeface and logo, across this console and your residents’ portal. '
+      + 'Light or dark is a personal choice and lives on your own profile.',
+  },
+  {
     href: 'banking',
     permission: 'bank_account.read' as PermissionKey,
     title: 'Banking details',

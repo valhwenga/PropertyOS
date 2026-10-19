@@ -25,7 +25,8 @@ import { Wordmark } from './wordmark';
  * server keeps rendering what the server should.
  */
 export function ConsoleSidebar({
-  slug, organisationName, userName, groups, awaitingSecondFactor, organisations, accountControls,
+  slug, organisationName, userName, groups, awaitingSecondFactor, organisations,
+  logoSrc, accountControls,
 }: {
   slug: string;
   organisationName: string;
@@ -33,6 +34,8 @@ export function ConsoleSidebar({
   groups: NavGroup[];
   awaitingSecondFactor: number;
   organisations: Array<{ slug: string; name: string }>;
+  /** The organisation's own logo, when one has been uploaded. */
+  logoSrc: string | null;
   accountControls: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -54,8 +57,20 @@ export function ConsoleSidebar({
 
   const identity = (
     <div className="flex min-w-0 items-center gap-2">
+      {/* The landlord's own mark when they have uploaded one, and the Spike
+          wordmark when they have not. Sized by height so a wide logo and a
+          square one both sit on the same line, and labelled with the
+          organisation's name rather than the word "logo". */}
       <Link href="/app" className="text-[length:var(--text-body)]">
-        <Wordmark />
+        {logoSrc ? (
+          <img
+            src={logoSrc}
+            alt={environment.name}
+            className="h-7 w-auto max-w-[9rem] object-contain"
+          />
+        ) : (
+          <Wordmark />
+        )}
       </Link>
       {environment.label ? (
         <span

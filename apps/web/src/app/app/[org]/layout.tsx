@@ -1,5 +1,5 @@
 import { OperatorShell } from '@/components/operator-shell';
-import { countUnreadNotifications, resolveMenuPermissions } from '@propertyos/domain';
+import { countUnreadNotifications, getBranding, resolveMenuPermissions } from '@propertyos/domain';
 import {
   SECTION_PERMISSIONS, sectionsAwaitingSecondFactor, visibleGroups,
 } from '@/components/operator-sections';
@@ -17,9 +17,12 @@ export default async function OrgLayout({
   const context = await requireOperator(org);
   // One transaction for both: the sidebar is rendered on every page in the
   // console, so what it costs is paid on every page in the console.
-  const { unreadNotices, menu } = await readAs(context.viewer, async (tx) => ({
+  const { unreadNotices, menu, branding } = await readAs(context.viewer, async (tx) => ({
     unreadNotices: await countUnreadNotifications(tx, context.viewer.authUserId),
     menu: await resolveMenuPermissions(tx, context.organisationId, SECTION_PERMISSIONS),
+    // How this organisation chose to look. One small row, read on every page
+    // for the same reason the sidebar is: it is on every page.
+    branding: await getBranding(tx, context.organisationId),
   }));
   return (
     <OperatorShell
@@ -27,6 +30,7 @@ export default async function OrgLayout({
       organisationName={context.organisationName}
       userName={context.viewer.fullName}
       unreadNotices={unreadNotices}
+      branding={branding}
       groups={visibleGroups(menu.held)}
       // Every organisation this person belongs to, for the switcher. Resolved
       // from their own memberships, so it can never offer one they are not in.

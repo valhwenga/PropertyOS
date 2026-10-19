@@ -249,3 +249,190 @@
     }
   }
 }
+
+
+/* ----------------------------------------------------------------- branding
+ *
+ * An organisation's chosen accent, applied to a wrapper rather than to :root,
+ * so one stylesheet serves every tenant and nothing has to be generated per
+ * request or inlined into the document.
+ *
+ * Only the five steps the interface actually paints with are redefined: the
+ * tints behind a selected item or a status chip, the solid a primary button
+ * takes, its hover, and the colour a link or a tinted label reads in. Every
+ * accent is checked for contrast in tests/unit/branding.test.ts, and
+ * tests/unit/theme.test.ts checks that what is written here still matches the
+ * palette the domain offers.
+ *
+ * THE SAME TWO RULES AS THE THEME ABOVE: a block for the resolved data-theme,
+ * and a matching one for the moment before the script runs. They must stay
+ * identical.
+ */
+@layer base {
+  [data-brand='spike'] {
+    --color-spike-50:  #f4f1ff;
+    --color-spike-100: #ebe5ff;
+    --color-spike-500: #5f33ff;
+    --color-spike-600: #4f27e0;
+    --color-spike-700: #4b21d8;
+  }
+
+  [data-brand='ink'] {
+    --color-spike-50:  #eceef2;
+    --color-spike-100: #dfe3ea;
+    --color-spike-500: #343a46;
+    --color-spike-600: #262b34;
+    --color-spike-700: #343a46;
+  }
+
+  [data-brand='ocean'] {
+    --color-spike-50:  #e4f1f8;
+    --color-spike-100: #d3e7f3;
+    --color-spike-500: #10607f;
+    --color-spike-600: #0c4c66;
+    --color-spike-700: #0f5a77;
+  }
+
+  [data-brand='forest'] {
+    --color-spike-50:  #e6f2ea;
+    --color-spike-100: #d5e8dd;
+    --color-spike-500: #1f6a41;
+    --color-spike-600: #175333;
+    --color-spike-700: #1d6440;
+  }
+
+  [data-brand='clay'] {
+    --color-spike-50:  #fbeae4;
+    --color-spike-100: #f6ddd2;
+    --color-spike-500: #a1442a;
+    --color-spike-600: #843623;
+    --color-spike-700: #994027;
+  }
+
+  [data-brand='plum'] {
+    --color-spike-50:  #f8e9f1;
+    --color-spike-100: #f2dbe8;
+    --color-spike-500: #8a2e63;
+    --color-spike-600: #71264f;
+    --color-spike-700: #842c5f;
+  }
+
+  [data-brand='slate'] {
+    --color-spike-50:  #e9edf7;
+    --color-spike-100: #dbe2f2;
+    --color-spike-500: #3a4b86;
+    --color-spike-600: #2e3c6c;
+    --color-spike-700: #3a4b86;
+  }
+
+  :root[data-theme='dark'] [data-brand='spike'] {
+    --color-spike-50:  #241a4d;
+    --color-spike-100: #2d2160;
+    --color-spike-700: #c3b0ff;
+  }
+
+  :root[data-theme='dark'] [data-brand='ink'] {
+    --color-spike-50:  #26262b;
+    --color-spike-100: #303038;
+    --color-spike-700: #d2d6de;
+  }
+
+  :root[data-theme='dark'] [data-brand='ocean'] {
+    --color-spike-50:  #0c2a38;
+    --color-spike-100: #113b4e;
+    --color-spike-700: #8fd0ea;
+  }
+
+  :root[data-theme='dark'] [data-brand='forest'] {
+    --color-spike-50:  #102a1d;
+    --color-spike-100: #163a28;
+    --color-spike-700: #8ddfae;
+  }
+
+  :root[data-theme='dark'] [data-brand='clay'] {
+    --color-spike-50:  #2f1710;
+    --color-spike-100: #422016;
+    --color-spike-700: #f3ab8e;
+  }
+
+  :root[data-theme='dark'] [data-brand='plum'] {
+    --color-spike-50:  #2c1322;
+    --color-spike-100: #3c1a2e;
+    --color-spike-700: #f0a6cd;
+  }
+
+  :root[data-theme='dark'] [data-brand='slate'] {
+    --color-spike-50:  #1a2038;
+    --color-spike-100: #242d4c;
+    --color-spike-700: #b3c2ee;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) [data-brand='spike'] {
+      --color-spike-50:  #241a4d;
+      --color-spike-100: #2d2160;
+      --color-spike-700: #c3b0ff;
+    }
+
+    :root:not([data-theme]) [data-brand='ink'] {
+      --color-spike-50:  #26262b;
+      --color-spike-100: #303038;
+      --color-spike-700: #d2d6de;
+    }
+
+    :root:not([data-theme]) [data-brand='ocean'] {
+      --color-spike-50:  #0c2a38;
+      --color-spike-100: #113b4e;
+      --color-spike-700: #8fd0ea;
+    }
+
+    :root:not([data-theme]) [data-brand='forest'] {
+      --color-spike-50:  #102a1d;
+      --color-spike-100: #163a28;
+      --color-spike-700: #8ddfae;
+    }
+
+    :root:not([data-theme]) [data-brand='clay'] {
+      --color-spike-50:  #2f1710;
+      --color-spike-100: #422016;
+      --color-spike-700: #f3ab8e;
+    }
+
+    :root:not([data-theme]) [data-brand='plum'] {
+      --color-spike-50:  #2c1322;
+      --color-spike-100: #3c1a2e;
+      --color-spike-700: #f0a6cd;
+    }
+
+    :root:not([data-theme]) [data-brand='slate'] {
+      --color-spike-50:  #1a2038;
+      --color-spike-100: #242d4c;
+      --color-spike-700: #b3c2ee;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- typefaces
+ *
+ * The other half of what an organisation may choose. `default` needs no rule:
+ * it is what the tokens already say. The families are declared in the root
+ * layout with next/font, so a browser downloads one only when a rule here
+ * actually puts it on the page.
+ */
+@layer base {
+  [data-typeface='single'] {
+    --font-display: var(--font-sans);
+  }
+
+  [data-typeface='humanist'] {
+    --font-sans: var(--font-humanist-loaded), ui-sans-serif, system-ui, -apple-system,
+      'Segoe UI', sans-serif;
+    --font-display: var(--font-humanist-display-loaded), ui-serif, Georgia,
+      'Times New Roman', serif;
+  }
+
+  [data-typeface='system'] {
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-display: var(--font-sans);
+  }
+}

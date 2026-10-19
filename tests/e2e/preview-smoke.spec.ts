@@ -56,9 +56,14 @@ test.describe('local preview', () => {
     await signIn(page, 'admin@demo.invalid');
     await page.goto('/app');
 
-    // Demo data is labelled, so its presence is also proof we are not looking at
-    // anything real.
-    await expect(page.getByText(/\[DEMO\]/).first()).toBeVisible();
+    // Demo data is labelled, so its presence is also proof we are not looking
+    // at anything real. The label is a badge beside the organisation's name
+    // rather than a prefix repeated into every heading — the identification
+    // has to survive, the fixture prefix does not.
+    // Scoped to the sidebar: the same identity block is also rendered in the
+    // narrow-screen bar, which is display:none here, and an unscoped match
+    // finds that hidden copy first.
+    await expect(page.locator('aside').getByText('DEMO', { exact: true })).toBeVisible();
 
     // The organisation name is not itself the link, so follow the first link
     // into an organisation rather than guessing at its accessible name.
@@ -82,7 +87,12 @@ test.describe('local preview', () => {
   test('the second landlord sees none of the first landlord’s portfolio', async ({ page }) => {
     await signIn(page, 'other-admin@demo.invalid');
     await page.goto('/app');
-    await expect(page.getByText('[DEMO] Karoo Letting').first()).toBeVisible();
+    const sidebar = page.locator('aside');
+    await expect(sidebar.getByText('Karoo Letting').first()).toBeVisible();
+    await expect(sidebar.getByText('DEMO', { exact: true })).toBeVisible();
+    // The other landlord's organisation, in any form: prefixed as the fixture
+    // names it, or as the interface prints it.
+    await expect(page.getByText('Blue Crane Rentals')).toHaveCount(0);
     await expect(page.getByText('[DEMO] Blue Crane Rentals')).toHaveCount(0);
   });
 

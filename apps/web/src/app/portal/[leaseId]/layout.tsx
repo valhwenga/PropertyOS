@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PortalBottomNav, PortalSidebar } from '@/components/portal-nav';
+import { getBrandingForLease } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
 import { loadLandlordContact, loadTenancy } from '@/lib/portal-queries';
 
@@ -9,9 +10,10 @@ import { loadLandlordContact, loadTenancy } from '@/lib/portal-queries';
  *
  * Branding is the landlord's, not the platform's. A resident signed a lease
  * with a letting agency and this is that agency's portal; Spike is the
- * machinery underneath and belongs in the footer. There is no logo field in
- * the schema, so the name is set as a wordmark rather than a picture — a
- * drawn-on logo would be an invented brand.
+ * machinery underneath and belongs in the footer. The agency's own accent,
+ * typeface and logo are applied HERE rather than in the portal shell above,
+ * because a resident with two tenancies has two landlords and each tenancy
+ * should look like the one it belongs to.
  *
  * On a laptop the sections are a sidebar. On a phone they are a bottom bar,
  * where a thumb already is, with the two remaining sections and the account
@@ -28,9 +30,10 @@ export default async function TenancyLayout({
   const viewer = await requireViewer();
   if (!viewer.residentLeases.some((l) => l.leaseId === leaseId)) notFound();
 
-  const { tenancy, contact } = await readAs(viewer, async (tx) => ({
+  const { tenancy, contact, branding } = await readAs(viewer, async (tx) => ({
     tenancy: await loadTenancy(tx, leaseId),
     contact: await loadLandlordContact(tx, leaseId),
+    branding: await getBrandingForLease(tx, leaseId),
   }));
   if (!tenancy) notFound();
 
@@ -43,14 +46,27 @@ export default async function TenancyLayout({
   ];
 
   return (
-    <div className="md:flex md:gap-8">
+    <div
+      data-brand={branding.accent}
+      data-typeface={branding.typeface}
+      className="md:flex md:gap-8"
+    >
       <aside className="md:w-52 md:shrink-0">
         <div className="mb-4">
-          {/* The landlord's name, as a wordmark. The property and unit are
-              what tells a resident with two tenancies which one this is. */}
-          <p className="text-xs font-semibold uppercase tracking-wide text-spike-700">
-            {contact?.trading_name ?? 'Your landlord'}
-          </p>
+          {/* The landlord's own mark where they have uploaded one, their name
+              where they have not. The property and unit are what tells a
+              resident with two tenancies which one this is. */}
+          {branding.hasLogo ? (
+            <img
+              src={`/portal/${leaseId}/brand-logo`}
+              alt={contact?.trading_name ?? 'Your landlord'}
+              className="mb-1 h-8 w-auto max-w-[11rem] object-contain"
+            />
+          ) : (
+            <p className="text-xs font-semibold uppercase tracking-wide text-spike-700">
+              {contact?.trading_name ?? 'Your landlord'}
+            </p>
+          )}
           <h1 className="mt-0.5 text-lg font-semibold tracking-tight text-ink-900 md:text-base">
             {tenancy.unit_label}
           </h1>

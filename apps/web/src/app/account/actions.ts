@@ -1,8 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { markAllNotificationsRead, markNotificationRead } from '@propertyos/domain';
+import { cookies } from 'next/headers';
+import { isThemeChoice, markAllNotificationsRead, markNotificationRead, setThemeChoice } from '@propertyos/domain';
 import { command } from '@/lib/actions';
+import { THEME_COOKIE } from '@/lib/theme';
 
 /**
  * Account actions, available to every signed-in person.
@@ -44,5 +46,44 @@ export async function markAllReadAction(_previous: unknown) {
     marked: await markAllNotificationsRead(tx, viewer.authUserId),
   }));
   if (result.ok) revalidatePath('/account/notifications');
+  return result;
+}
+
+/**
+ * Saves the light/dark choice against the account.
+ *
+ * Two writes, deliberately: the row is the record, and the cookie is what the
+ * root layout can read cheaply enough to render the right colour before the
+ * first paint on a machine this person has never signed in on before.
+ *
+ * `system` clears the cookie rather than storing a third value, because the
+ * server has no way of knowing what the device prefers — that question is
+ * only answerable in the browser, and the inline script answers it there.
+ */
+export async function saveThemeAction(_previous: unknown, formData: FormData) {
+  const choice = String(formData.get('theme') ?? '');
+  const result = await command(async ({ tx, viewer }) => {
+    if (!isThemeChoice(choice)) throw new Error('That is not a theme.');
+    await setThemeChoice(tx, viewer.authUserId, choice);
+    return { choice };
+  });
+
+  if (result.ok) {
+    const jar = await cookies();
+    if (choice === 'system') {
+      jar.delete(THEME_COOKIE);
+    } else {
+      jar.set(THEME_COOKIE, choice, {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 365,
+        sameSite: 'lax',
+        // Readable by the no-flash script, which has to agree with it. It
+        // carries a colour scheme; there is nothing here to protect.
+        httpOnly: false,
+        secure: process.env.NODE_ENV === 'production',
+      });
+    }
+    revalidatePath('/', 'layout');
+  }
   return result;
 }

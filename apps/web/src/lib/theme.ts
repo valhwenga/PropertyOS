@@ -10,6 +10,20 @@ export type ResolvedTheme = 'light' | 'dark';
 /** The localStorage key. Shared by the toggle and the inline script. */
 export const THEME_STORAGE_KEY = 'propertyos-theme';
 
+/**
+ * The cookie the server reads.
+ *
+ * The choice is stored against the ACCOUNT, so it follows a person to another
+ * machine — but the root layout renders before any database call it could make
+ * cheaply on every request, and a theme that arrives late is the flash this
+ * whole module exists to avoid. So saving the choice also writes it here, and
+ * the server renders `data-theme` from it directly.
+ *
+ * Deliberately readable by scripts: it carries a colour scheme and nothing
+ * else, and the no-flash script has to be able to agree with it.
+ */
+export const THEME_COOKIE = 'propertyos-theme';
+
 /** Anything unrecognised means "no choice recorded", not an error. */
 export function parseChoice(stored: string | null | undefined): ThemeChoice {
   return stored === 'light' || stored === 'dark' ? stored : 'system';
@@ -38,11 +52,22 @@ export function nextChoice(resolved: ResolvedTheme): ThemeChoice {
  * no dark mode at all. It writes a concrete data-theme so the stylesheet needs
  * only one rule for the normal path.
  *
+ * Three sources, in order of how specific they are to the person in front of
+ * the screen: this device's own override, then what the server rendered from
+ * the account's saved choice, then what the operating system asks for. The
+ * middle one is why a colleague signing in on a shared machine gets their own
+ * theme rather than the last person's.
+ *
  * Wrapped in try/catch because localStorage throws outright in some privacy
- * modes; the page must still render, just in the system theme.
+ * modes; the page must still render, in whatever the server rendered or the
+ * system asks for.
  */
-export const THEME_INIT_SCRIPT = `(function(){try{
-var c=localStorage.getItem('${THEME_STORAGE_KEY}');
-if(c!=='light'&&c!=='dark'){c=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}
-document.documentElement.setAttribute('data-theme',c)
-}catch(e){}})()`;
+export const THEME_INIT_SCRIPT = `(function(){
+var d=document.documentElement,c=null;
+try{c=localStorage.getItem('${THEME_STORAGE_KEY}')}catch(e){}
+if(c!=='light'&&c!=='dark'){var a=d.getAttribute('data-theme');c=(a==='light'||a==='dark')?a:null}
+if(c!=='light'&&c!=='dark'){try{
+c=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'
+}catch(e){c='light'}}
+d.setAttribute('data-theme',c)
+})()`;
