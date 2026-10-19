@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { useSubmissionKey } from '@/components/submission-key';
+import { ApprovalWaiting } from '@/components/approval-waiting';
 import { Button, Card, ErrorState } from '@propertyos/ui';
 import {
   approveDepositPayoutAction, approvePayoutRequestAction, closeDepositAccountAction, creditDepositInterestAction, decidePayoutRequestAction, recordDepositReceiptAction, requestDepositPayoutAction,
@@ -521,6 +522,17 @@ export function DecidePayoutRequestForms({
         <input type="hidden" name="depositAccountId" value={depositAccountId} />
         <input type="hidden" name="requestId" value={request.id} />
         <Problem state={approveState} title="Could not approve" />
+        {approveState?.ok ? (
+          <ApprovalWaiting
+            done={'paidOut' in approveState ? Boolean(approveState.paidOut) : true}
+            soFar={'approvalsSoFar' in approveState ? Number(approveState.approvalsSoFar) : 1}
+            required={
+              'approvalsRequired' in approveState ? Number(approveState.approvalsRequired) : 1
+            }
+            doneLabel="Approved. The deposit has been reduced and the movement is on the record."
+            waitingLabel="Nothing has left the deposit and the resident is owed exactly what they were."
+          />
+        ) : null}
         <p className="text-sm font-semibold text-caution-700">
           Paying out someone else&rsquo;s money
         </p>

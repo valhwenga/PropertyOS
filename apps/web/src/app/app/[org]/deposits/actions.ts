@@ -164,11 +164,22 @@ export async function approvePayoutRequestAction(_previous: unknown, formData: F
 
   const result = await command(async ({ tx, viewer }) => {
     const context = await requireOperator(org);
-    return approvePayoutRequest(tx, context.organisationId, viewer.authUserId, {
-      requestId: String(formData.get('requestId')),
-      approvalReason: String(formData.get('approvalReason') ?? ''),
-      refundReference: String(formData.get('refundReference') ?? '') || undefined,
-    });
+    const { eventId, approvals } = await approvePayoutRequest(
+      tx, context.organisationId, viewer.authUserId, {
+        requestId: String(formData.get('requestId')),
+        approvalReason: String(formData.get('approvalReason') ?? ''),
+        refundReference: String(formData.get('refundReference') ?? '') || undefined,
+      },
+    );
+    // Where the organisation asked for two approvers, the first decision
+    // records and the money stays where it is. The screen has to say so, or
+    // somebody tells a resident their refund is on its way.
+    return {
+      eventId,
+      paidOut: eventId !== null,
+      approvalsSoFar: approvals.signatures.length,
+      approvalsRequired: approvals.required,
+    };
   });
 
   if (result.ok) {

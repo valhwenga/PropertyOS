@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react';
 import { useSubmissionKey } from '@/components/submission-key';
 import { Button, Card, ErrorState } from '@propertyos/ui';
+import { ApprovalWaiting } from '@/components/approval-waiting';
 import {
   approveExpenseAction, createVendorAction, payExpenseAction, recordExpenseAction,
   updateDraftExpenseAction, voidExpenseAction,
@@ -242,6 +243,15 @@ export function ApproveExpenseForm({
       <input type="hidden" name="org" value={org} />
       <input type="hidden" name="expenseId" value={expenseId} />
       <Problem state={state} title="Could not approve" />
+      {state?.ok ? (
+        <ApprovalWaiting
+          done={'posted' in state ? Boolean(state.posted) : true}
+          soFar={'approvalsSoFar' in state ? Number(state.approvalsSoFar) : 1}
+          required={'approvalsRequired' in state ? Number(state.approvalsRequired) : 1}
+          doneLabel="Approved and posted. The supplier is now owed this amount."
+          waitingLabel="This cost is still a draft: nothing is in the ledger and nobody is owed anything."
+        />
+      ) : null}
       <p className="text-sm text-ink-700">
         Approving records <strong>{amountLabel}</strong> against the property and raises the
         obligation to the supplier. It does not pay anyone — the bank balance is unchanged until

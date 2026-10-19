@@ -81,10 +81,16 @@ export async function approveExpenseAction(_previous: unknown, formData: FormDat
   const expenseId = str(formData, 'expenseId');
   const result = await command(async ({ tx, viewer }) => {
     const context = await requireOperator(org);
-    await approveExpense(tx, context.organisationId, viewer.authUserId, {
-      expenseId, postingDate: str(formData, 'postingDate') || undefined,
-    });
-    return { approved: true };
+    const { journalId, approvals } = await approveExpense(
+      tx, context.organisationId, viewer.authUserId, {
+        expenseId, postingDate: str(formData, 'postingDate') || undefined,
+      },
+    );
+    return {
+      posted: journalId !== null,
+      approvalsSoFar: approvals.signatures.length,
+      approvalsRequired: approvals.required,
+    };
   });
   if (result.ok) {
     revalidatePath(`/app/${org}/expenses/${expenseId}`);

@@ -5,6 +5,7 @@ import { DomainError, fromDatabaseError, invalid, notFound, parsed } from './err
 import { postJournal } from './ledger';
 import type { Minor } from './money';
 import { requirePermission } from './permissions';
+import { recordApproval, type ApprovalProgress } from './approvals';
 
 /**
  * Deposits held for residents.
@@ -782,7 +783,7 @@ export async function approvePayoutRequest(
   organisationId: string,
   actorUserId: string,
   input: { requestId: string; approvalReason: string; refundReference?: string },
-): Promise<{ eventId: string }> {
+): Promise<{ eventId: string | null; approvals: ApprovalProgress }> {
   await requirePermission(tx, organisationId, 'deposit.refund.approve');
   const reason = parsed(
     z.string().trim().min(5, 'Say why this is approved, in a sentence somebody can audit.')
@@ -815,6 +816,22 @@ export async function approvePayoutRequest(
     );
   }
 
+  // Who else has to agree. Recorded first, so a request that needs two
+  // signatures carries this one even though nothing moves yet; the request
+  // stays pending, and the resident's deposit is untouched until the last
+  // approver arrives.
+  const approvals = await recordApproval(tx, {
+    organisationId,
+    actorUserId,
+    actionKey: 'deposit.payout',
+    subjectTable: 'deposit_payout_requests',
+    subjectId: request.id,
+    amountMinor: BigInt(request.amount_minor),
+    preparedBy: request.requested_by,
+    note: reason,
+  });
+  if (!approvals.satisfied) return { eventId: null, approvals };
+
   const { eventId } = await approveDepositPayout(tx, organisationId, actorUserId, {
     depositAccountId: request.deposit_account_id,
     kind: request.kind as 'deduction' | 'refund' | 'transfer_to_rent',
@@ -833,7 +850,7 @@ export async function approvePayoutRequest(
            decision_reason = ${reason}, event_id = ${eventId}
      where id = ${input.requestId}::uuid and organisation_id = ${organisationId}::uuid
   `;
-  return { eventId };
+  return { eventId, approvals };
 }
 
 /** Declines a request. Nothing is posted, and the refusal stays on the record. */

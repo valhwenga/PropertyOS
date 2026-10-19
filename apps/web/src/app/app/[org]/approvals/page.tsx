@@ -1,5 +1,8 @@
 import Link from 'next/link';
-import { Card, EmptyState, Money, PageHeader } from '@propertyos/ui';
+import { Card, EmptyState, Money, PageHeader, StatusBadge } from '@propertyos/ui';
+import {
+  listApprovalPolicies, signaturesBySubject, type ApprovalSignature,
+} from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadPendingApprovals } from '@/lib/operations-queries';
@@ -24,18 +27,34 @@ export const dynamic = 'force-dynamic';
 
 /** One waiting item, rendered the same way whatever it is. */
 function Row({
-  title, detail, href, action, children,
+  title, detail, href, action, signatures, required, children,
 }: {
   title: string; detail: string; href: string; action: string;
+  /** Who has already approved it, where the organisation wants more than one. */
+  signatures?: ApprovalSignature[];
+  required?: number;
   children: React.ReactNode;
 }) {
+  const signed = signatures?.length ?? 0;
+  const partly = (required ?? 1) > 1 && signed > 0;
   return (
     <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
       <div className="min-w-0">
         <p className="font-medium text-ink-900">{title}</p>
         <p className="text-xs text-ink-500">{detail}</p>
+        {partly ? (
+          // Said here rather than only on the decision screen: an approver
+          // scanning this queue should see which items are one signature away
+          // and which have not been looked at by anybody.
+          <p className="mt-1 text-xs text-caution-700">
+            {signed} of {required} approvals ·{' '}
+            {signatures!.map((s) => s.signedByName ?? 'a colleague').join(', ')} already approved
+            {' '}— the next one must be somebody else
+          </p>
+        ) : null}
       </div>
       <div className="flex items-center gap-4">
+        {partly ? <StatusBadge tone="caution">Half approved</StatusBadge> : null}
         {children}
         <Link
           href={href}
@@ -51,9 +70,37 @@ function Row({
 export default async function ApprovalsPage({ params }: { params: Promise<{ org: string }> }) {
   const { org } = await params;
   const context = await requireOperator(org);
-  const { quotes, payoutRequests, expenses, runs } = await readAs(context.viewer, (tx) =>
-    loadPendingApprovals(tx, context.organisationId),
+  const { quotes, payoutRequests, expenses, runs, policies, signed } = await readAs(
+    context.viewer,
+    async (tx) => {
+      const pending = await loadPendingApprovals(tx, context.organisationId);
+      return {
+        ...pending,
+        policies: await listApprovalPolicies(tx, context.organisationId),
+        // Only for the items on this page, and only three queries for all of
+        // them however many rows each one has.
+        signed: {
+          payouts: await signaturesBySubject(
+            tx, context.organisationId, 'deposit_payout_requests',
+            pending.payoutRequests.map((r) => r.id),
+          ),
+          quotes: await signaturesBySubject(
+            tx, context.organisationId, 'maintenance_quotes', pending.quotes.map((q) => q.id),
+          ),
+          expenses: await signaturesBySubject(
+            tx, context.organisationId, 'expenses', pending.expenses.map((e) => e.id),
+          ),
+        },
+      };
+    },
   );
+
+  /** What this amount needs, under the organisation's own rule. */
+  const requiredFor = (actionKey: string, amountMinor: string | bigint) => {
+    const policy = policies.find((p) => p.actionKey === actionKey);
+    if (!policy || policy.approvalsRequired < 2) return 1;
+    return BigInt(amountMinor) >= policy.thresholdMinor ? policy.approvalsRequired : 1;
+  };
 
   const total = quotes.length + payoutRequests.length + expenses.length + runs.length;
 
@@ -110,6 +157,8 @@ export default async function ApprovalsPage({ params }: { params: Promise<{ org:
                   }
                   href={`/app/${org}/deposits/${d.deposit_account_id}`}
                   action="Decide"
+                  signatures={signed.payouts.get(d.id)}
+                  required={requiredFor('deposit.payout', d.amount_minor)}
                 >
                   <Money minor={d.amount_minor} currency={d.currency_code} emphasise />
                 </Row>
@@ -133,6 +182,8 @@ export default async function ApprovalsPage({ params }: { params: Promise<{ org:
                   detail={`Request ${q.ticket_reference}`}
                   href={`/app/${org}/maintenance/${q.ticket_id}`}
                   action="Approve or decline"
+                  signatures={signed.quotes.get(q.id)}
+                  required={requiredFor('maintenance.quote.approve', q.amount_minor)}
                 >
                   <Money minor={q.amount_minor} currency={q.currency_code} emphasise />
                 </Row>
@@ -159,6 +210,8 @@ export default async function ApprovalsPage({ params }: { params: Promise<{ org:
                   }
                   href={`/app/${org}/expenses/${e.id}`}
                   action="Approve or void"
+                  signatures={signed.expenses.get(e.id)}
+                  required={requiredFor('expense.approve', e.amount_minor)}
                 >
                   <Money minor={e.amount_minor} currency={e.currency_code} emphasise />
                 </Row>

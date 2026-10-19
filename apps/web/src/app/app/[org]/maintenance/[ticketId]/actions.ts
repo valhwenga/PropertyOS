@@ -95,7 +95,8 @@ export async function approveQuoteAction(_previous: unknown, formData: FormData)
 
   const result = await command(async ({ tx, viewer }) => {
     const context = await requireOperator(org);
-    return approveQuoteAndIssueWorkOrder(tx, context.organisationId, viewer.authUserId, {
+    const { workOrderId, approvals } = await approveQuoteAndIssueWorkOrder(
+      tx, context.organisationId, viewer.authUserId, {
       quoteId: String(formData.get('quoteId')),
       scope: String(formData.get('scope') ?? ''),
       appointmentAt: String(formData.get('appointmentAt') ?? '') || undefined,
@@ -103,7 +104,14 @@ export async function approveQuoteAction(_previous: unknown, formData: FormData)
       // ceiling below it, so an approval can never authorise less than it
       // approved.
       ceilingMinor: ceiling ? parseMajorToMinor(ceiling, context.currencyCode) : undefined,
-    });
+      },
+    );
+    return {
+      workOrderId,
+      issued: workOrderId !== null,
+      approvalsSoFar: approvals.signatures.length,
+      approvalsRequired: approvals.required,
+    };
   });
 
   if (result.ok) {

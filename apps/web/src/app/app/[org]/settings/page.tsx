@@ -22,6 +22,14 @@ const SECTIONS = [
       'Who the lease names as the letting party, its registration or identity number, addresses and managing agent.',
   },
   {
+    href: 'approvals',
+    permission: 'organisation.settings.manage' as PermissionKey,
+    title: 'Approval rules',
+    description:
+      'Whether one person or two must approve a deposit payout, a supplier cost or a '
+      + 'maintenance quotation, and above what amount.',
+  },
+  {
     href: 'appearance',
     permission: 'organisation.settings.manage' as PermissionKey,
     title: 'Appearance',

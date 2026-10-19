@@ -5,6 +5,7 @@ import { DomainError, fromDatabaseError, notFound, parsed } from './errors';
 import { postJournal, reverseJournal } from './ledger';
 import type { Minor } from './money';
 import { requirePermission } from './permissions';
+import { recordApproval, type ApprovalProgress } from './approvals';
 
 /**
  * What a property costs.
@@ -308,15 +309,15 @@ async function lockExpense(
 ): Promise<{
   id: string; book_id: string; currency_code: string; status: string;
   amount_minor: string; property_id: string | null; journal_id: string | null;
-  description: string; expense_date: string;
+  description: string; expense_date: string; created_by: string | null;
 }> {
   const [row] = await tx<{
     id: string; book_id: string; currency_code: string; status: string;
     amount_minor: string; property_id: string | null; journal_id: string | null;
-    description: string; expense_date: string;
+    description: string; expense_date: string; created_by: string | null;
   }[]>`
     select id, book_id, currency_code, status, amount_minor::text, property_id,
-           journal_id, description, expense_date::text
+           journal_id, description, expense_date::text, created_by
       from expenses
      where id = ${expenseId}::uuid and organisation_id = ${organisationId}::uuid
      for update
@@ -336,8 +337,8 @@ async function lockExpense(
  */
 export async function approveExpense(
   tx: Sql, organisationId: string, actorUserId: string,
-  input: { expenseId: string; postingDate?: string },
-): Promise<{ journalId: string }> {
+  input: { expenseId: string; postingDate?: string; note?: string },
+): Promise<{ journalId: string | null; approvals: ApprovalProgress }> {
   await requirePermission(tx, organisationId, 'expense.approve');
   const expense = await lockExpense(tx, organisationId, input.expenseId);
 
@@ -347,6 +348,21 @@ export async function approveExpense(
       `This expense is already ${expense.status}. Only a draft can be approved.`,
     );
   }
+
+  // Where the organisation has asked for two signatures on a cost this size,
+  // the first one records and stops. The expense stays a draft, which is the
+  // truth: nothing is in the ledger and nobody is owed anything yet.
+  const approvals = await recordApproval(tx, {
+    organisationId,
+    actorUserId,
+    actionKey: 'expense.approve',
+    subjectTable: 'expenses',
+    subjectId: expense.id,
+    amountMinor: BigInt(expense.amount_minor),
+    preparedBy: expense.created_by,
+    note: input.note ?? null,
+  });
+  if (!approvals.satisfied) return { journalId: null, approvals };
 
   try {
     const journalId = await postJournal(tx, {
@@ -382,7 +398,7 @@ export async function approveExpense(
       action: 'expense.approved', resourceType: 'expense', resourceId: input.expenseId,
       after: { journalId, amountMinor: expense.amount_minor },
     });
-    return { journalId };
+    return { journalId, approvals };
   } catch (error) {
     throw asExpenseError(error);
   }

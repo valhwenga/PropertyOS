@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { Button, Card, ErrorState } from '@propertyos/ui';
+import { ApprovalWaiting } from '@/components/approval-waiting';
 import {
   approveQuoteAction, completeWorkOrderAction, declineQuoteAction, recordQuoteAction,
 } from './actions';
@@ -148,6 +149,17 @@ export function QuoteDecisionForms({
         <input type="hidden" name="ticketId" value={ticketId} />
         <input type="hidden" name="quoteId" value={quoteId} />
         <Problem state={approveState} title="Could not approve" />
+        {approveState?.ok ? (
+          <ApprovalWaiting
+            done={'issued' in approveState ? Boolean(approveState.issued) : true}
+            soFar={'approvalsSoFar' in approveState ? Number(approveState.approvalsSoFar) : 1}
+            required={
+              'approvalsRequired' in approveState ? Number(approveState.approvalsRequired) : 1
+            }
+            doneLabel="Approved. The work order is issued with its spending ceiling."
+            waitingLabel="No work order exists yet, so nobody has been told to start."
+          />
+        ) : null}
         <p className="text-sm text-ink-700">
           Approving <strong>{amountLabel}</strong> from {vendorName} issues a work order with a
           spending ceiling. Nothing is posted to the books yet — the cost reaches them when the

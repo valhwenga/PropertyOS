@@ -5,6 +5,7 @@ import { DomainError, fromDatabaseError, invalid, notFound } from './errors';
 import type { Minor } from './money';
 import { nextDocumentNumber } from './numbering';
 import { hasPermission, requirePermission, requirePropertyScope } from './permissions';
+import { recordApproval, type ApprovalProgress } from './approvals';
 
 export type TicketStatus =
   | 'submitted' | 'triaged' | 'awaiting_approval' | 'assigned' | 'in_progress'
@@ -272,8 +273,11 @@ export async function approveQuoteAndIssueWorkOrder(
   tx: Sql,
   organisationId: string,
   actorUserId: string,
-  params: { quoteId: string; scope: string; appointmentAt?: string; ceilingMinor?: Minor },
-): Promise<{ workOrderId: string }> {
+  params: {
+    quoteId: string; scope: string; appointmentAt?: string; ceilingMinor?: Minor;
+    note?: string;
+  },
+): Promise<{ workOrderId: string | null; approvals: ApprovalProgress }> {
   await requirePermission(tx, organisationId, 'maintenance.quote.approve');
 
   const [quote] = await tx<
@@ -294,6 +298,22 @@ export async function approveQuoteAndIssueWorkOrder(
   if (ceiling < BigInt(quote.amount_minor)) {
     throw invalid('The spending ceiling cannot be below the approved quotation amount.');
   }
+
+  // The ceiling is what is being authorised, not the quotation: a work order
+  // can be issued for more than the quote, and the second-approver rule has to
+  // apply to the larger number or it is avoidable by raising the ceiling.
+  const approvals = await recordApproval(tx, {
+    organisationId,
+    actorUserId,
+    actionKey: 'maintenance.quote.approve',
+    subjectTable: 'maintenance_quotes',
+    subjectId: quote.id,
+    amountMinor: ceiling,
+    note: params.note ?? null,
+  });
+  // No work order until the last approver signs: issuing one commits the money
+  // and tells a contractor to start.
+  if (!approvals.satisfied) return { workOrderId: null, approvals };
 
   await tx`
     update maintenance_quotes
@@ -327,7 +347,7 @@ export async function approveQuoteAndIssueWorkOrder(
     payload: { ticketId: quote.ticket_id, ceilingMinor: ceiling.toString() },
   });
 
-  return { workOrderId: workOrder.id };
+  return { workOrderId: workOrder.id, approvals };
 }
 
 /**
