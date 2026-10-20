@@ -9,7 +9,11 @@
 #
 #   ./scripts/refresh.sh            latest code, database rebuilt, preview up
 #   ./scripts/refresh.sh --keep     latest code, keep the data you have
+#   ./scripts/refresh.sh --no-start update everything, start nothing
 #   ./scripts/refresh.sh --port=4000
+#
+# --no-start exists for `pnpm host update`, which wants the pull, the install
+# and the cleared build cache but starts the app itself, in the background.
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,10 +24,13 @@ ok()   { printf '    %s✓%s %s\n' "$GREEN" "$RESET" "$1"; }
 die()  { printf '\n%serror:%s %s\n\n' "$RED" "$RESET" "$1" >&2; exit 1; }
 
 RESET_DB=1
+START=1
 PASS_THROUGH=()
 for arg in "$@"; do
   case "$arg" in
-    --keep) RESET_DB=0 ;;
+    --keep)     RESET_DB=0 ;;
+    --no-start) START=0 ;;
+    --dev|--build) ;;   # the host script's own flags, not the preview's
     *) PASS_THROUGH+=("$arg") ;;
   esac
 done
@@ -78,7 +85,7 @@ ok 'dependencies are current'
 # letting the port check refuse later.
 step 'Stopping anything already serving the preview'
 PORT=3000
-for arg in "${PASS_THROUGH[@]:-}"; do
+for arg in ${PASS_THROUGH[@]+"${PASS_THROUGH[@]}"}; do
   case "$arg" in --port=*) PORT="${arg#*=}" ;; esac
 done
 
@@ -102,10 +109,16 @@ if [ "$BEFORE" != "$AFTER" ]; then
 fi
 
 # ------------------------------------------------------------ 4. and run it
+if [ "$START" -eq 0 ]; then
+  step 'Not starting anything, as asked'
+  ok 'the code, the dependencies and the build cache are current'
+  exit 0
+fi
+
 step 'Starting the preview'
 if [ "$RESET_DB" -eq 1 ]; then
   printf '    %srebuilding propertyos_dev from the migrations and reseeding%s\n' "$DIM" "$RESET"
-  exec ./scripts/preview.sh --reset "${PASS_THROUGH[@]:-}"
+  exec ./scripts/preview.sh --reset ${PASS_THROUGH[@]+"${PASS_THROUGH[@]}"}
 fi
 printf '    %skeeping the data already in propertyos_dev%s\n' "$DIM" "$RESET"
-exec ./scripts/preview.sh "${PASS_THROUGH[@]:-}"
+exec ./scripts/preview.sh ${PASS_THROUGH[@]+"${PASS_THROUGH[@]}"}

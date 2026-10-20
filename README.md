@@ -77,6 +77,18 @@ authentication codes.
 | `./scripts/preview.sh --no-worker` | skip the background worker |
 | `./scripts/preview.sh --port=4000` | serve on another port |
 
+To keep it running rather than watching it run — detached, production-built,
+with one command to put the latest code on it — use `pnpm host` instead:
+
+| | |
+| --- | --- |
+| `pnpm host start` | build it and run it in the background |
+| `pnpm host status` | up or not, which commit it is serving, whether origin has more |
+| `pnpm host update` | pull, reinstall, rebuild, restart |
+| `pnpm host stop` / `pnpm host logs` | stop it; follow its log |
+
+`docs/runbooks/local-demo.md` covers it, including starting it at login.
+
 It will not touch any database other than `propertyos_dev`, it refuses to run
 with `NODE_ENV=production`, and it drops nothing unless you pass `--reset`.
 

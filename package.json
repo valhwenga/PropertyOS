@@ -10,6 +10,7 @@
     "build": "pnpm -r --filter \"./packages/**\" build && pnpm --filter @propertyos/web build",
     "preview": "./scripts/preview.sh",
     "refresh": "./scripts/refresh.sh",
+    "host": "./scripts/host.sh",
     "preflight": "pnpm --filter @propertyos/worker exec tsx src/preflight.ts",
     "db:loadgen": "pnpm --filter @propertyos/worker exec tsx src/loadgen.ts",
     "perf": "pnpm --filter @propertyos/tests exec playwright test -c playwright.perf.config.ts",
