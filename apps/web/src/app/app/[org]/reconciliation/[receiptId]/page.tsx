@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card, EmptyState, Money, PageHeader, StatusBadge } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -48,9 +49,7 @@ export default async function ReceiptPage({
 
   return (
     <div className="space-y-6">
-      <Link href={`/app/${org}/reconciliation`} className="text-sm text-spike-600 hover:underline">
-        ← Reconciliation
-      </Link>
+      <BackLink href={`/app/${org}/reconciliation`} label="Reconciliation" />
 
       <PageHeader
         title={`Receipt ${receipt.receipt_number}`}

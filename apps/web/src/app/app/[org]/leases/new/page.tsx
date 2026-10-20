@@ -1,4 +1,5 @@
 import { PageHeader } from '@propertyos/ui';
+import { BackLink } from '@/components/back-link';
 import { readAs, requireOperator } from '@/lib/auth';
 import { loadLeaseDraftChoices } from '@/lib/operations-queries';
 import { LeaseForm } from './lease-form';
@@ -14,6 +15,8 @@ export default async function NewLeasePage({ params }: { params: Promise<{ org: 
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+      <BackLink href={`/app/${org}/leases`} label="All leases" />
+
       <PageHeader
         title="Draft a lease"
         description="A draft has no billing effect and does not reserve the unit. Activating it is a separate step."

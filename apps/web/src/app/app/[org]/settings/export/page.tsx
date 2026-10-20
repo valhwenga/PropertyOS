@@ -1,4 +1,6 @@
 import { Card, PageHeader } from '@propertyos/ui';
+import { Icons } from '@/components/icons';
+import { BackLink } from '@/components/back-link';
 import { hasPermission } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 
@@ -21,6 +23,8 @@ export default async function ExportPage({ params }: { params: Promise<{ org: st
 
   return (
     <div className="space-y-6">
+      <BackLink href={`/app/${org}/settings`} label="Settings" />
+
       <PageHeader
         title="Export your data"
         description="Every record this organisation holds, as CSV files you can open anywhere."
@@ -54,6 +58,7 @@ export default async function ExportPage({ params }: { params: Promise<{ org: st
               href={`/app/${org}/settings/export/export.zip`}
               className="mt-4 inline-block rounded-lg bg-spike-500 px-3.5 py-2 text-sm font-medium text-white"
             >
+              <Icons.download className="h-4 w-4" />
               Download the archive
             </a>
             <p className="mt-2 text-xs text-ink-400">

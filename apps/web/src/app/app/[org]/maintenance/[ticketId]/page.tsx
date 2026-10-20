@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { BackLink } from '@/components/back-link';
 import { Card, Money, PageHeader, StatusBadge, Td, Th, DataTable } from '@propertyos/ui';
 import { formatMoney, hasPermission, listVendors } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -55,6 +56,8 @@ export default async function TicketPage({
 
   return (
     <div className="space-y-6">
+      <BackLink href={`/app/${org}/maintenance`} label="All requests" />
+
       <PageHeader
         title={`Request ${ticket.reference}`}
         description={`${ticket.unit_label} · ${ticket.category.replace(/_/g, ' ')}`}

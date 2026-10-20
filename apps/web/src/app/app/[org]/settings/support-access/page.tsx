@@ -1,4 +1,5 @@
 import { Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
+import { BackLink } from '@/components/back-link';
 import { supportAccessHistory } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format';
@@ -24,6 +25,8 @@ export default async function SupportAccessPage({
 
   return (
     <div className="space-y-6">
+      <BackLink href={`/app/${org}/settings`} label="Settings" />
+
       <PageHeader
         title="Spike support access"
         description="Every time Spike support opens your account, it is recorded here with who, when, why and for how long."

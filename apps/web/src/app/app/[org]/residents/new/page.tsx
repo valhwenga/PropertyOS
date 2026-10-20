@@ -1,4 +1,5 @@
 import { PageHeader } from '@propertyos/ui';
+import { BackLink } from '@/components/back-link';
 import { requireOperator } from '@/lib/auth';
 import { ResidentForm } from './resident-form';
 
@@ -10,6 +11,8 @@ export default async function NewResidentPage({ params }: { params: Promise<{ or
   await requireOperator(org);
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+      <BackLink href={`/app/${org}/residents`} label="All residents" />
+
       <PageHeader
         title="Add a resident"
         description="A person record. They can exist with no portal account, and the same person can later appear on more than one lease."

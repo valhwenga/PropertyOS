@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { Icons } from '@/components/icons';
 import { Card, DataTable, Money, Td, Th } from '@propertyos/ui';
 import { buildStatement, DomainError, listInvoicesForLease } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
@@ -82,6 +83,7 @@ export default async function StatementPage({
             href={`/portal/${leaseId}/statement.pdf?${pdfQuery.toString()}`}
             className="min-h-11 rounded-lg border border-ink-200 bg-surface px-3.5 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500"
           >
+            <Icons.download className="h-4 w-4" />
             Download PDF
           </a>
         }

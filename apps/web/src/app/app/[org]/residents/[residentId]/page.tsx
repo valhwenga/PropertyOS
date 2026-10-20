@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { formatMoney } from '@propertyos/domain/money';
 import {
@@ -57,9 +58,7 @@ export default async function ResidentPage({
 
   return (
     <div className="space-y-6">
-      <Link href={`/app/${org}/residents`} className="text-sm text-spike-600 hover:underline">
-        ← All residents
-      </Link>
+      <BackLink href={`/app/${org}/residents`} label="All residents" />
 
       <PageHeader
         title={name}

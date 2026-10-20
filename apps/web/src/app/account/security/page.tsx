@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
 import { privilegedSql } from '@propertyos/db/client';
 import { mfaStatus } from '@/lib/mfa';
@@ -32,9 +32,7 @@ export default async function SecurityPage({
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-4 py-6">
-      <Link href="/account" className="text-sm text-spike-600 hover:underline">
-        ← Your profile
-      </Link>
+      <BackLink href="/account" label="Your profile" />
 
       <PageHeader
         title="Sign-in security"

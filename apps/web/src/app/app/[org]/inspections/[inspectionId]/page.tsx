@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
@@ -77,9 +78,7 @@ export default async function InspectionPage({
 
   return (
     <div className="space-y-6">
-      <Link href={`/app/${org}/inspections`} className="text-sm text-spike-600 hover:underline">
-        ← Inspections
-      </Link>
+      <BackLink href={`/app/${org}/inspections`} label="Inspections" />
 
       <PageHeader
         title={`${inspection.propertyName} / ${inspection.unitCode}`}

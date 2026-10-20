@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card, StatusBadge } from '@propertyos/ui';
 import { residentTicketWork } from '@propertyos/domain';
@@ -48,10 +48,7 @@ export default async function RequestDetailPage({
 
   return (
     <div className="space-y-5">
-      <Link href={`/portal/${leaseId}/requests`}
-            className="inline-flex min-h-11 items-center text-sm text-spike-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
-        ← All your requests
-      </Link>
+      <BackLink href={`/portal/${leaseId}/requests`} label="All your requests" />
 
       <div>
         <div className="flex flex-wrap items-start justify-between gap-2">

@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { PageHeader } from '@propertyos/ui';
 import { requirePlatformOperator } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
@@ -28,9 +28,7 @@ export default async function NewCustomerPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <Link href="/platform" className="text-sm text-spike-600 hover:underline">
-        ← Customers
-      </Link>
+      <BackLink href="/platform" label="Customers" />
 
       <PageHeader
         title="Set up a customer"

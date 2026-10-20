@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card } from '@propertyos/ui';
 import { residentEmergencyContact } from '@propertyos/domain';
@@ -20,10 +20,7 @@ export default async function NewRequestPage({
 
   return (
     <div className="space-y-4">
-      <Link href={`/portal/${leaseId}/requests`}
-            className="inline-flex min-h-11 items-center text-sm text-spike-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
-        ← Back to your requests
-      </Link>
+      <BackLink href={`/portal/${leaseId}/requests`} label="Back to your requests" />
       <h2 className="text-xl font-semibold tracking-tight text-ink-900">Report a problem</h2>
 
       {/* An honest statement about emergencies, as the blueprint requires: a

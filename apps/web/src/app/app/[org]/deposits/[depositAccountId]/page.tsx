@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card, Money, PageHeader, StatusBadge } from '@propertyos/ui';
 import {
@@ -66,9 +67,7 @@ export default async function DepositPage({
 
   return (
     <div className="space-y-6">
-      <Link href={`/app/${org}/deposits`} className="text-sm text-spike-600 hover:underline">
-        ← Deposits
-      </Link>
+      <BackLink href={`/app/${org}/deposits`} label="Deposits" />
 
       <PageHeader
         title={`Deposit · ${account.leaseReference}`}

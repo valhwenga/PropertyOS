@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, EmptyState, PageHeader, StatusBadge } from '@propertyos/ui';
 import {
   assignableRoles, hasPermission, listStaff, listStaffInvitations,
@@ -53,9 +54,7 @@ export default async function StaffPage({
   if (!canManage) {
     return (
       <div className="space-y-6">
-        <Link href={`/app/${org}/settings`} className="text-sm text-spike-600 hover:underline">
-          ← Settings
-        </Link>
+        <BackLink href={`/app/${org}/settings`} label="Settings" />
         <PageHeader title="Colleagues" description="Who can use this organisation, and what they can do." />
         <Card className="p-4">
           <p className="text-sm text-ink-700">
@@ -80,9 +79,7 @@ export default async function StaffPage({
 
   return (
     <div className="space-y-6">
-      <Link href={`/app/${org}/settings`} className="text-sm text-spike-600 hover:underline">
-        ← Settings
-      </Link>
+      <BackLink href={`/app/${org}/settings`} label="Settings" />
 
       <PageHeader
         title="Colleagues"

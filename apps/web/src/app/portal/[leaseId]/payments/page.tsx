@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card } from '@propertyos/ui';
 import { readAs, requireViewer } from '@/lib/auth';
@@ -29,10 +29,7 @@ export default async function PaymentsPage({
 
   return (
     <div className="space-y-4">
-      <Link href={`/portal/${leaseId}`}
-            className="inline-flex min-h-11 items-center text-sm text-spike-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500">
-        ← Back to your account
-      </Link>
+      <BackLink href={`/portal/${leaseId}`} label="Back to your account" />
       <h2 className="text-xl font-semibold tracking-tight text-ink-900">
         Tell us about a payment
       </h2>

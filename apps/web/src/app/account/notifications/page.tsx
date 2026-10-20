@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, EmptyState, PageHeader, StatusBadge } from '@propertyos/ui';
 import { listMyNotifications } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
@@ -21,7 +22,7 @@ export default async function NotificationsPage() {
       />
 
       <div className="flex items-center justify-between gap-3">
-        <Link href="/account" className="text-sm text-spike-700 hover:underline">← Your profile</Link>
+        <BackLink href="/account" label="Your profile" />
         {unread > 0 ? <MarkAllRead count={unread} /> : null}
       </div>
 

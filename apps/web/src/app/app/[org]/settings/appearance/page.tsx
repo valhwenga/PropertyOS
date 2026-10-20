@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Disclosure, PageHeader, Panel, PermissionState } from '@propertyos/ui';
 import {
   BRAND_ACCENTS, BRAND_TYPEFACES, getBranding, hasPermission, INVOICE_TEMPLATES,
@@ -34,12 +35,7 @@ export default async function AppearancePage({
 
   return (
     <div className="space-y-5">
-      <Link
-        href={`/app/${org}/settings`}
-        className="text-[length:var(--text-table)] text-spike-600 hover:underline"
-      >
-        ← Settings
-      </Link>
+      <BackLink href={`/app/${org}/settings`} label="Settings" />
 
       <PageHeader
         title="Appearance"

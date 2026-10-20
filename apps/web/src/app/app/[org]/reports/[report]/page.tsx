@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { Icons } from '@/components/icons';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import {
   Card, DataTable, Disclosure, EmptyState, Figure, Money, PageHeader, Panel, StatusBadge,
@@ -55,6 +57,8 @@ export default async function ReportPage({
 
   return (
     <div className="space-y-5">
+      <BackLink href={`/app/${org}/reports`} label="All reports" />
+
       <PageHeader
         title={data.meta.name}
         // The period is the first thing the page says. A rent roll with no
@@ -77,6 +81,7 @@ export default async function ReportPage({
               href={`/app/${org}/reports/${report}/export.csv?${reportQueryString(shape, resolved.filters)}`}
               className={buttonClass('primary')}
             >
+              <Icons.export className="h-4 w-4" />
               Export CSV
             </a>
           </>

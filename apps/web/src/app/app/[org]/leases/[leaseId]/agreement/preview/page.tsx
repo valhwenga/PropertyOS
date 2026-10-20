@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
 import { previewLeaseAgreement, DomainError } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -28,7 +28,7 @@ export default async function AgreementPreviewPage({
     return (
       <div className="space-y-4">
         <PageHeader title="Agreement preview" description="Choose a template on the lease first." />
-        <Link href={back} className="text-sm text-spike-700 hover:underline">← Back to the lease</Link>
+        <BackLink href={back} label="Back to the lease" />
       </div>
     );
   }
@@ -49,7 +49,7 @@ export default async function AgreementPreviewPage({
         <Card className="border-caution-700/25 bg-caution-50 p-4">
           <p className="text-sm text-ink-700">{result.message}</p>
         </Card>
-        <Link href={back} className="text-sm text-spike-700 hover:underline">← Back to the lease</Link>
+        <BackLink href={back} label="Back to the lease" />
       </div>
     );
   }
@@ -64,9 +64,7 @@ export default async function AgreementPreviewPage({
         description={`${preview.templateName} v${preview.version}. Nothing has been generated or sent.`}
       />
 
-      <Link href={back} className="inline-block text-sm text-spike-700 hover:underline">
-        ← Back to the lease
-      </Link>
+      <BackLink href={back} label="Back to the lease" />
 
       {incomplete ? (
         <Card className="border-caution-700/25 bg-caution-50 p-4">

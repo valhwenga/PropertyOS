@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, EmptyState, PageHeader, StatusBadge } from '@propertyos/ui';
 import {
   bankAccountHistory, hasPermission, listBankAccounts, type BankAccountChange,
@@ -55,9 +55,7 @@ export default async function BankingPage({
 
   return (
     <div className="space-y-6">
-      <Link href={`/app/${org}/settings`} className="text-sm text-spike-600 hover:underline">
-        ← Settings
-      </Link>
+      <BackLink href={`/app/${org}/settings`} label="Settings" />
 
       <PageHeader
         title="Banking details"

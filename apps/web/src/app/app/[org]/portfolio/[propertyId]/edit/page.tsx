@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
 import { getPropertyDetails, hasPermission } from '@propertyos/domain';
@@ -36,12 +37,7 @@ export default async function EditPropertyPage({
   if (!canUpdate) {
     return (
       <div className="space-y-6">
-        <Link
-          href={`/app/${org}/portfolio/${propertyId}`}
-          className="text-sm text-spike-600 hover:underline"
-        >
-          ← {property.name}
-        </Link>
+        <BackLink href={`/app/${org}/portfolio/${propertyId}`} label={property.name} />
         <PageHeader title={property.name} description="Editing the portfolio" />
         <Card className="p-4">
           <p className="text-sm text-ink-700">
@@ -55,12 +51,7 @@ export default async function EditPropertyPage({
 
   return (
     <div className="space-y-6">
-      <Link
-        href={`/app/${org}/portfolio/${propertyId}`}
-        className="text-sm text-spike-600 hover:underline"
-      >
-        ← {property.name}
-      </Link>
+      <BackLink href={`/app/${org}/portfolio/${propertyId}`} label={property.name} />
 
       <PageHeader
         title={`Edit ${property.name}`}

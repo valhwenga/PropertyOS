@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, EmptyState, PageHeader } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
 import { loadTicketUnitChoices } from '@/lib/operations-queries';
@@ -29,9 +30,7 @@ export default async function NewTicketPage({ params }: { params: Promise<{ org:
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <Link href={`/app/${org}/maintenance`} className="text-sm text-spike-600 hover:underline">
-        ← All requests
-      </Link>
+      <BackLink href={`/app/${org}/maintenance`} label="All requests" />
       <PageHeader
         title="Log a maintenance request"
         description="For something reported to you by phone, noticed on site, or raised by a caretaker. A resident's own request comes in through their portal."

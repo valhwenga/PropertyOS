@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
 import { formatMinor, getPropertyDetails, hasPermission } from '@propertyos/domain';
@@ -44,12 +45,7 @@ export default async function UnitPage({
 
   return (
     <div className="space-y-6">
-      <Link
-        href={`/app/${org}/portfolio/${propertyId}`}
-        className="text-sm text-spike-600 hover:underline"
-      >
-        ← {property.name}
-      </Link>
+      <BackLink href={`/app/${org}/portfolio/${propertyId}`} label={property.name} />
 
       <PageHeader
         title={`Unit ${unit.code}`}

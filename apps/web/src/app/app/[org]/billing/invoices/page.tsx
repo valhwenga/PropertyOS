@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import {
   DataTable, Disclosure, EmptyState, Money, PageHeader, Panel, PermissionState,
   StatusBadge, Tabs, Td, Th, buttonClass,
@@ -136,6 +137,8 @@ export default async function SendInvoicesPage({
 
   return (
     <div className="space-y-5">
+      <BackLink href={`/app/${org}/billing`} label="Billing" />
+
       <PageHeader
         title="Sending invoices"
         description="Posted invoices for the month, and whether the resident has been told."

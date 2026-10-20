@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, EmptyState, Money, PageHeader, StatusBadge, Tabs } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
 import { hasPermission, listBankAccounts, listBankImports, listBankLines } from '@propertyos/domain';
@@ -61,6 +62,8 @@ export default async function StatementsPage({
 
   return (
     <div className="space-y-5">
+      <BackLink href={`/app/${org}/reconciliation`} label="Reconciliation" />
+
       <PageHeader
         title="Bank statements"
         description="Lines from a statement you exported yourself. A line is evidence that money arrived — it is not a receipt, and importing one changes nobody's balance."

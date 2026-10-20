@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { PageHeader, StatusBadge } from '@propertyos/ui';
 import { LEASE_MERGE_FIELDS, getLeaseTemplate } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -26,9 +26,7 @@ export default async function TemplatePage({
       />
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Link className="text-spike-600 hover:underline" href={`/app/${org}/settings/lease-templates`}>
-          ← All templates
-        </Link>
+        <BackLink href={`/app/${org}/settings/lease-templates`} label="All templates" />
         <span className="text-ink-200">·</span>
         {template.publishedVersion ? (
           <StatusBadge tone="positive">Published v{template.publishedVersion}</StatusBadge>

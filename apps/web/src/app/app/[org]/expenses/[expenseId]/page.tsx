@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card, Money, PageHeader, StatusBadge } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
@@ -64,9 +65,7 @@ export default async function ExpensePage({
 
   return (
     <div className="space-y-6">
-      <Link href={`/app/${org}/expenses`} className="text-sm text-spike-600 hover:underline">
-        ← Expenses
-      </Link>
+      <BackLink href={`/app/${org}/expenses`} label="Expenses" />
 
       <PageHeader
         title={expense.description}

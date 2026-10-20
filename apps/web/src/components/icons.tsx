@@ -105,6 +105,36 @@ export const Icons = {
   bell: (p: IconProps) => (
     <Svg {...p}><path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6M10 19a2 2 0 0 0 4 0" /></Svg>
   ),
+  template: (p: IconProps) => (
+    <Svg {...p}><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" /></Svg>
+  ),
+  landlord: (p: IconProps) => (
+    <Svg {...p}><path d="M4 20V9l8-5 8 5v11M9 20v-6h6v6" /></Svg>
+  ),
+  message: (p: IconProps) => (
+    <Svg {...p}><path d="M4 5h16v11H9l-5 4z" /></Svg>
+  ),
+  appearance: (p: IconProps) => (
+    <Svg {...p}><circle cx="12" cy="12" r="8" /><path d="M12 4a8 8 0 010 16 4 4 0 010-8 4 4 0 000-8z" /></Svg>
+  ),
+  banking: (p: IconProps) => (
+    <Svg {...p}><path d="M3 9l9-5 9 5M5 9v9m14-9v9M9 18v-5m6 5v-5M3 20h18" /></Svg>
+  ),
+  colleagues: (p: IconProps) => (
+    <Svg {...p}><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6m1 3a6 6 0 014 5" /></Svg>
+  ),
+  support: (p: IconProps) => (
+    <Svg {...p}><circle cx="12" cy="12" r="8" /><path d="M12 16v.01M12 13a2.5 2.5 0 10-2.5-2.5" /></Svg>
+  ),
+  export: (p: IconProps) => (
+    <Svg {...p}><path d="M12 15V4m0 0L8 8m4-4l4 4M5 16v3a1 1 0 001 1h12a1 1 0 001-1v-3" /></Svg>
+  ),
+  chevronLeft: (p: IconProps) => (
+    <Svg {...p}><path d="M15 6l-6 6 6 6" /></Svg>
+  ),
+  download: (p: IconProps) => (
+    <Svg {...p}><path d="M12 4v11m0 0l4-4m-4 4l-4-4M5 19h14" /></Svg>
+  ),
   plus: (p: IconProps) => (
     <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>
   ),

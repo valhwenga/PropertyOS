@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
@@ -62,9 +62,7 @@ export default async function DocumentPage({
 
   return (
     <div className="space-y-6">
-      <Link href={backHref} className="text-sm text-spike-600 hover:underline">
-        ← {document.lease_id ? 'Back to the lease' : 'All documents'}
-      </Link>
+      <BackLink href={backHref} label={document.lease_id ? 'Back to the lease' : 'All documents'} />
 
       <PageHeader
         title={document.title}

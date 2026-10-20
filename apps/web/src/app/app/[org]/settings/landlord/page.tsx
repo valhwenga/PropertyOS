@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, PageHeader, StatusBadge } from '@propertyos/ui';
 import { LEASE_MERGE_FIELDS, listLeaseTemplates, templatePlaceholders } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -78,6 +79,8 @@ export default async function LandlordPage({
 
   return (
     <div className="space-y-6">
+      <BackLink href={`/app/${org}/settings`} label="Settings" />
+
       <PageHeader
         title="Landlord particulars"
         description="Who the lease names as the letting party, and how to reach them. Used wherever a template asks for the landlord."

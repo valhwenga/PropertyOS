@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Card, EmptyState, PageHeader } from '@propertyos/ui';
 import { resolveMenuPermissions, type PermissionKey } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
+import { SectionIcon } from '@/components/icons';
 
 export const metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic';
 const SECTIONS = [
   {
     href: 'lease-templates',
+    icon: 'template' as const,
     permission: 'lease.template.manage' as PermissionKey,
     title: 'Lease templates',
     description:
@@ -16,6 +18,7 @@ const SECTIONS = [
   },
   {
     href: 'landlord',
+    icon: 'landlord' as const,
     permission: 'organisation.settings.manage' as PermissionKey,
     title: 'Landlord particulars',
     description:
@@ -23,6 +26,7 @@ const SECTIONS = [
   },
   {
     href: 'messages',
+    icon: 'message' as const,
     permission: 'organisation.settings.manage' as PermissionKey,
     title: 'Message to residents',
     description:
@@ -31,6 +35,7 @@ const SECTIONS = [
   },
   {
     href: 'approvals',
+    icon: 'approvals' as const,
     permission: 'organisation.settings.manage' as PermissionKey,
     title: 'Approval rules',
     description:
@@ -39,6 +44,7 @@ const SECTIONS = [
   },
   {
     href: 'appearance',
+    icon: 'appearance' as const,
     permission: 'organisation.settings.manage' as PermissionKey,
     title: 'Appearance',
     description:
@@ -47,6 +53,7 @@ const SECTIONS = [
   },
   {
     href: 'banking',
+    icon: 'banking' as const,
     permission: 'bank_account.read' as PermissionKey,
     title: 'Banking details',
     description:
@@ -54,6 +61,7 @@ const SECTIONS = [
   },
   {
     href: 'staff',
+    icon: 'colleagues' as const,
     permission: 'membership.manage' as PermissionKey,
     title: 'Colleagues',
     description:
@@ -62,6 +70,7 @@ const SECTIONS = [
   },
   {
     href: 'audit',
+    icon: 'reports' as const,
     permission: 'audit.read' as PermissionKey,
     title: 'Audit trail',
     description:
@@ -70,6 +79,7 @@ const SECTIONS = [
   },
   {
     href: 'export',
+    icon: 'export' as const,
     permission: 'customer.export' as PermissionKey,
     title: 'Export your data',
     description:
@@ -78,6 +88,7 @@ const SECTIONS = [
   },
   {
     href: 'support-access',
+    icon: 'support' as const,
     permission: 'support.access.manage' as PermissionKey,
     title: 'Spike support access',
     description:
@@ -119,10 +130,22 @@ export default async function SettingsPage({
         {sections.map((section) => (
           <Link key={section.href} href={`/app/${org}/settings/${section.href}`} className="group">
             <Card className="h-full p-5 transition-colors hover:border-spike-300">
-              <p className="text-sm font-semibold text-ink-900 group-hover:underline">
-                {section.title}
-              </p>
-              <p className="mt-1 text-sm text-ink-500">{section.description}</p>
+              <div className="flex items-start gap-3">
+                {/* The same drawn set the sidebar uses: one icon style, so the
+                    page reads as part of the product rather than assembled. */}
+                <span className="
+                  mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius-control)]
+                  bg-spike-50 text-spike-700
+                ">
+                  <SectionIcon name={section.icon} className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-ink-900 group-hover:underline">
+                    {section.title}
+                  </span>
+                  <span className="mt-1 block text-sm text-ink-500">{section.description}</span>
+                </span>
+              </div>
             </Card>
           </Link>
         ))}

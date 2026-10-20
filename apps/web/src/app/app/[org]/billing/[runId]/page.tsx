@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import {
   Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th,
@@ -89,9 +90,7 @@ export default async function BillingRunPage({
 
   return (
     <div className="space-y-6">
-      <Link href={`/app/${org}/billing`} className="text-sm text-spike-600 hover:underline">
-        ← Billing
-      </Link>
+      <BackLink href={`/app/${org}/billing`} label="Billing" />
 
       <PageHeader
         title={`Billing run · ${run.period_start.slice(0, 7)}`}

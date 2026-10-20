@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { Icons } from '@/components/icons';
+import { BackLink } from '@/components/back-link';
 import { notFound } from 'next/navigation';
 import {
   Card, DataTable, Disclosure, Figure, Money, PageHeader, Panel, StatusBadge, Tabs,
@@ -137,6 +139,8 @@ export default async function LeaseDetailPage({
 
   return (
     <div className="space-y-5">
+      <BackLink href={`/app/${org}/leases`} label="All leases" />
+
       <PageHeader
         // The person and the unit first: a reference identifies the record,
         // but nobody opens this page looking for a reference.
@@ -160,12 +164,14 @@ export default async function LeaseDetailPage({
               href={`${base}/statement.pdf?cutOff=${cut}`}
               className={buttonClass('secondary')}
             >
+              <Icons.download className="h-4 w-4" />
               Download PDF
             </a>
             <a
               href={`${base}/statement.csv?cutOff=${cut}`}
               className={buttonClass('secondary')}
             >
+              <Icons.export className="h-4 w-4" />
               Export CSV
             </a>
             <Link

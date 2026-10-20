@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BackLink } from '@/components/back-link';
 import { Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
 import { listLeaseTemplates, listSystemTemplates } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -23,6 +24,8 @@ export default async function LeaseTemplatesPage({
 
   return (
     <div className="space-y-6">
+      <BackLink href={`/app/${org}/settings`} label="Settings" />
+
       <PageHeader
         title="Lease templates"
         description="Your own lease wording, with placeholders PropertyOS fills from the lease, the parties and the property."
