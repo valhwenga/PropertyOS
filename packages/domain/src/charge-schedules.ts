@@ -403,6 +403,15 @@ export interface EscalationDue {
   /** What the lease's own terms produce, rounded to the minor unit. */
   proposedAmountMinor: Minor;
   escalationPercent: number;
+  /**
+   * How often the lease agreed to escalate, in months.
+   *
+   * Reported because "on each anniversary" is only true at twelve. A lease
+   * that escalates every six months would be described wrongly by a screen
+   * that assumed the interval, which is the sort of error a tenant notices
+   * before the landlord does.
+   */
+  intervalMonths: number;
   /** The date the agreement's terms make the increase effective. */
   dueOn: string;
   currencyCode: string;
@@ -485,6 +494,7 @@ export async function escalationsDue(
       currentAmountMinor: current,
       proposedAmountMinor: proposed,
       escalationPercent: percent,
+      intervalMonths: interval,
       dueOn: latest,
       currencyCode: row.currency_code,
     });

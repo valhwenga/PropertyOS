@@ -228,6 +228,7 @@ describe('Charge schedules', () => {
       currentAmountMinor: R('10000'),
       proposedAmountMinor: R('10800'),
       escalationPercent: 8,
+      intervalMonths: 12,
       dueOn: '2026-01-01',
     });
   });

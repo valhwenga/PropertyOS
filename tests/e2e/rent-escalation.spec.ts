@@ -117,7 +117,7 @@ test.describe('recurring charges', () => {
       // fell due, and what is still being billed.
       const body = await page.locator('form', { hasText: 'An agreed rent increase' })
         .first().textContent();
-      expect(body).toMatch(/% on each anniversary/);
+      expect(body).toMatch(/% (on each anniversary|every \d+ months)/);
       expect(body).toMatch(/still billing/);
       expect(body).toMatch(/check it against the lease/);
 

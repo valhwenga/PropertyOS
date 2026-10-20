@@ -71,7 +71,11 @@ function EscalationNotice({
         An agreed rent increase is due and has not been applied
       </p>
       <p className="text-[length:var(--text-meta)] text-ink-700">
-        This lease agrees {due.escalationPercent}% on each anniversary. The last one fell due on{' '}
+        {/* "On each anniversary" is only true at twelve months. */}
+        This lease agrees {due.escalationPercent}%{' '}
+        {due.intervalMonths === 12
+          ? 'on each anniversary'
+          : `every ${due.intervalMonths} months`}. The last one fell due on{' '}
         {due.dueOn}, and the schedule is still billing{' '}
         <Money minor={due.currentAmountMinor} currency={due.currencyCode} tone="plain" />. The
         agreed figure is{' '}
@@ -109,7 +113,7 @@ function EscalationNotice({
             required
             minLength={3}
             maxLength={300}
-            defaultValue={`Agreed ${due.escalationPercent}% escalation from ${due.dueOn}`}
+            defaultValue={`Agreed ${due.escalationPercent}% escalation due ${due.dueOn}`}
             className={`${FIELD} w-full`}
           />
         </label>
