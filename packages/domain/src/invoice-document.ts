@@ -386,6 +386,18 @@ export interface InvoiceSummary {
   dueDate: string;
   totalMinor: Minor;
   currencyCode: string;
+  /** What has already been credited back against it. */
+  creditedMinor: Minor;
+  /** What could still be credited: the total less what already was. */
+  remainingCreditableMinor: Minor;
+  /**
+   * The category of its largest line.
+   *
+   * A credit note must put the money back where the charge took it from, so a
+   * correction screen needs to know whether this was rent, water or a levy
+   * without loading every line of every document in a list.
+   */
+  primaryCategory: string | null;
   reversed: boolean;
 }
 
@@ -411,7 +423,7 @@ export async function listInvoicesForLease(
   const rows = await tx<
     { id: string; document_number: string; document_type: string; issue_date: string;
       due_date: string; total_minor: string; currency_code: string;
-      credited_minor: string }[]
+      credited_minor: string; primary_category: string | null }[]
   >`
     select d.id, d.document_number, d.document_type::text, d.issue_date::text,
            d.due_date::text, d.total_minor::text, d.currency_code,
@@ -419,7 +431,13 @@ export async function listInvoicesForLease(
              select sum(-c.total_minor) from charge_documents c
               where c.corrects_document_id = d.id
                 and c.document_type = 'credit_note' and c.status = 'posted'
-           ), 0)::text as credited_minor
+           ), 0)::text as credited_minor,
+           (
+             select cl.category from charge_lines cl
+              where cl.document_id = d.id
+              order by abs(cl.amount_minor) desc, cl.line_number
+              limit 1
+           ) as primary_category
       from charge_documents d
      where d.lease_id = ${leaseId}::uuid
        and d.status = 'posted'
@@ -437,6 +455,11 @@ export async function listInvoicesForLease(
     dueDate: row.due_date,
     totalMinor: BigInt(row.total_minor),
     currencyCode: row.currency_code,
+    creditedMinor: BigInt(row.credited_minor),
+    remainingCreditableMinor: BigInt(row.total_minor) > 0n
+      ? BigInt(row.total_minor) - BigInt(row.credited_minor)
+      : 0n,
+    primaryCategory: row.primary_category,
     reversed: BigInt(row.total_minor) > 0n
       && BigInt(row.credited_minor) >= BigInt(row.total_minor),
   }));

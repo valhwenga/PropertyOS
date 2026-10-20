@@ -1,7 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { chargeCategoryByKey, parseMajorToMinor, postCharge } from '@propertyos/domain';
+import {
+  chargeCategoryByKey, issueCreditNote, parseMajorToMinor, postCharge,
+} from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
 
@@ -103,6 +105,54 @@ export async function raiseChargeAction(_previous: unknown, formData: FormData) 
       documentId: posted.documentId,
       totalMinor: posted.totalMinor.toString(),
     };
+  });
+
+  if (result.ok) {
+    revalidatePath(`/app/${org}/leases/${leaseId}`);
+    revalidatePath(`/app/${org}/billing/invoices`);
+  }
+  return result;
+}
+
+/**
+ * Correcting a charge that was already posted.
+ *
+ * `issueCreditNote` has existed since §5 with no screen, so the only way to
+ * undo a mistaken charge was to ask somebody with database access. A posted
+ * document is immutable on purpose — the ledger does not get to change what it
+ * once said — and a credit note is how a correction is made visible instead of
+ * hidden.
+ *
+ * The amount is checked in SQL against what REMAINS creditable, not against
+ * the original total, so two half-credits cannot add up to more than the
+ * charge. The reason is required because a tenant reading the credit note is
+ * entitled to know why it exists.
+ */
+export async function creditChargeAction(_previous: unknown, formData: FormData) {
+  const org = str(formData, 'org');
+  const leaseId = str(formData, 'leaseId');
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    const currency = context.currencyCode ?? 'ZAR';
+    const amountMinor = parseMajorToMinor(str(formData, 'amount'), currency);
+    if (amountMinor <= 0n) throw new Error('A credit note must credit more than nothing.');
+
+    const reason = str(formData, 'reason');
+    const issued = await issueCreditNote(tx, context.organisationId, viewer.authUserId, {
+      documentId: str(formData, 'documentId'),
+      reason,
+      issueDate: str(formData, 'issueDate'),
+      lines: [{
+        // The category follows the charge being corrected, so the credit goes
+        // back to the income account the charge credited rather than to a
+        // general one.
+        category: str(formData, 'category') || 'adjustment',
+        description: str(formData, 'description') || reason,
+        amountMinor,
+      }],
+    });
+    return { documentNumber: issued.documentNumber };
   });
 
   if (result.ok) {

@@ -8,12 +8,13 @@ import { CONTROL_CLASS } from '@propertyos/ui';
 import {
   buildStatement, CHARGE_CATEGORIES, DomainError, hasPermission, listInvoicesForLease,
   listLeaseAgreementGenerations,
-  listLeaseLifecycleEvents, listLeaseTemplates,
+  listLeaseLifecycleEvents, listLeaseTemplates, minorToMajorInput,
 } from '@propertyos/domain';
 import { loadPortalAccess } from '@/lib/operations-queries';
 import { todayIn } from '@/lib/today';
 import { AgreementPanel } from './agreement/agreement-panel';
 import { ChargePanel } from './charge-panel';
+import { CreditNoteForm } from './credit-note-form';
 import { LifecyclePanel } from './lifecycle/lifecycle-panel';
 import { PortalAccessPanel } from './portal-panel';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -97,6 +98,7 @@ export default async function LeaseDetailPage({
         // Raising a charge is posting to the ledger, so it takes the same
         // permission a billing run does.
         canPostCharges: await hasPermission(tx, context.organisationId, 'billing.post'),
+        canAdjustCharges: await hasPermission(tx, context.organisationId, 'charge.adjust'),
         // The documents themselves, as the tenant sees them. An operator
         // answering "what did you send me" should be able to open the same
         // file rather than describing it.
@@ -427,8 +429,10 @@ export default async function LeaseDetailPage({
                 {document.kind === 'credit_note' ? (
                   <StatusBadge tone="positive">Credit note</StatusBadge>
                 ) : null}
+                {/* The same words the document itself uses, so a list and a
+                    PDF never describe one state two ways. */}
                 {document.reversed ? (
-                  <StatusBadge tone="caution">Reversed</StatusBadge>
+                  <StatusBadge tone="caution">Credited in full</StatusBadge>
                 ) : null}
                 <span className="text-[length:var(--text-meta)] text-ink-500">
                   issued {formatDate(document.issueDate, context.timeZone)} · due{' '}
@@ -441,6 +445,33 @@ export default async function LeaseDetailPage({
                     tone="plain"
                   />
                 </span>
+                {/* A posted document cannot be edited, which is correct and
+                    left an operator with nowhere to go when a charge was
+                    wrong. A credit note is how a correction is made visible
+                    rather than hidden. */}
+                {data.canAdjustCharges && document.kind === 'invoice'
+                  && document.remainingCreditableMinor > 0n ? (
+                    <CreditNoteForm
+                      org={org}
+                      leaseId={leaseId}
+                      documentId={document.documentId}
+                      documentNumber={document.documentNumber}
+                      category={document.primaryCategory}
+                      remainingMajor={minorToMajorInput(
+                        document.remainingCreditableMinor, document.currencyCode,
+                      )}
+                      today={todayIn(context.timeZone)}
+                      currencySymbol={lease.currency_code === 'ZAR' ? 'R' : lease.currency_code}
+                    />
+                  ) : null}
+                {document.creditedMinor > 0n && !document.reversed ? (
+                  <span className="text-[length:var(--text-meta)] text-caution-700">
+                    <Money
+                      minor={document.creditedMinor} currency={document.currencyCode} tone="plain"
+                    />{' '}
+                    credited back
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>

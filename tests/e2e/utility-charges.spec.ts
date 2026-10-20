@@ -83,4 +83,55 @@ test.describe('utility charges', () => {
     // And it still carries the reference a payment needs.
     expect(body).toContain('USE THIS REFERENCE');
   });
+
+  test('a mistaken charge is credited back from the screen', async ({ page }) => {
+    // `issueCreditNote` existed since §5 with no screen at all: a posted
+    // document is immutable, correctly, and an operator who had charged the
+    // wrong amount had nowhere to go but the database.
+    await signIn(page, ADMIN);
+    await page.goto('/app');
+    const org = await page.locator('a[href^="/app/"]').first().getAttribute('href');
+
+    await page.goto(`${org}/leases`, { waitUntil: 'domcontentloaded' });
+    const leaseHref = await page.locator('a[href*="/leases/"]').evaluateAll((links) =>
+      links.map((l) => (l as HTMLAnchorElement).getAttribute('href') ?? '')
+        .find((href) => /\/leases\/[0-9a-f-]{36}$/.test(href)) ?? null);
+    await page.goto(leaseHref!, { waitUntil: 'domcontentloaded' });
+
+    // Raise something to correct, so the test does not depend on what the
+    // demo happens to hold.
+    await page.getByLabel('What is this for').selectOption('utility_electricity');
+    await page.getByLabel(/^Amount/).fill('1234.00');
+    await page.getByLabel('Description on the invoice').fill('Electricity — wrong meter');
+    await page.getByRole('button', { name: 'Post this charge' }).click();
+    await expect(page.getByText(/Posted as /)).toBeVisible({ timeout: 60_000 });
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const row = page.locator('li', { hasText: 'R1,234.00' }).first();
+    await row.getByRole('button', { name: 'Credit this' }).click();
+
+    // A reason is required, because the tenant reads it on the credit note.
+    await page.getByLabel(/^Why/).first().fill('Read the wrong meter');
+    await page.getByRole('button', { name: /^Credit INV-/ }).first().click();
+
+    // The durable signal is the list: the invoice marked, and a credit note of
+    // its own that the tenant can download.
+    await expect(page.getByText('Credited in full').first()).toBeVisible({ timeout: 60_000 });
+    // By its own number rather than by position: the demo may already hold
+    // credit notes from an earlier run, and any of them would pass a check
+    // that only asked for "a credit note".
+    const creditHref = await page.locator('a[href*="/invoice.pdf"]').evaluateAll((links) => {
+      const match = links.find((l) => (l.textContent ?? '').trim().startsWith('CRN-'));
+      return match ? match.getAttribute('href') : null;
+    });
+    expect(creditHref).toBeTruthy();
+
+    const pdf = await page.request.get(creditHref!);
+    const body = (await pdf.body()).toString('latin1');
+    expect(body).toContain('CREDIT NOTE');
+    expect(body).toContain('Read the wrong meter');
+    // Nothing to pay on it, and no bank details at all.
+    expect(body).toContain('Nothing is payable on this credit note');
+    expect(body).not.toContain('HOW TO PAY');
+  });
 });
