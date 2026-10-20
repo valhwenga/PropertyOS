@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { deflateSync } from 'node:zlib';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +23,40 @@ import {
 } from '../support/factories.js';
 
 const R = (v: string) => parseMajorToMinor(v, 'ZAR');
+
+/** A real, minimal PNG: one opaque pixel, built here so the test owns the bytes. */
+function onePixelPng(): Uint8Array {
+  const crc = (bytes: Uint8Array) => {
+    let value = 0xffffffff;
+    for (const byte of bytes) {
+      value ^= byte;
+      for (let bit = 0; bit < 8; bit += 1) {
+        value = value & 1 ? (value >>> 1) ^ 0xedb88320 : value >>> 1;
+      }
+    }
+    return (value ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, body: Uint8Array) => {
+    const out = new Uint8Array(12 + body.length);
+    const view = new DataView(out.buffer);
+    view.setUint32(0, body.length);
+    for (let i = 0; i < 4; i += 1) out[4 + i] = type.charCodeAt(i);
+    out.set(body, 8);
+    view.setUint32(8 + body.length, crc(out.subarray(4, 8 + body.length)));
+    return out;
+  };
+  const ihdr = new Uint8Array(13);
+  new DataView(ihdr.buffer).setUint32(0, 1);
+  new DataView(ihdr.buffer).setUint32(4, 1);
+  ihdr[8] = 8;  // bit depth
+  ihdr[9] = 2;  // truecolour
+  return new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...chunk('IHDR', ihdr),
+    ...chunk('IDAT', new Uint8Array(deflateSync(Buffer.from([0, 95, 51, 255])))),
+    ...chunk('IEND', new Uint8Array()),
+  ]);
+}
 
 /** Pulls the literal strings out of a PDF's content streams. */
 function extractText(pdf: Uint8Array): string {
@@ -171,7 +206,7 @@ describe('Statement PDF', () => {
 
   afterAll(async () => { await closeOwner(); });
 
-  async function render() {
+  async function render(branding: { logo?: Uint8Array | null; accent?: string } = {}) {
     const statement = await as(org.adminUserId, (tx) =>
       buildStatement(tx, org.organisationId, { leaseId, cutOff: '2026-01-31' }),
     );
@@ -182,6 +217,7 @@ describe('Statement PDF', () => {
         propertyLabel: '14 Protea Street / MAIN',
         residentName: 'Thandiwe Mokoena',
         contactEmail: 'accounts@example.invalid',
+        ...branding,
       }),
     };
   }
@@ -229,13 +265,36 @@ describe('Statement PDF', () => {
     expect(text).toContain('no earlier activity');
   });
 
-  it('uses a text wordmark, never an invented logo', async () => {
+  it('leads with the landlord, not with this product', async () => {
+    // A resident has a relationship with their landlord and none with the
+    // software, so the mark at the top of their statement is the landlord's.
     const { pdf } = await render();
     const text = extractText(pdf);
-    expect(text).toContain('Spike');
-    expect(text).toContain('PropertyOS');
-    // No image objects at all.
+    expect(text).toContain('PDF Statement Co');
+    // With no logo there is no image object at all, and nothing is invented.
     expect(Buffer.from(pdf).toString('latin1')).not.toContain('/Subtype /Image');
+    // The attribution stays, small and at the foot of the page.
+    expect(text).toContain('Prepared with Spike PropertyOS');
+  });
+
+  it('draws an uploaded logo, and still states the landlord in words', async () => {
+    const { pdf } = await render({ logo: onePixelPng() });
+    const raw = Buffer.from(pdf).toString('latin1');
+    expect(raw).toContain('/Subtype /Image');
+    expect(raw).toContain('/Im1 Do');
+    // A mark is not a legal name, so the name is written out regardless.
+    expect(extractText(pdf)).toContain('PDF Statement Co');
+  });
+
+  it('falls back to the landlord name when the logo cannot be embedded', async () => {
+    // An SVG passes the upload check nowhere, but a file stored before a
+    // format rule changed, or a PNG this writer cannot read, must not stop a
+    // statement being produced.
+    const { pdf } = await render({ logo: new TextEncoder().encode('<svg/>') });
+    const raw = Buffer.from(pdf).toString('latin1');
+    expect(raw).not.toContain('/Subtype /Image');
+    expect(raw.trimEnd().endsWith('%%EOF')).toBe(true);
+    expect(extractText(pdf)).toContain('PDF Statement Co');
   });
 
   it('states that every line traces to a posted record', async () => {

@@ -2,10 +2,11 @@
  * A minimal PDF writer.
  *
  * PropertyOS produces one kind of PDF: a statement. That needs text in two
- * weights, horizontal rules, filled rectangles and right-aligned numbers — not
- * images, forms, annotations or embedded fonts. A general PDF library is a large
- * dependency for that surface, and this is ~250 lines with none. The trade-off
- * is recorded in ADR 0009.
+ * weights, horizontal rules, filled rectangles, right-aligned numbers and —
+ * since a landlord's own statement should carry a landlord's own mark — one
+ * image. Not forms, annotations or embedded fonts. A general PDF library is a
+ * large dependency for that surface, and this is still well under 400 lines
+ * with none. The trade-off is recorded in ADR 0009.
  *
  * Output is PDF 1.4 using the standard Type 1 fonts, which every reader has, so
  * nothing is embedded and files stay small.
@@ -17,7 +18,16 @@
  * TrueType font, which it deliberately does not do today.
  */
 
+import { readRaster } from './image';
+
 export type FontName = 'Helvetica' | 'Helvetica-Bold' | 'Courier';
+
+/** A placed image, as the page refers to it. */
+export interface PdfImage {
+  key: string;
+  width: number;
+  height: number;
+}
 
 export interface TextOptions {
   font?: FontName;
@@ -149,6 +159,22 @@ export class PdfPage {
     return this;
   }
 
+  /**
+   * Draws an image already added to the document.
+   *
+   * Width and height are the size ON THE PAGE in points, not the pixel size:
+   * a 600px logo and a 60px one occupy the same space, so a statement's layout
+   * does not change with whatever somebody uploaded.
+   */
+  image(image: PdfImage, x: number, top: number, width: number, height: number): this {
+    this.operations.push({
+      render: () =>
+        `q\n${width.toFixed(2)} 0 0 ${height.toFixed(2)} ${x.toFixed(2)} `
+        + `${this.y(top + height).toFixed(2)} cm\n/${image.key} Do\nQ\n`,
+    });
+    return this;
+  }
+
   rect(x: number, top: number, width: number, height: number, options: { fill?: number | [number, number, number] } = {}): this {
     this.operations.push({
       render: () =>
@@ -172,8 +198,30 @@ export interface PdfMetadata {
 /** Composes pages into a complete PDF file. */
 export class PdfDocument {
   private readonly pages: PdfPage[] = [];
+  private readonly images: Array<PdfImage & { raster: ReturnType<typeof readRaster> }> = [];
 
   constructor(private readonly metadata: PdfMetadata) {}
+
+  /**
+   * Registers an image for the pages to draw.
+   *
+   * Returns null when the bytes are not something this writer can embed
+   * honestly — see `readRaster`. The caller is expected to carry on without
+   * it: a statement that refuses to generate because a logo was a 16-bit PNG
+   * would be a worse product than one with the landlord's name in text.
+   */
+  addImage(bytes: Uint8Array): PdfImage | null {
+    const raster = readRaster(bytes);
+    if (!raster) return null;
+    const image = {
+      key: `Im${this.images.length + 1}`,
+      width: raster.width,
+      height: raster.height,
+      raster,
+    };
+    this.images.push(image);
+    return { key: image.key, width: image.width, height: image.height };
+  }
 
   /** A4 by default: 595.28 x 841.89 points. */
   addPage(width = 595.28, height = 841.89): PdfPage {
@@ -200,6 +248,34 @@ export class PdfDocument {
     const helveticaBold = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
     const courier = add('<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>');
 
+    // Images are document-level and shared by every page, like the fonts. The
+    // stream bytes are carried as latin1, one character per byte, which is how
+    // the whole file is assembled below.
+    const imageRefs: string[] = [];
+    for (const image of this.images) {
+      const raster = image.raster!;
+      let smask = '';
+      if (raster.alpha) {
+        const alphaNumber = add(
+          `<< /Type /XObject /Subtype /Image /Width ${raster.width} /Height ${raster.height} `
+          + '/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode '
+          + `/Length ${raster.alpha.length} >>\nstream\n`
+          + `${Buffer.from(raster.alpha).toString('latin1')}\nendstream`,
+        );
+        smask = ` /SMask ${alphaNumber} 0 R`;
+      }
+      const number = add(
+        `<< /Type /XObject /Subtype /Image /Width ${raster.width} /Height ${raster.height} `
+        + `/ColorSpace /${raster.colourSpace} /BitsPerComponent 8 /Filter /${raster.filter}`
+        + `${smask} /Length ${raster.data.length} >>\nstream\n`
+        + `${Buffer.from(raster.data).toString('latin1')}\nendstream`,
+      );
+      imageRefs.push(`/${image.key} ${number} 0 R`);
+    }
+    const xobjects = imageRefs.length > 0
+      ? ` /XObject << ${imageRefs.join(' ')} >>`
+      : '';
+
     // Reserve the Pages object number so page objects can point at their parent.
     const pagesNumber = objects.length + 1;
     objects.push(''); // placeholder, filled in below
@@ -214,7 +290,8 @@ export class PdfDocument {
         add(
           `<< /Type /Page /Parent ${pagesNumber} 0 R ` +
             `/MediaBox [0 0 ${page.width.toFixed(2)} ${page.height.toFixed(2)}] ` +
-            `/Resources << /Font << /F1 ${helvetica} 0 R /F2 ${helveticaBold} 0 R /F3 ${courier} 0 R >> >> ` +
+            '/Resources << /Font << '
+            + `/F1 ${helvetica} 0 R /F2 ${helveticaBold} 0 R /F3 ${courier} 0 R >>${xobjects} >> ` +
             `/Contents ${contentNumber} 0 R >>`,
         ),
       );

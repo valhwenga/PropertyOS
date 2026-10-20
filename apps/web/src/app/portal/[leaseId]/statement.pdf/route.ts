@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { buildStatement, DomainError, renderStatementPdf } from '@propertyos/domain';
+import {
+  buildStatement, DomainError, getBrandingForLease, getLogoForLease, renderStatementPdf,
+} from '@propertyos/domain';
 import { getViewer, readAs } from '@/lib/auth';
 
 /**
@@ -47,12 +49,21 @@ export async function GET(
         left join resident_profiles rp on rp.id = lp.resident_id
         where l.id = ${leaseId}::uuid
       `;
+      // Read through the resident-facing functions: a resident has no
+      // membership, so the branding table itself is closed to them.
+      const [branding, logo] = await Promise.all([
+        getBrandingForLease(tx, leaseId),
+        getLogoForLease(tx, leaseId),
+      ]);
+
       return {
         statement: built,
         pdf: renderStatementPdf(built, {
           organisationName: detail?.organisation_name ?? 'Your landlord',
           propertyLabel: detail?.property_label ?? 'Your home',
           residentName: detail?.resident_name ?? viewer.fullName,
+          accent: branding.accent,
+          logo: logo?.bytes ?? null,
         }),
       };
     });

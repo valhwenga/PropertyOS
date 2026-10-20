@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { buildStatement, DomainError, renderStatementPdf } from '@propertyos/domain';
+import {
+  buildStatement, DomainError, getBranding, getLogo, renderStatementPdf,
+} from '@propertyos/domain';
 import { getViewer, readAs } from '@/lib/auth';
 
 /**
@@ -40,12 +42,21 @@ export async function GET(
         left join resident_profiles rp on rp.id = lp.resident_id
         where l.id = ${leaseId}::uuid
       `;
+      // The landlord's own mark on their own document. A statement is still
+      // produced when there is no logo, or when it cannot be embedded.
+      const [branding, logo] = await Promise.all([
+        getBranding(tx, organisation.id),
+        getLogo(tx, organisation.id),
+      ]);
+
       return {
         statement: built,
         pdf: renderStatementPdf(built, {
           organisationName: organisation.name,
           propertyLabel: detail?.property_label ?? 'Property',
           residentName: detail?.resident_name ?? 'Resident',
+          accent: branding.accent,
+          logo: logo?.bytes ?? null,
         }),
       };
     });

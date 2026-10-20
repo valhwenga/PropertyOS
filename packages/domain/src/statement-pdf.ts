@@ -1,5 +1,6 @@
 import { formatDayMonthYear, formatDayMonthYearTime } from './dates';
-import { PdfDocument, measureText, type PdfPage } from '@propertyos/integrations';
+import { PdfDocument, type PdfImage, type PdfPage } from '@propertyos/integrations';
+import { accentByKey } from './branding';
 import { formatMinor } from './money';
 import type { Statement } from './statements';
 
@@ -21,7 +22,6 @@ const PAGE_HEIGHT = 841.89;
 const MARGIN = 48;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
-const SPIKE_PURPLE: [number, number, number] = [0.373, 0.2, 1];
 const INK = 0.08;
 const MUTED = 0.45;
 const RULE = 0.85;
@@ -43,6 +43,51 @@ export interface StatementPdfContext {
   /** Shown so a resident knows who to contact. Optional. */
   contactEmail?: string;
   contactPhone?: string;
+  /**
+   * The landlord's own logo, if they have uploaded one. A statement is the
+   * document a resident keeps, so it carries their landlord's mark rather than
+   * this product's. Anything the PDF writer cannot embed honestly comes back as
+   * null there and the header falls back to the landlord's name in text — a
+   * statement never fails to generate over a decoration.
+   */
+  logo?: Uint8Array | null;
+  /** The accent key from their branding, for the one coloured mark on the page. */
+  accent?: string | null;
+}
+
+/** The landlord's mark, resolved once and drawn on every page. */
+interface Brand {
+  image: PdfImage | null;
+  /** Points, already fitted to the header band. */
+  width: number;
+  height: number;
+  colour: [number, number, number];
+}
+
+const LOGO_MAX_HEIGHT = 34;
+const LOGO_MAX_WIDTH = 190;
+
+function resolveBrand(document: PdfDocument, context: StatementPdfContext): Brand {
+  const colour = hexToRgb(accentByKey(context.accent).base);
+  const image = context.logo && context.logo.length > 0
+    ? document.addImage(context.logo) : null;
+  if (!image) return { image: null, width: 0, height: 0, colour };
+
+  // Fit inside the band without distorting it: whichever limit bites first.
+  const scale = Math.min(
+    LOGO_MAX_HEIGHT / image.height, LOGO_MAX_WIDTH / image.width, 1,
+  );
+  return {
+    image,
+    width: image.width * scale,
+    height: image.height * scale,
+    colour,
+  };
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const value = Number.parseInt(hex.replace('#', ''), 16);
+  return [((value >> 16) & 0xff) / 255, ((value >> 8) & 0xff) / 255, (value & 0xff) / 255];
 }
 
 export function renderStatementPdf(statement: Statement, context: StatementPdfContext): Uint8Array {
@@ -55,8 +100,11 @@ export function renderStatementPdf(statement: Statement, context: StatementPdfCo
   const money = (value: bigint) => formatMinor(value, statement.currencyCode);
   const symbol = statement.currencyCode === 'ZAR' ? 'R' : `${statement.currencyCode} `;
 
+  // Added to the document once, before any page refers to it.
+  const brand = resolveBrand(document, context);
+
   let page = document.addPage(PAGE_WIDTH, PAGE_HEIGHT);
-  let y = drawHeader(page, statement, context);
+  let y = drawHeader(page, statement, context, brand);
   let pageNumber = 1;
 
   // Opening balance, always shown even when zero: a statement that silently
@@ -80,7 +128,7 @@ export function renderStatementPdf(statement: Statement, context: StatementPdfCo
       drawFooter(page, statement, context, pageNumber);
       page = document.addPage(PAGE_WIDTH, PAGE_HEIGHT);
       pageNumber += 1;
-      y = drawContinuationHeader(page, statement, pageNumber);
+      y = drawContinuationHeader(page, statement, context, brand, pageNumber);
       y = drawTableHead(page, y);
     }
 
@@ -165,17 +213,21 @@ export function renderStatementPdf(statement: Statement, context: StatementPdfCo
   return document.build();
 }
 
-function drawHeader(page: PdfPage, statement: Statement, context: StatementPdfContext): number {
-  // Text wordmark only. No approved Spike logo exists, and none is invented.
-  // The second word is placed from the measured width of the first, so the two
-  // never collide if the type size changes.
-  drawWordmark(page, MARGIN, MARGIN, 16);
+function drawHeader(
+  page: PdfPage, statement: Statement, context: StatementPdfContext, brand: Brand,
+): number {
+  const marked = drawMark(page, context, brand, MARGIN, 16);
 
   page.text('STATEMENT', PAGE_WIDTH - MARGIN, MARGIN + 2, {
     align: 'right', width: 0, font: 'Helvetica-Bold', size: 12, colour: MUTED,
   });
 
-  page.text(context.organisationName, MARGIN, MARGIN + 26, { size: 9, colour: MUTED });
+  // Under a logo the landlord's name is still worth stating in words, because a
+  // mark is not a legal name. Where the mark IS the name, saying it twice is
+  // just noise.
+  if (brand.image) {
+    page.text(context.organisationName, MARGIN, MARGIN + marked + 6, { size: 9, colour: MUTED });
+  }
 
   const y = MARGIN + 58;
   page.line(MARGIN, y - 10, PAGE_WIDTH - MARGIN, y - 10, { colour: RULE, width: 1 });
@@ -195,8 +247,11 @@ function drawHeader(page: PdfPage, statement: Statement, context: StatementPdfCo
   return y + 68;
 }
 
-function drawContinuationHeader(page: PdfPage, statement: Statement, pageNumber: number): number {
-  drawWordmark(page, MARGIN, MARGIN, 11);
+function drawContinuationHeader(
+  page: PdfPage, statement: Statement, context: StatementPdfContext, brand: Brand,
+  pageNumber: number,
+): number {
+  drawMark(page, context, brand, MARGIN, 11);
   page.text(
     `Statement ${statement.leaseReference} continued — page ${pageNumber}`,
     PAGE_WIDTH - MARGIN - 240, MARGIN + 2, { size: 9, colour: MUTED },
@@ -204,12 +259,29 @@ function drawContinuationHeader(page: PdfPage, statement: Statement, pageNumber:
   return MARGIN + 34;
 }
 
-function drawWordmark(page: PdfPage, x: number, top: number, size: number): void {
-  page.text('Spike', x, top, { font: 'Helvetica-Bold', size, colour: SPIKE_PURPLE });
-  const gap = size * 0.28;
-  page.text('PropertyOS', x + measureText('Spike', 'Helvetica-Bold', size) + gap, top, {
-    font: 'Helvetica-Bold', size, colour: INK,
+/**
+ * The landlord's mark at the top of a page, and how tall it turned out.
+ *
+ * A logo is drawn at the size it fits; with no logo — or one this writer could
+ * not embed — the landlord's own name takes its place in their accent colour.
+ * Either way the document says whose it is, and no page carries a mark for
+ * software the resident has no relationship with.
+ */
+function drawMark(
+  page: PdfPage, context: StatementPdfContext, brand: Brand, top: number, size: number,
+): number {
+  if (brand.image) {
+    // The continuation pages get a smaller mark, in the same proportions.
+    const scale = Math.min(size / 16, 1);
+    const width = brand.width * scale;
+    const height = brand.height * scale;
+    page.image(brand.image, MARGIN, top, width, height);
+    return height;
+  }
+  page.text(truncate(context.organisationName, 48), MARGIN, top, {
+    font: 'Helvetica-Bold', size, colour: brand.colour,
   });
+  return size;
 }
 
 function drawTableHead(page: PdfPage, y: number): number {
@@ -242,6 +314,10 @@ function drawFooter(
     'Every line traces to a posted charge or an applied payment.',
     PAGE_WIDTH - MARGIN - 230, y + 19, { size: 7.5, colour: MUTED },
   );
+  // Small, once, at the bottom: the landlord's brand is the one at the top.
+  page.text('Prepared with Spike PropertyOS', PAGE_WIDTH - MARGIN, y + 8, {
+    align: 'right', width: 0, size: 7, colour: 0.62,
+  });
 }
 
 function truncate(text: string, max: number): string {
