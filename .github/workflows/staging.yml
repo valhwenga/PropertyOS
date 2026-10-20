@@ -1,0 +1,116 @@
+#
+# The staging demo's database, operated from a button rather than a terminal.
+#
+# The hosted preview is a Next.js app on Vercel in front of a managed Postgres.
+# Two things that a long-running server would do for itself have to happen
+# somewhere on a serverless host, and this is that somewhere:
+#
+#   * migrations, when a push adds one. A deploy whose code expects a column
+#     the database does not have fails in the request path, which is the worst
+#     place to find out;
+#   * the background worker, which claims queued jobs and publishes the
+#     outbox. It runs in drain mode here: claim everything ready, then exit.
+#
+# "Reset the demo data" is deliberately manual and deliberately asks you to
+# type the word. It drops every table in the staging database and rebuilds it
+# from the migrations, which is exactly right for a demo and exactly wrong
+# anywhere else.
+#
+# The one secret this needs is STAGING_DATABASE_URL: the OWNER connection, used
+# only here. The application's own connection is the unprivileged role, and it
+# is configured on Vercel rather than in this repository.
+#
+# NOTHING HERE RUNS BY ITSELF YET. There is no staging environment: the demo
+# runs locally, with `pnpm host`. A cron firing every fifteen minutes against a
+# secret that does not exist would be fifteen minutes of red, forever, so the
+# automatic triggers are commented out rather than written later from memory.
+# When a staging database exists, follow docs/runbooks/staging.md and uncomment
+# the `push` and `schedule` blocks below.
+name: Staging
+
+on:
+  # push:
+  #   branches: [master]
+  #   paths: ['packages/db/migrations/**']
+  # schedule:
+  #   # Every fifteen minutes: queued invoice messages and outbox rows are
+  #   # picked up without anybody watching. GitHub's scheduler is best-effort
+  #   # and skips runs when it is busy, which is acceptable for a demo and
+  #   # would not be for production — there the worker is a process, not a
+  #   # cron.
+  #   - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to do
+        required: true
+        default: migrate
+        type: choice
+        options: [migrate, drain-worker, reset-demo-data]
+      confirm:
+        description: Type RESET to confirm, for reset-demo-data only
+        required: false
+        default: ''
+
+concurrency:
+  group: staging-database
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    # A scheduled run on a fork would drain somebody else's queue with their
+    # own secret; it cannot, because the secret is not there, but refusing is
+    # clearer than failing.
+    if: github.repository_owner != ''
+    env:
+      DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+      NODE_ENV: development
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.28.0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Check the secret is there
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::STAGING_DATABASE_URL is not set in this repository's secrets."
+            echo "Settings → Secrets and variables → Actions → New repository secret."
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        if: inputs.task == 'migrate' || inputs.task == 'reset-demo-data'
+        run: pnpm db:migrate
+
+      - name: Rebuild the demo data
+        if: inputs.task == 'reset-demo-data'
+        run: |
+          if [ "${{ inputs.confirm }}" != "RESET" ]; then
+            echo "::error::Type RESET in the confirm box to rebuild the staging database."
+            exit 1
+          fi
+          pnpm db:reset
+          pnpm db:seed
+          pnpm db:mfa enrol admin@demo.invalid
+          pnpm db:mfa enrol finance@demo.invalid
+
+      - name: Drain the worker queue
+        if: inputs.task == 'drain-worker'
+        env:
+          WORKER_ID: github-actions
+          WORKER_DRAIN: '1'
+          # Email has no provider in staging, so every attempt is recorded as
+          # undelivered with the adapter's own reason. That is the honest
+          # outcome and the screens say so.
+          EMAIL_PROVIDER: sink
+        run: pnpm --filter @propertyos/worker exec tsx src/main.ts --drain

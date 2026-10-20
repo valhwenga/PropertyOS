@@ -24,10 +24,44 @@ const baseOptions: postgres.Options<Record<string, never>> = {
   onnotice: () => {},
 };
 
+/**
+ * Settings for a connection that goes through a transaction-mode pooler.
+ *
+ * Managed Postgres in front of a serverless runtime means pgbouncer in
+ * transaction mode (Supabase's port 6543, Neon's pooled host, RDS Proxy). Two
+ * things are different there and both fail in ways that are hard to read:
+ *
+ *  * **Prepared statements do not survive.** The pooler hands each transaction
+ *    whichever backend is free, so a statement prepared on one connection is
+ *    unknown on the next: "prepared statement s1 already exists", intermittently
+ *    and under load only. postgres.js names its statements by default, so this
+ *    turns that off.
+ *  * **The pool is the pooler's, not ours.** Ten idle connections per instance,
+ *    times however many instances the platform decided to run, exhausts the
+ *    pooler's own limit — and the symptom is a request that hangs rather than
+ *    an error that names the cause.
+ *
+ * Detected from the URL rather than configured, because the host and port are
+ * what actually decide it; `DATABASE_POOL_MODE` overrides either way for a
+ * setup the heuristic does not recognise.
+ */
+export function usesTransactionPooler(url: string): boolean {
+  const declared = process.env.DATABASE_POOL_MODE;
+  if (declared === 'transaction') return true;
+  if (declared === 'session') return false;
+  return /[?&]pgbouncer=true/.test(url) || /:6543\//.test(url) || /-pooler\./.test(url);
+}
+
+function optionsFor(url: string, max: number): postgres.Options<Record<string, never>> {
+  if (!usesTransactionPooler(url)) return { ...baseOptions, max };
+  return { ...baseOptions, max: Math.min(max, 3), prepare: false };
+}
+
 /** The RLS-enforced connection. Every request-scoped query uses this. */
 export function sql(): Sql {
   if (!appClient) {
-    appClient = postgres(appDatabaseUrl(), baseOptions) as Sql;
+    const url = appDatabaseUrl();
+    appClient = postgres(url, optionsFor(url, 10)) as Sql;
   }
   return appClient;
 }
@@ -41,7 +75,8 @@ export function sql(): Sql {
  */
 export function privilegedSql(): Sql {
   if (!privilegedClient) {
-    privilegedClient = postgres(privilegedDatabaseUrl(), { ...baseOptions, max: 4 }) as Sql;
+    const url = privilegedDatabaseUrl();
+    privilegedClient = postgres(url, optionsFor(url, 4)) as Sql;
   }
   return privilegedClient;
 }

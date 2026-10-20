@@ -17,6 +17,21 @@ import { publishOutbox } from './outbox';
 const WORKER_ID = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const POLL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 2000);
 
+/**
+ * Drain and stop, instead of polling for ever.
+ *
+ * A long-running process is the right shape on a server and an impossible one
+ * on a host that only runs things on a schedule. In drain mode the worker
+ * claims everything that is ready, publishes the outbox, and exits — so the
+ * same binary can be a daemon on one deployment and a cron job on another,
+ * with no second implementation to drift.
+ *
+ * The time limit is a safety rail: a queue that keeps filling must not keep
+ * one scheduled run alive for ever.
+ */
+const DRAIN = process.argv.includes('--drain') || process.env.WORKER_DRAIN === '1';
+const DRAIN_LIMIT_MS = Number(process.env.WORKER_DRAIN_LIMIT_MS ?? 120_000);
+
 let running = true;
 
 function log(level: 'info' | 'warn' | 'error', message: string, extra: Record<string, unknown> = {}) {
@@ -63,7 +78,19 @@ async function main(): Promise<void> {
   const reclaimed = await reclaimStalled(sql);
   if (reclaimed > 0) log('warn', 'reclaimed stalled jobs after restart', { count: reclaimed });
 
-  log('info', 'worker started', { pollIntervalMs: POLL_MS });
+  log('info', 'worker started', { pollIntervalMs: POLL_MS, mode: DRAIN ? 'drain' : 'poll' });
+
+  if (DRAIN) {
+    const until = Date.now() + DRAIN_LIMIT_MS;
+    let done = 0;
+    while (Date.now() < until) {
+      if (!await tick(sql)) break;   // nothing claimed: the queue is empty
+      done += 1;
+    }
+    log('info', 'drained', { jobs: done, stoppedEarly: Date.now() >= until });
+    await sql.end({ timeout: 10 });
+    return;
+  }
 
   const stop = () => { running = false; log('info', 'shutting down'); };
   process.on('SIGTERM', stop);
