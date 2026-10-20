@@ -109,10 +109,14 @@ describe('Organisation branding', () => {
   });
 
   it('refuses one that is too large on disk or on screen', async () => {
+    // The upload screen scales a picture to fit before sending it, so an
+    // oversized one reaching the command came from somewhere else. The command
+    // is where the limit lives and it does not quietly rewrite what it was
+    // handed; the message names the size and says where fitting happens.
     await expect(as(org.adminUserId, (tx) =>
       setLogo(tx, org.organisationId, org.adminUserId, {
         bytes: png(4000, 3000),
-      }))).rejects.toThrow(/longest side/);
+      }))).rejects.toThrow(/4000×3000.*scales anything larger/s);
 
     const huge = new Uint8Array(600 * 1024);
     huge.set(png(64, 64), 0);
