@@ -95,6 +95,11 @@ way that fails safe until someone with the relevant authority decides.
   `tests/unit/content-security-policy.test.ts` fails if anyone makes it
   unconditional. The policy still carries `'unsafe-inline'` for scripts in both
   builds; moving to nonces is the real fix and is not done.
+* **An invoice carries no VAT breakdown.** `charge_lines` has no tax columns,
+  so the document prints the VAT number where one is recorded and calculates
+  nothing. A breakdown assembled from a rate nobody entered is a figure a
+  landlord would then file a return on. Tax handling is a feature, not a
+  rendering detail, and belongs with the ledger.
 * **The icon is a letter, not a logo.** No approved Spike mark exists, so
   `apps/web/src/app/icon.svg` is the wordmark's initial in the brand purple.
   It exists so pages stop requesting a favicon that is not there. Replace it

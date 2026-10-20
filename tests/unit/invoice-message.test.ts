@@ -23,6 +23,7 @@ const VALUES: Record<string, string> = {
   'unit.label': '14 Protea Street / MAIN',
   'landlord.name': 'Blue Crane Rentals',
   'portal.link': 'https://example.invalid/portal/abc',
+  'invoice.link': 'https://example.invalid/portal/abc/invoices/def/invoice.pdf',
 };
 
 describe('rendering a message', () => {

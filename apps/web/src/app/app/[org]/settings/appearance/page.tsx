@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import { Disclosure, PageHeader, Panel, PermissionState } from '@propertyos/ui';
 import {
-  BRAND_ACCENTS, BRAND_TYPEFACES, getBranding, hasPermission,
+  BRAND_ACCENTS, BRAND_TYPEFACES, getBranding, hasPermission, INVOICE_TEMPLATES,
 } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { AppearanceForm, LogoForm } from './appearance-form';
+import { InvoiceDesignForm } from './invoice-design-form';
 
 export const metadata = { title: 'Appearance' };
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,16 @@ export default async function AppearancePage({
           </Panel>
 
           <Panel
+            title="Invoice design"
+            titleId="invoice-design"
+            description="Which layout your tenants receive. Every design carries the payment reference, the due date and your own details."
+          >
+            <div className="p-4">
+              <InvoiceDesignForm org={org} branding={branding} templates={INVOICE_TEMPLATES} />
+            </div>
+          </Panel>
+
+          <Panel
             title="Your sign-in page"
             titleId="sign-in-page"
             description="A bookmark for your staff that opens in your colours rather than ours."
@@ -102,6 +113,12 @@ export default async function AppearancePage({
             Light and dark are a separate, personal choice, on{' '}
             <Link href="/account" className="text-spike-600 hover:underline">your profile</Link>.
             Each accent has its own dark palette, so both themes stay readable.
+          </li>
+          <li>
+            Invoices are issued in the design you choose above, with your logo, your accent,
+            your registered details, the property and the payment reference your tenant must
+            quote. Changing the design changes invoices generated from then on; a PDF
+            somebody already downloaded is not rewritten.
           </li>
           <li>
             Statement PDFs carry your logo in the header, with your registered name in words

@@ -264,7 +264,15 @@ export default async function SendInvoicesPage({
                 </Td>
                 <Td className="text-ink-700">{invoice.unitLabel}</Td>
                 <Td className="technical whitespace-nowrap text-ink-500">
-                  {invoice.documentNumber}
+                  {/* The document itself, in the organisation's chosen design
+                      — the same file the tenant can download. */}
+                  <a
+                    href={`/app/${org}/billing/invoices/${invoice.documentId}/invoice.pdf`}
+                    className="text-spike-600 hover:underline"
+                  >
+                    {invoice.documentNumber}
+                  </a>
+                  <span className="block text-[length:var(--text-meta)] text-ink-400">PDF</span>
                 </Td>
                 <Td className="whitespace-nowrap text-ink-500">
                   {formatDate(invoice.dueDate, context.timeZone)}

@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { removeLogo, setBranding, setLogo } from '@propertyos/domain';
+import { removeLogo, setBranding, setInvoiceTemplate, setLogo } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
 
@@ -54,6 +54,23 @@ export async function removeLogoAction(_previous: unknown, formData: FormData) {
     const context = await requireOperator(org);
     return {
       branding: await removeLogo(tx, context.organisationId, context.viewer.authUserId),
+    };
+  });
+  if (result.ok) revalidatePath(`/app/${org}`, 'layout');
+  return result;
+}
+
+/** The invoice design this organisation issues. A key from the vetted list. */
+export async function saveInvoiceTemplateAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org') ?? '');
+  const template = String(formData.get('invoiceTemplate') ?? '');
+
+  const result = await command(async ({ tx }) => {
+    const context = await requireOperator(org);
+    return {
+      branding: await setInvoiceTemplate(
+        tx, context.organisationId, context.viewer.authUserId, template,
+      ),
     };
   });
   if (result.ok) revalidatePath(`/app/${org}`, 'layout');

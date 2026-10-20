@@ -1,6 +1,7 @@
 import type { Sql } from '@propertyos/db';
 import { recordAudit } from './audit';
 import { invalid, notFound } from './errors';
+import { INVOICE_TEMPLATES } from './invoice-templates';
 import { requirePermission } from './permissions';
 
 /**
@@ -146,6 +147,8 @@ export const BRAND_TYPEFACES: readonly BrandTypeface[] = [
 export interface Branding {
   accent: string;
   typeface: string;
+  /** Which invoice design this organisation issues. See INVOICE_TEMPLATES. */
+  invoiceTemplate: string;
   hasLogo: boolean;
   logoWidth: number | null;
   logoHeight: number | null;
@@ -159,6 +162,7 @@ export interface Branding {
 const DEFAULTS: Branding = {
   accent: 'spike',
   typeface: 'default',
+  invoiceTemplate: 'classic',
   hasLogo: false,
   logoWidth: null,
   logoHeight: null,
@@ -251,11 +255,12 @@ export const LOGO_MIN_PIXELS = 16;
 /** What this organisation looks like. Defaults when nothing has been chosen. */
 export async function getBranding(tx: Sql, organisationId: string): Promise<Branding> {
   const [row] = await tx<
-    { accent: string; typeface: string; has_logo: boolean; logo_width: number | null;
+    { accent: string; typeface: string; invoice_template: string; has_logo: boolean;
+      logo_width: number | null;
       logo_height: number | null; logo_filename: string | null;
       logo_mime: Branding['logoMime']; logo_version: string | null }[]
   >`
-    select accent, typeface, logo_bytes is not null as has_logo,
+    select accent, typeface, invoice_template, logo_bytes is not null as has_logo,
            logo_width, logo_height, logo_filename, logo_mime,
            to_char(logo_updated_at, 'YYYYMMDDHH24MISS') as logo_version
       from organisation_branding
@@ -265,6 +270,7 @@ export async function getBranding(tx: Sql, organisationId: string): Promise<Bran
   return {
     accent: row.accent,
     typeface: row.typeface,
+    invoiceTemplate: row.invoice_template,
     hasLogo: row.has_logo,
     logoWidth: row.logo_width,
     logoHeight: row.logo_height,
@@ -317,6 +323,39 @@ export async function setBranding(
     action: 'organisation_branding.updated', resourceType: 'organisation',
     resourceId: organisationId,
     after: { accent: input.accent, typeface: input.typeface },
+  });
+  return getBranding(tx, organisationId);
+}
+
+/**
+ * Chooses which invoice design this organisation issues.
+ *
+ * A key from the vetted list, like the accent and the typeface, and for the
+ * same reason: every design on that list was laid out and read, and carries
+ * the payment reference, the due date and the landlord's identity. A layout an
+ * administrator composed could lose one of those, and the person who then
+ * cannot be told why their payment was not allocated is their tenant.
+ */
+export async function setInvoiceTemplate(
+  tx: Sql, organisationId: string, actorUserId: string, template: string,
+): Promise<Branding> {
+  await requirePermission(tx, organisationId, 'organisation.settings.manage');
+  if (!INVOICE_TEMPLATES.some((t) => t.key === template)) {
+    throw invalid('That is not one of the invoice designs on offer.');
+  }
+
+  await tx`
+    insert into organisation_branding (organisation_id, invoice_template, updated_by)
+    values (${organisationId}::uuid, ${template}, ${actorUserId}::uuid)
+    on conflict (organisation_id) do update set
+      invoice_template = excluded.invoice_template,
+      updated_at = now(), updated_by = excluded.updated_by
+  `;
+  await recordAudit(tx, {
+    organisationId, actorUserId,
+    action: 'organisation_branding.invoice_template_set', resourceType: 'organisation',
+    resourceId: organisationId,
+    after: { invoiceTemplate: template },
   });
   return getBranding(tx, organisationId);
 }
@@ -414,11 +453,20 @@ export async function removeLogo(
 export async function getBrandingForLease(
   tx: Sql, leaseId: string,
 ): Promise<Branding> {
-  const [row] = await tx<{ accent: string; typeface: string; has_logo: boolean }[]>`
-    select accent, typeface, has_logo from app.resident_branding(${leaseId}::uuid)
+  const [row] = await tx<
+    { accent: string; typeface: string; has_logo: boolean; invoice_template: string }[]
+  >`
+    select accent, typeface, has_logo, invoice_template
+      from app.resident_branding(${leaseId}::uuid)
   `;
   if (!row) return DEFAULTS;
-  return { ...DEFAULTS, accent: row.accent, typeface: row.typeface, hasLogo: row.has_logo };
+  return {
+    ...DEFAULTS,
+    accent: row.accent,
+    typeface: row.typeface,
+    hasLogo: row.has_logo,
+    invoiceTemplate: row.invoice_template,
+  };
 }
 
 /** The logo bytes for a resident's own landlord. */

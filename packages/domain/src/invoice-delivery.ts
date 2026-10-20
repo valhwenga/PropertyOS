@@ -60,6 +60,11 @@ export const INVOICE_MESSAGE_FIELDS: readonly MessageField[] = [
   { key: 'unit.label', label: 'Property and unit', example: '14 Protea Street / MAIN' },
   { key: 'landlord.name', label: 'Landlord or agency name', example: 'Blue Crane Rentals' },
   { key: 'portal.link', label: 'Link to their statement', example: 'https://…/portal/…' },
+  {
+    key: 'invoice.link',
+    label: 'Link to the invoice itself (PDF)',
+    example: 'https://…/portal/…/invoices/…/invoice.pdf',
+  },
 ] as const;
 
 const FIELD_KEYS = new Set(INVOICE_MESSAGE_FIELDS.map((f) => f.key));
@@ -530,6 +535,12 @@ export async function queueReadyInvoices(
       'unit.label': invoice.unitLabel,
       'landlord.name': landlord?.name ?? '',
       'portal.link': `${input.portalBaseUrl.replace(/\/$/, '')}/portal/${invoice.leaseId}`,
+      // The document itself rather than an attachment. A link is read behind
+      // the resident's own sign-in, so an invoice naming what somebody owes
+      // does not sit in a forwarded mailbox; and the file it serves is
+      // generated when they ask for it, so it cannot be a stale copy.
+      'invoice.link': `${input.portalBaseUrl.replace(/\/$/, '')}/portal/${invoice.leaseId}`
+        + `/invoices/${invoice.documentId}/invoice.pdf`,
     };
 
     const subject = renderMessage(template.subject, values).text;

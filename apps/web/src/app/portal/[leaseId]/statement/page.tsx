@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { Card, DataTable, Money, Td, Th } from '@propertyos/ui';
-import { buildStatement, DomainError } from '@propertyos/domain';
+import { buildStatement, DomainError, listInvoicesForLease } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadTenancy } from '@/lib/portal-queries';
@@ -62,6 +62,11 @@ export default async function StatementPage({
     }
   });
   if (!statement) notFound();
+
+  // The invoices themselves, as documents. A statement says what the account
+  // has done; an invoice says what was charged on one date and what reference
+  // to quote — and a tenant asked for one often means the second.
+  const invoices = await readAs(viewer, (tx) => listInvoicesForLease(tx, leaseId));
 
   const summary = summariseStatement(statement);
   const entries = groupStatementEntries(statement.lines);
@@ -261,6 +266,39 @@ export default async function StatementPage({
           </div>
         </>
       )}
+
+      {invoices.length > 0 ? (
+        <Card className="p-4">
+          <h3 className="text-sm font-semibold text-ink-900">Your invoices</h3>
+          <p className="mt-0.5 text-xs text-ink-500">
+            Each one is the document your landlord issued, with the reference to quote when
+            you pay. It shows what was charged on its own date, not what is outstanding now.
+          </p>
+          <ul className="mt-3 divide-y divide-ink-100">
+            {invoices.map((invoice) => (
+              <li key={invoice.documentId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <a
+                  href={`/portal/${leaseId}/invoices/${invoice.documentId}/invoice.pdf`}
+                  className="min-h-11 content-center text-sm font-medium text-spike-600 hover:underline"
+                >
+                  {invoice.documentNumber} (PDF)
+                </a>
+                <span className="text-xs text-ink-500">
+                  issued {formatDate(invoice.issueDate)} · due {formatDate(invoice.dueDate)}
+                </span>
+                <span className="ml-auto text-sm tabular text-ink-700">
+                  <Money minor={invoice.totalMinor} currency={invoice.currencyCode} />
+                </span>
+                {invoice.reversed ? (
+                  <span className="w-full text-xs font-medium text-caution-700">
+                    Cancelled by a credit note — do not pay this one.
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <p className="text-xs text-ink-500">
         Built from posted records as at {formatDate(cutOff)}. A payment you have told us about

@@ -127,4 +127,70 @@ test.describe('sending invoices', () => {
     expect(settled).toMatch(/Not delivered|Nobody to send to/);
     expect(settled).not.toContain('The provider accepted it');
   });
+
+  test('a design is chosen, and the invoice carries it to the tenant', async ({ page }) => {
+    await signIn(page, ADMIN);
+    await page.goto('/app');
+    const org = await page.locator('a[href^="/app/"]').first().getAttribute('href');
+    expect(org).toBeTruthy();
+
+    /* ------------------------------- 1. the landlord looks before choosing */
+
+    await page.goto(`${org}/settings/appearance`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: 'Invoice design' })).toBeVisible();
+
+    // A specimen, rendered in this organisation's own colours, so nobody picks
+    // a layout from a one-line description.
+    const sample = await page.request.get(`${org}/settings/appearance/sample-invoice.pdf?template=modern`);
+    expect(sample.status()).toBe(200);
+    expect(sample.headers()['content-type']).toContain('application/pdf');
+    const specimen = (await sample.body()).toString('latin1');
+    expect(specimen).toContain('SAMPLE');
+    // Made up, and never a real tenant's debt used as a swatch.
+    expect(specimen).toContain('Sample');
+
+    await page.getByRole('radio', { name: /Modern/ }).check({ force: true });
+    await page.getByRole('button', { name: 'Save invoice design' }).click();
+    await expect(page.getByText(/Invoices generated from now on use it/))
+      .toBeVisible({ timeout: 30_000 });
+
+    /* -------------------------------- 2. a real invoice, in that design */
+
+    await page.goto(`${org}/billing/invoices`, { waitUntil: 'domcontentloaded' });
+    const invoiceHref = await page.locator('a[href*="/invoice.pdf"]').first().getAttribute('href');
+    expect(invoiceHref, 'the demo has an invoice to download').toBeTruthy();
+
+    const pdf = await page.request.get(invoiceHref!);
+    expect(pdf.status()).toBe(200);
+    const body = (await pdf.body()).toString('latin1');
+    expect(body.startsWith('%PDF')).toBe(true);
+    // The three things the design may never lose.
+    expect(body).toContain('USE THIS REFERENCE');
+    expect(body).toContain('HOW TO PAY');
+    expect(body).toContain('THE PROPERTY');
+    // And this one is not a specimen.
+    expect(body).not.toContain('NOT A REAL INVOICE');
+
+    /* ------------------------------------ 3. the tenant downloads their own */
+
+    const tenant = await page.context().browser()!.newContext();
+    const tenantPage = await tenant.newPage();
+    await signIn(tenantPage, 'thandiwe@demo.invalid');
+    await tenantPage.goto('/portal', { waitUntil: 'domcontentloaded' });
+    const tenancy = await tenantPage.locator('a[href^="/portal/"]').first().getAttribute('href');
+    await tenantPage.goto(`${tenancy}/statement`, { waitUntil: 'domcontentloaded' });
+
+    const theirs = tenantPage.locator('a[href*="/invoices/"][href$="invoice.pdf"]').first();
+    await expect(theirs).toBeVisible({ timeout: 30_000 });
+    const theirHref = await theirs.getAttribute('href');
+    const theirPdf = await tenantPage.request.get(theirHref!);
+    expect(theirPdf.status()).toBe(200);
+    expect((await theirPdf.body()).toString('latin1')).toContain('USE THIS REFERENCE');
+
+    // Somebody else's lease, with a document id that is real: still nothing.
+    const elsewhere = theirHref!.replace(/portal\/[0-9a-f-]{36}/,
+      'portal/00000000-0000-0000-0000-000000000000');
+    expect((await tenantPage.request.get(elsewhere)).status()).toBe(404);
+    await tenant.close();
+  });
 });
