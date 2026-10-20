@@ -211,8 +211,14 @@ describe('Approvals that act', () => {
   });
 
   it('cannot be approved twice', async () => {
+    // Scoped to THIS organisation. The owner connection sees every tenant's
+    // rows, so an unscoped pick finds a sibling test's approved request and
+    // then fails under this organisation's own policies — which reads as a
+    // bug in the product rather than in the query above.
     const [decided] = await ownerSql()<{ id: string }[]>`
-      select id from deposit_payout_requests where status = 'approved' limit 1
+      select id from deposit_payout_requests
+       where organisation_id = ${org.organisationId} and status = 'approved'
+       limit 1
     `;
     await expect(
       as(org.adminUserId, (tx) =>

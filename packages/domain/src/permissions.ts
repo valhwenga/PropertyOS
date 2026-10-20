@@ -7,7 +7,7 @@ export type PermissionKey =
   | 'resident.read' | 'resident.manage' | 'resident.identity.read'
   | 'lease.read' | 'lease.create' | 'lease.activate' | 'lease.close'
   | 'lease.template.manage' | 'lease.agreement.generate'
-  | 'billing.preview' | 'billing.post' | 'charge.adjust'
+  | 'billing.preview' | 'billing.post' | 'charge.adjust' | 'invoice.send'
   | 'payment.record' | 'payment.allocate' | 'payment.reverse' | 'bank.import'
   | 'bank_account.read' | 'bank_account.manage' | 'bank_account.verify'
   | 'deposit.read' | 'deposit.record' | 'deposit.refund.approve'

@@ -73,6 +73,78 @@ const notify: Handler = async (sql, job) => {
   }
 };
 
+/**
+ * Sends one invoice message, and records what actually happened.
+ *
+ * The message was written when the operator queued it, so this does not
+ * re-render anything: a template edited in the meantime cannot change what a
+ * resident receives after somebody approved it.
+ *
+ * The honesty rule again, and it matters most here because a landlord is about
+ * to tell a resident they owe money: `sent` is written only when the adapter
+ * reports a provider acknowledgement. With no provider configured the delivery
+ * is `undelivered` with the sink's reason, and the invoice screen says so in
+ * those words rather than showing a tick.
+ */
+const sendInvoiceMessage: Handler = async (sql, job) => {
+  const notificationId = String(job.payload.notificationId);
+  const documentId = String(job.payload.documentId);
+
+  const [message] = await sql<
+    { id: string; recipient_email: string | null; subject: string | null; body: string;
+      status: string }[]
+  >`
+    select id, recipient_email::text, subject, body, status
+      from notifications
+     where id = ${notificationId} and organisation_id = ${job.organisationId}
+  `;
+  if (!message) return;
+  // At-least-once delivery, exactly-once effect: a redelivered event must not
+  // send a second copy of the same invoice.
+  if (message.status !== 'queued') return;
+  if (!message.recipient_email) return;
+
+  const outcome = await email.send({
+    to: message.recipient_email,
+    subject: message.subject ?? 'Your invoice',
+    body: message.body,
+    templateKey: 'invoice.issued',
+  });
+
+  const detail = outcome.status === 'sent'
+    ? `Accepted by ${outcome.provider}.`
+    : outcome.status === 'development_sink'
+      ? outcome.reason
+      : outcome.error;
+
+  await sql.begin(async (tx) => {
+    await tx`
+      update notifications
+         set status = ${outcome.status},
+             provider = ${outcome.provider},
+             provider_message_id = ${outcome.status === 'sent' ? outcome.providerMessageId : null},
+             attempts = attempts + 1,
+             last_error = ${outcome.status === 'sent' ? null : detail},
+             sent_at = ${outcome.status === 'sent' ? tx`now()` : null}
+       where id = ${notificationId} and organisation_id = ${job.organisationId}
+    `;
+    await tx`
+      update invoice_deliveries
+         set state = ${outcome.status === 'sent' ? 'sent' : 'undelivered'},
+             sent_at = ${outcome.status === 'sent' ? tx`now()` : null},
+             last_attempt_at = now(),
+             outcome_detail = ${detail}
+       where document_id = ${documentId} and organisation_id = ${job.organisationId}
+    `;
+  });
+
+  if (outcome.status === 'failed') {
+    // A provider that refused is worth retrying; the record above already says
+    // the resident has not been told.
+    throw new Error(`Invoice message delivery failed: ${outcome.error}`);
+  }
+};
+
 /** Recomputes nothing; it only records that an event was observed. */
 const auditOnly: Handler = async () => {};
 
@@ -85,4 +157,5 @@ export const HANDLERS: Record<string, Handler> = {
   'event:organisation.created': auditOnly,
   'event:payment.evidence.submitted': notify,
   'event:maintenance.ticket.created': notify,
+  'event:invoice.message.queued': sendInvoiceMessage,
 };

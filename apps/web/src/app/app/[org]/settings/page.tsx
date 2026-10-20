@@ -22,6 +22,14 @@ const SECTIONS = [
       'Who the lease names as the letting party, its registration or identity number, addresses and managing agent.',
   },
   {
+    href: 'messages',
+    permission: 'organisation.settings.manage' as PermissionKey,
+    title: 'Message to residents',
+    description:
+      'The covering message sent with an invoice, in your own words, with the fields '
+      + 'PropertyOS fills in from the invoice itself.',
+  },
+  {
     href: 'approvals',
     permission: 'organisation.settings.manage' as PermissionKey,
     title: 'Approval rules',

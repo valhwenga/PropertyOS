@@ -4,7 +4,9 @@ import {
   buttonClass, DataTable, Disclosure, EmptyState, Figure, LoadingState, MetricCard, Money,
   PageHeader, Panel, StatusBadge, TaskRow, Td, Th,
 } from '@propertyos/ui';
-import { hasPermission, listAuditEvents } from '@propertyos/domain';
+import {
+  countInvoicesReadyToSend, hasPermission, listAuditEvents,
+} from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { ageingBucket, formatDate } from '@/lib/format';
 import { loadArrears, loadDashboard } from '@/lib/queries';
@@ -69,18 +71,22 @@ async function Metrics({
   context: Awaited<ReturnType<typeof requireOperator>>;
 }) {
   const base = `/app/${org}`;
-  const [metrics, arrears, activity] = await readAs(context.viewer, async (tx) => {
-    const dashboard = await loadDashboard(tx, context.organisationId, periodStart);
-    const oldest = await loadArrears(tx, context.organisationId, 6);
-    // The audit trail is a permission of its own, and an organisation-wide
-    // read: a property-scoped manager is refused it rather than shown a
-    // filtered version that would misrepresent what happened.
-    const mayReadAudit = await hasPermission(tx, context.organisationId, 'audit.read');
-    const recent = mayReadAudit
-      ? await listAuditEvents(tx, context.organisationId, { limit: 6 }).catch(() => null)
-      : null;
-    return [dashboard, oldest, recent] as const;
-  });
+  const [metrics, arrears, activity, invoicesReadyToSend] = await readAs(
+    context.viewer,
+    async (tx) => {
+      const dashboard = await loadDashboard(tx, context.organisationId, periodStart);
+      const oldest = await loadArrears(tx, context.organisationId, 6);
+      const readyToSend = await countInvoicesReadyToSend(tx, context.organisationId);
+      // The audit trail is a permission of its own, and an organisation-wide
+      // read: a property-scoped manager is refused it rather than shown a
+      // filtered version that would misrepresent what happened.
+      const mayReadAudit = await hasPermission(tx, context.organisationId, 'audit.read');
+      const recent = mayReadAudit
+        ? await listAuditEvents(tx, context.organisationId, { limit: 6 }).catch(() => null)
+        : null;
+      return [dashboard, oldest, recent, readyToSend] as const;
+    },
+  );
 
   if (!metrics.hasActivity) {
     return (
@@ -163,6 +169,14 @@ async function Metrics({
       detail: 'Signed off, so nobody is being billed yet.',
       priority: 'urgent' as const,
       action: 'Activate',
+    },
+    {
+      label: 'Invoices ready to send',
+      count: invoicesReadyToSend,
+      href: `${base}/billing/invoices?state=ready`,
+      detail: 'Posted, marked ready, and nobody has been told yet.',
+      priority: 'attention' as const,
+      action: 'Send',
     },
     {
       label: 'Quarantined files',

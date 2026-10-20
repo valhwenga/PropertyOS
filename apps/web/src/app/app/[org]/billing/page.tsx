@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
+import {
+  Card, DataTable, EmptyState, Money, PageHeader, StatusBadge, Td, Th, buttonClass,
+} from '@propertyos/ui';
 import { previewBillingRun, DomainError, hasPermission } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
@@ -78,11 +80,22 @@ export default async function BillingPage({
         title="Billing"
         description={`What a run would raise for ${formatDate(preview.periodStart, context.timeZone)} to ${formatDate(preview.periodEnd, context.timeZone)}. Nothing on this page posts a charge.`}
         actions={
-          canPrepare && preview.billableLineCount > 0 ? (
-            <PrepareRunForm
-              org={org} periodStart={preview.periodStart} blockingCount={blocking.length}
-            />
-          ) : undefined
+          <>
+            {/* Posting and sending are separate acts, so they are separate
+                screens: an invoice reaches a resident only when somebody
+                decides it should, after the figures are in the books. */}
+            <Link
+              href={`/app/${org}/billing/invoices?period=${preview.periodStart.slice(0, 7)}`}
+              className={buttonClass('secondary')}
+            >
+              Sending invoices
+            </Link>
+            {canPrepare && preview.billableLineCount > 0 ? (
+              <PrepareRunForm
+                org={org} periodStart={preview.periodStart} blockingCount={blocking.length}
+              />
+            ) : null}
+          </>
         }
       />
 
