@@ -270,7 +270,18 @@ export interface InvoiceForSending {
  * product, and an ad-hoc adjustment is a conversation somebody is already
  * having — sending any of them as "your invoice" would misdescribe it.
  */
-export const SENDABLE_DOCUMENT_TYPES = ['rent_invoice', 'utility_invoice'] as const;
+/**
+ * What may be emailed to a resident.
+ *
+ * An `adjustment_debit` is here because a levy, a parking bay or a recovered
+ * repair is money the tenant owes on a posted document, and leaving those
+ * unsendable meant a landlord raising one had to tell the tenant some other
+ * way. What stays out is anything that is not a demand: a credit note gives
+ * money back, and an opening balance is bookkeeping from before this product.
+ */
+export const SENDABLE_DOCUMENT_TYPES = [
+  'rent_invoice', 'utility_invoice', 'adjustment_debit',
+] as const;
 
 /**
  * The month's posted invoices and where each one stands.

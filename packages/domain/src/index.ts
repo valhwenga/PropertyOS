@@ -12,6 +12,7 @@ export * from './notifications';
 export * from './residents';
 export * from './leases';
 export * from './charge-categories';
+export * from './charge-schedules';
 export * from './charges';
 export * from './receipts';
 export * from './allocations';

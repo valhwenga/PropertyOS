@@ -72,3 +72,27 @@ export function isStorableDate(iso: string | null | undefined): boolean {
   if (!iso) return false;
   return parseDayMonthYear(formatDayMonthYear(iso)) === iso.slice(0, 10);
 }
+
+/**
+ * The same day-of-month, `months` later, in ISO form.
+ *
+ * Clamped to the end of a shorter month, so a lease that started on 31 January
+ * has its anniversary on the last day of the month rather than slipping into
+ * the next one — which is what every escalation clause means by "each
+ * anniversary" and what `due_day_overflow = 'last_day'` already does for
+ * billing.
+ */
+export function addMonths(iso: string, months: number): string {
+  const [year, month, day] = iso.split('-').map(Number) as [number, number, number];
+  const target = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(
+    target.getUTCFullYear(), target.getUTCMonth() + 1, 0,
+  )).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return target.toISOString().slice(0, 10);
+}
+
+/** Today in UTC. Where an organisation's own day matters, pass its date in. */
+export function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}

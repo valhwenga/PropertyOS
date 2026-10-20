@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  chargeCategoryByKey, issueCreditNote, parseMajorToMinor, postCharge,
+  addChargeSchedule, changeChargeScheduleAmount, chargeCategoryByKey, issueCreditNote,
+  parseMajorToMinor, postCharge, stopChargeSchedule,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
@@ -159,5 +160,83 @@ export async function creditChargeAction(_previous: unknown, formData: FormData)
     revalidatePath(`/app/${org}/leases/${leaseId}`);
     revalidatePath(`/app/${org}/billing/invoices`);
   }
+  return result;
+}
+
+/* ----------------------------------------------- what this lease bills monthly */
+
+/** Adds a recurring charge: a parking bay, a levy, a fixed utility. */
+export async function addScheduleAction(_previous: unknown, formData: FormData) {
+  const org = str(formData, 'org');
+  const leaseId = str(formData, 'leaseId');
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    const category = str(formData, 'category');
+    const definition = chargeCategoryByKey(category);
+    if (!definition) throw new Error('Choose what this charge is for.');
+
+    return {
+      scheduleId: (await addChargeSchedule(tx, context.organisationId, viewer.authUserId, {
+        leaseId,
+        category,
+        description: str(formData, 'description') || definition.defaultDescription,
+        amountMinor: parseMajorToMinor(str(formData, 'amount'), context.currencyCode ?? 'ZAR'),
+        startDate: str(formData, 'startDate'),
+        ...(str(formData, 'endDate') ? { endDate: str(formData, 'endDate') } : {}),
+      })).scheduleId,
+    };
+  });
+  if (result.ok) revalidatePath(`/app/${org}/leases/${leaseId}`);
+  return result;
+}
+
+/**
+ * Changes what a recurring charge bills, from a date.
+ *
+ * This is also how a rent escalation is applied: the lease's own terms produce
+ * the proposed amount, a person confirms it, and the change is an effective-
+ * dated row like any other. Nothing applies an escalation by itself.
+ */
+export async function changeScheduleAction(_previous: unknown, formData: FormData) {
+  const org = str(formData, 'org');
+  const leaseId = str(formData, 'leaseId');
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    const change = await changeChargeScheduleAmount(
+      tx, context.organisationId, viewer.authUserId, {
+        scheduleId: str(formData, 'scheduleId'),
+        amountMinor: parseMajorToMinor(str(formData, 'amount'), context.currencyCode ?? 'ZAR'),
+        effectiveFrom: str(formData, 'effectiveFrom'),
+        reason: str(formData, 'reason'),
+      },
+    );
+    return {
+      effectiveFrom: change.effectiveFrom,
+      // Carried back to the screen so the operator is told rather than left
+      // to notice that this month was already raised at the old amount.
+      periodAlreadyBilled: change.periodAlreadyBilled,
+    };
+  });
+  if (result.ok) revalidatePath(`/app/${org}/leases/${leaseId}`);
+  return result;
+}
+
+/** Stops a recurring charge from a date. Rent is refused in the domain. */
+export async function stopScheduleAction(_previous: unknown, formData: FormData) {
+  const org = str(formData, 'org');
+  const leaseId = str(formData, 'leaseId');
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    await stopChargeSchedule(tx, context.organisationId, viewer.authUserId, {
+      scheduleId: str(formData, 'scheduleId'),
+      lastDay: str(formData, 'lastDay'),
+      reason: str(formData, 'reason'),
+    });
+    return { stopped: true };
+  });
+  if (result.ok) revalidatePath(`/app/${org}/leases/${leaseId}`);
   return result;
 }

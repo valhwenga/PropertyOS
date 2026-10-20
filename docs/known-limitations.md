@@ -95,6 +95,12 @@ way that fails safe until someone with the relevant authority decides.
   `tests/unit/content-security-policy.test.ts` fails if anyone makes it
   unconditional. The policy still carries `'unsafe-inline'` for scripts in both
   builds; moving to nonces is the real fix and is not done.
+* **An escalation is never applied automatically.** The product can see that
+  an agreed increase has fallen due and proposes the arithmetic; a person
+  applies it. That is deliberate — an unattended job that raises rent is one
+  misconfigured interval away from raising it twice — but it does mean an
+  increase waits until somebody acts on it. The lease screen says so; there is
+  no notification yet.
 * **No VAT is calculated anywhere, and no document says "tax invoice".**
   `charge_lines` has no tax columns, so an invoice prints the VAT number where
   one is recorded and nothing else about tax. The words *tax invoice* have a

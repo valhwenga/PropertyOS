@@ -6,8 +6,8 @@ import {
 } from '@propertyos/ui';
 import { CONTROL_CLASS } from '@propertyos/ui';
 import {
-  buildStatement, CHARGE_CATEGORIES, DomainError, hasPermission, listInvoicesForLease,
-  listLeaseAgreementGenerations,
+  buildStatement, CHARGE_CATEGORIES, DomainError, escalationsDue, hasPermission,
+  listChargeSchedules, listInvoicesForLease, listLeaseAgreementGenerations,
   listLeaseLifecycleEvents, listLeaseTemplates, minorToMajorInput,
 } from '@propertyos/domain';
 import { loadPortalAccess } from '@/lib/operations-queries';
@@ -15,6 +15,7 @@ import { todayIn } from '@/lib/today';
 import { AgreementPanel } from './agreement/agreement-panel';
 import { ChargePanel } from './charge-panel';
 import { CreditNoteForm } from './credit-note-form';
+import { SchedulePanel } from './schedule-panel';
 import { LifecyclePanel } from './lifecycle/lifecycle-panel';
 import { PortalAccessPanel } from './portal-panel';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -99,6 +100,15 @@ export default async function LeaseDetailPage({
         // permission a billing run does.
         canPostCharges: await hasPermission(tx, context.organisationId, 'billing.post'),
         canAdjustCharges: await hasPermission(tx, context.organisationId, 'charge.adjust'),
+        canChangeTerms: await hasPermission(tx, context.organisationId, 'lease.activate'),
+        // What this lease bills every month, and whether the escalation its
+        // own agreement promises has fallen due without being applied.
+        schedules: await listChargeSchedules(
+          tx, context.organisationId, leaseId, todayIn(context.timeZone),
+        ),
+        escalation: (await escalationsDue(tx, context.organisationId, {
+          leaseId, today: todayIn(context.timeZone),
+        }))[0] ?? null,
         // The documents themselves, as the tenant sees them. An operator
         // answering "what did you send me" should be able to open the same
         // file rather than describing it.
@@ -406,6 +416,25 @@ export default async function LeaseDetailPage({
             </ul>
           </Disclosure>
         </section>
+      ) : null}
+
+      {current === 'account' && data.canChangeTerms ? (
+        <Panel
+          title="What this lease bills every month"
+          titleId="recurring-charges"
+          description="The rent and anything else that recurs. A change keeps its own dates, so what was billed before stays readable as it was billed."
+        >
+          <SchedulePanel
+            org={org}
+            leaseId={leaseId}
+            schedules={data.schedules}
+            categories={CHARGE_CATEGORIES}
+            escalation={data.escalation}
+            today={todayIn(context.timeZone)}
+            currencySymbol={lease.currency_code === 'ZAR' ? 'R' : lease.currency_code}
+            currencyCode={lease.currency_code}
+          />
+        </Panel>
       ) : null}
 
       {current === 'account' && data.documents.length > 0 ? (

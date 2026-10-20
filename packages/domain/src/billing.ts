@@ -367,7 +367,15 @@ export async function postBillingRun(
         try {
           const result = await postCharge(tx, organisationId, actorUserId, {
             leaseId,
-            documentType: line.category === 'rent' ? 'rent_invoice' : 'utility_invoice',
+            // The document follows what is being charged. Everything that is
+            // neither rent nor a utility — a parking bay, a levy, insurance —
+            // is a debit raised on the account, and was being labelled a
+            // utility invoice because those were the only two options.
+            documentType: line.category === 'rent'
+              ? 'rent_invoice'
+              : line.category.startsWith('utility_')
+                ? 'utility_invoice'
+                : 'adjustment_debit',
             issueDate: params.issueDate,
             dueDate: line.dueDate,
             periodStart: preview.periodStart,
@@ -377,7 +385,12 @@ export async function postBillingRun(
             correlationId: params.correlationId,
             lines: [
               {
-                category: line.category === 'rent' ? 'rent' : 'other',
+                // The schedule's own category, not a guess from it. This used
+                // to collapse everything but rent to "other", so a water
+                // recovery and a parking bay reached a tenant's invoice under
+                // the same meaningless word — and the income account they
+                // credited was decided by that word.
+                category: line.category,
                 description: line.prorated
                   ? `${line.description} (${line.prorationNumerator}/${line.prorationDenominator} days)`
                   : line.description,
