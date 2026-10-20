@@ -11,11 +11,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { withAnonymous } from '@propertyos/db';
 import {
-  BRAND_ACCENTS, getBranding, getLogo, getSignInBranding, getSignInLogo, removeLogo,
+  activateLease, BRAND_ACCENTS, createResident, createStandaloneHouse, draftLease,
+  getBranding, getBrandingForLease, getLogo, getSignInBranding, getSignInLogo, removeLogo,
   setBranding, setLogo,
 } from '@propertyos/domain';
 import {
-  addMember, as, closeOwner, createOrganisation, ownerSql, type OrganisationFixture,
+  addMember, as, closeOwner, createOrganisation, grantPortalAccess, ownerSql,
+  type OrganisationFixture,
 } from '../support/factories.js';
 
 /** A structurally real 64×64 PNG: signature, then the IHDR the format requires. */
@@ -146,6 +148,50 @@ describe('Organisation branding', () => {
     await expect(as(preparer, (tx) =>
       setLogo(tx, org.organisationId, preparer, { bytes: png() }),
     )).rejects.toThrow();
+  });
+
+  it('gives the resident portal a version, so a replaced logo is not served stale', async () => {
+    // The console asks for the logo by version and the portal did not, so a
+    // landlord who replaced their mark saw the new one in their own console
+    // and the old one in their tenants' portal for as long as the cache held
+    // it — which reads as an upload that did not work.
+    const house = await as(org.adminUserId, (tx) =>
+      createStandaloneHouse(tx, org.organisationId, org.adminUserId, {
+        name: 'Branding House', code: `BRD${Date.now().toString().slice(-6)}`,
+        propertyType: 'house', addressLine1: '3 Brand Street', city: 'Cape Town',
+      }));
+    const resident = await as(org.adminUserId, (tx) =>
+      createResident(tx, org.organisationId, org.adminUserId, {
+        firstName: 'Palesa', lastName: 'Molefe',
+      }));
+    const lease = await as(org.adminUserId, (tx) =>
+      draftLease(tx, org.organisationId, org.adminUserId, {
+        unitId: house.unitId, startDate: '2026-01-01', endDate: '2026-12-31',
+        rentMinor: 700000n, depositRequiredMinor: 700000n,
+        parties: [{ residentId: resident.residentId, role: 'primary_resident' }],
+      }));
+    await as(org.adminUserId, (tx) =>
+      activateLease(tx, org.organisationId, org.adminUserId, {
+        leaseId: lease.leaseId, expectedVersion: 1, activationDate: '2026-01-01',
+        executionExceptionReason: 'Test data.',
+      }));
+    const tenant = await grantPortalAccess(
+      org.organisationId, lease.leaseId, resident.residentId, 'Palesa Portal',
+    );
+
+    await as(org.adminUserId, (tx) =>
+      setLogo(tx, org.organisationId, org.adminUserId, { bytes: png(120, 40) }));
+    const first = await as(tenant, (tx) => getBrandingForLease(tx, lease.leaseId));
+    expect(first.hasLogo).toBe(true);
+    expect(first.logoVersion).toBeTruthy();
+
+    // Replace it, and the version must move with it.
+    await ownerSql()`
+      update organisation_branding set logo_updated_at = now() + interval '1 minute'
+       where organisation_id = ${org.organisationId}
+    `;
+    const second = await as(tenant, (tx) => getBrandingForLease(tx, lease.leaseId));
+    expect(second.logoVersion).not.toBe(first.logoVersion);
   });
 
   it('never shows one landlord’s logo to another', async () => {

@@ -28,11 +28,11 @@ export async function generateMetadata(
   const landlord = contact?.trading_name ?? 'Your tenancy';
   return {
     title: { default: landlord, template: `%s · ${landlord}` },
-    // No version to hang on the URL here: the resident-facing read returns the
-    // logo itself rather than when it changed, and the route's own short
-    // private cache is what bounds how stale an icon can be.
+    // By version, like the console. The route caches for five minutes, so
+    // without this a landlord who replaces their logo sees the new one in
+    // their own console and the old one in their tenants' portal.
     ...(branding.hasLogo
-      ? { icons: { icon: [{ url: `/portal/${leaseId}/brand-logo` }] } }
+      ? { icons: { icon: [{ url: `/portal/${leaseId}/brand-logo?v=${branding.logoVersion ?? 'current'}` }] } }
       : {}),
   };
 }
@@ -90,7 +90,7 @@ export default async function TenancyLayout({
               resident with two tenancies which one this is. */}
           {branding.hasLogo ? (
             <img
-              src={`/portal/${leaseId}/brand-logo`}
+              src={`/portal/${leaseId}/brand-logo?v=${branding.logoVersion ?? 'current'}`}
               alt={contact?.trading_name ?? 'Your landlord'}
               className="mb-1 h-8 w-auto max-w-[11rem] object-contain"
             />

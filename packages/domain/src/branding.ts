@@ -469,9 +469,10 @@ export async function getBrandingForLease(
   tx: Sql, leaseId: string,
 ): Promise<Branding> {
   const [row] = await tx<
-    { accent: string; typeface: string; has_logo: boolean; invoice_template: string }[]
+    { accent: string; typeface: string; has_logo: boolean; invoice_template: string;
+      logo_version: string | null }[]
   >`
-    select accent, typeface, has_logo, invoice_template
+    select accent, typeface, has_logo, invoice_template, logo_version
       from app.resident_branding(${leaseId}::uuid)
   `;
   if (!row) return DEFAULTS;
@@ -481,6 +482,10 @@ export async function getBrandingForLease(
     typeface: row.typeface,
     hasLogo: row.has_logo,
     invoiceTemplate: row.invoice_template,
+    // Carried so the portal can ask for the logo by version. Without it a
+    // replaced mark stays behind a five-minute cache and reads as an upload
+    // that did not work.
+    logoVersion: row.logo_version,
   };
 }
 
