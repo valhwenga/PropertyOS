@@ -559,6 +559,11 @@ ${BOLD}Spike PropertyOS — local preview${RESET_C}
 
   /app                                    portfolio overview
   /app/<org>/leases                       the blueprint's R1,850 acceptance fixture
+  Lerato Khumalo's lease                  a second year: an agreed 8% escalation
+                                          that has fallen due and has NOT been
+                                          applied, a metered water charge with
+                                          its reading, and the credit note that
+                                          corrected it
   /portal                                 the resident's own view
   /healthz                                database and tenant-isolation checks
 

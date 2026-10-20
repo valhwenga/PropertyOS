@@ -12,7 +12,8 @@ import postgres from 'postgres';
 import { scrypt as scryptCb, randomBytes } from 'node:crypto';
 import { promisify } from 'node:util';
 import {
-  activateLease, allocateReceipt, confirmReceipt, createOrganisationWithOwner,
+  activateLease, addChargeSchedule, allocateReceipt, confirmReceipt,
+  createOrganisationWithOwner, issueCreditNote,
   addBankAccount, createResident, createStandaloneHouse, createProperty, createTicket,
   saveOrganisationProfile, shareDocument, verifyBankAccount,
   createUnit,
@@ -395,6 +396,102 @@ async function main(): Promise<void> {
         emergencyContact: '+27 82 000 0002 (24 hours)',
         agentName: '[DEMO] Nomsa Dlamini',
         agentContact: '+27 21 000 0001',
+      }),
+    );
+
+
+    /* ------------------------------------------------- a lease in its second year
+     *
+     * The first lease starts this January, which is the blueprint's worked
+     * example and shows nothing about what happens on an anniversary. This one
+     * is a year older and carries the escalation a real agreement carries, so
+     * the demo actually shows the thing a landlord asks about in month
+     * thirteen: the agreed increase has fallen due, the schedule is still
+     * billing last year's rent, and nothing applied it on their behalf.
+     *
+     * It also carries what a municipal recovery looks like when the reading is
+     * recorded with it, and a credit note correcting one — the two documents a
+     * tenant queries most.
+     */
+    const neighbour = await run((tx) =>
+      createResident(tx, org.organisationId, adminId, {
+        firstName: 'Lerato', lastName: 'Khumalo',
+        email: 'lerato@demo.invalid', phone: '+27 82 555 0144',
+      }),
+    );
+    const [aloeUnit] = await tx<{ id: string }[]>`
+      select id from units
+       where organisation_id = ${org.organisationId} and property_id = ${block.propertyId}
+         and code = 'A1'
+    `;
+    const secondYear = await run((tx) =>
+      draftLease(tx, org.organisationId, adminId, {
+        unitId: aloeUnit!.id, startDate: '2025-03-01', endDate: '2027-02-28',
+        rentMinor: R('6500'), billingDay: 1, depositRequiredMinor: R('6500'),
+        // The escalation the generated agreement promises. Nothing applies it;
+        // the lease screen proposes it and a person decides.
+        escalationPercent: 8, escalationMonthInterval: 12,
+        parties: [
+          { residentId: neighbour.residentId, role: 'primary_resident', canViewFinancials: true },
+        ],
+      }),
+    );
+    await run((tx) =>
+      activateLease(tx, org.organisationId, adminId, {
+        leaseId: secondYear.leaseId, expectedVersion: 1, activationDate: '2025-03-01',
+        executionExceptionReason: 'DEMO DATA: signed contract not attached.',
+      }),
+    );
+
+    // A parking bay that started part way through the term, which is what a
+    // recurring charge added later looks like.
+    await run((tx) =>
+      addChargeSchedule(tx, org.organisationId, adminId, {
+        leaseId: secondYear.leaseId, category: 'parking',
+        description: 'Parking bay 3', amountMinor: R('650'), startDate: '2025-09-01',
+      }),
+    );
+
+    // The municipality, as the tenant receives it: a reading, a tariff and the
+    // charge that came out of them.
+    const water = await run((tx) =>
+      postCharge(tx, org.organisationId, adminId, {
+        leaseId: secondYear.leaseId, documentType: 'utility_invoice',
+        issueDate: '2026-03-03', dueDate: '2026-03-07',
+        periodStart: '2026-02-01', periodEnd: '2026-02-28',
+        lines: [
+          {
+            category: 'utility_water', description: 'Water consumption',
+            amountMinor: R('385.80'), dueDate: '2026-03-07',
+            servicePeriodStart: '2026-02-01', servicePeriodEnd: '2026-02-28',
+            quantity: 12, unit: 'kl', unitRateMinor: 3215n,
+            meterPrevious: 4312, meterCurrent: 4324,
+          },
+          {
+            category: 'utility_sewerage', description: 'Sewerage / domestic effluent',
+            amountMinor: R('794.16'), dueDate: '2026-03-07',
+            servicePeriodStart: '2026-02-01', servicePeriodEnd: '2026-02-28',
+            quantity: 12, unit: 'kl', unitRateMinor: 6618n,
+          },
+          {
+            category: 'utility_refuse', description: 'Refuse removal',
+            amountMinor: R('210'), dueDate: '2026-03-07',
+          },
+        ],
+      }),
+    );
+
+    // And the correction, because a misread meter is the single most common
+    // thing a tenant disputes.
+    await run((tx) =>
+      issueCreditNote(tx, org.organisationId, adminId, {
+        documentId: water.documentId,
+        reason: 'DEMO: water meter was misread; re-read on 5 March',
+        issueDate: '2026-03-06',
+        lines: [{
+          category: 'utility_water', description: 'Water consumption — misread',
+          amountMinor: R('385.80'),
+        }],
       }),
     );
 
