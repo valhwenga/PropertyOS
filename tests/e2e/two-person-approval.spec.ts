@@ -67,6 +67,11 @@ test.describe('two-person approval', () => {
     await expect(costs.getByText(/applies to the next decision/)).toBeVisible({
       timeout: 30_000,
     });
+    // The form must show what was saved. React resets a form after a Server
+    // Action, which put the radio back to "One" under a paragraph explaining
+    // what two approvers do — a screen that contradicted both itself and the
+    // database.
+    await expect(costs.getByRole('radio', { name: 'Two' })).toBeChecked();
 
     /* ------------------------------------------------------- 2. draft a cost */
 

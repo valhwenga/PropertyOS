@@ -21,15 +21,17 @@ const OPTIONS: Array<{ value: ThemeChoice; label: string; detail: string }> = [
  */
 export function ThemeForm({ saved }: { saved: ThemeChoice }) {
   const [state, action, pending] = useActionState(saveThemeAction, null);
-  const [choice, setChoice] = useState<ThemeChoice>(saved);
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
 
   useEffect(() => {
     setSystemPrefersDark(window.matchMedia('(prefers-color-scheme: dark)').matches);
   }, []);
 
+  // The radios are uncontrolled, defaulting to the saved choice: React resets
+  // a form to the current render's defaults after a Server Action, so a
+  // controlled selection snapped back to the value the page was first
+  // rendered with.
   function apply(next: ThemeChoice) {
-    setChoice(next);
     const resolved = next === 'system' ? (systemPrefersDark ? 'dark' : 'light') : next;
     document.documentElement.setAttribute('data-theme', resolved);
     try {
@@ -62,7 +64,7 @@ export function ThemeForm({ saved }: { saved: ThemeChoice }) {
               type="radio"
               name="theme"
               value={option.value}
-              checked={choice === option.value}
+              defaultChecked={saved === option.value}
               onChange={() => apply(option.value)}
               className="mt-0.5"
             />

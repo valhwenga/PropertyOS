@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { Button, ErrorState } from '@propertyos/ui';
 import { saveApprovalPolicyAction } from './actions';
 
@@ -28,6 +28,16 @@ export function PolicyForm({
 }) {
   const [state, action, pending] = useActionState(saveApprovalPolicyAction, null);
   const [required, setRequired] = useState(approvalsRequired);
+
+  // React resets a form after a Server Action runs, restoring each field to
+  // the DEFAULT of the current render. So the radios are uncontrolled, with
+  // their default taken from what the server last said: the reset then shows
+  // what was saved. Controlled inputs looked right until the save, after which
+  // a stored rule of two sat under a radio reading "One".
+  //
+  // The state below is for the wording and for the threshold field, which
+  // follow the choice immediately rather than waiting for a round trip.
+  useEffect(() => { setRequired(approvalsRequired); }, [approvalsRequired]);
 
   return (
     <form action={action} className="space-y-3 p-4">
@@ -62,7 +72,7 @@ export function PolicyForm({
                   type="radio"
                   name="approvalsRequired"
                   value={count}
-                  checked={required === count}
+                  defaultChecked={approvalsRequired === count}
                   onChange={() => setRequired(count)}
                 />
                 {count === 1 ? 'One' : 'Two'}

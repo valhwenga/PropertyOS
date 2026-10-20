@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { Button, ErrorState } from '@propertyos/ui';
 import type { BrandAccent, BrandTypeface, Branding } from '@propertyos/domain';
 import { removeLogoAction, saveAppearanceAction, uploadLogoAction } from './actions';
@@ -27,6 +27,13 @@ export function AppearanceForm({
   const [state, action, pending] = useActionState(saveAppearanceAction, null);
   const [accent, setAccent] = useState(branding.accent);
   const [typeface, setTypeface] = useState(branding.typeface);
+
+  // A Server Action resets the form it was submitted from, to the DEFAULTS of
+  // the current render — so the radios are uncontrolled and default to what
+  // the server last said. The state is what paints the preview and the chosen
+  // swatch before anything is saved.
+  useEffect(() => { setAccent(branding.accent); }, [branding.accent]);
+  useEffect(() => { setTypeface(branding.typeface); }, [branding.typeface]);
 
   return (
     <form
@@ -67,7 +74,7 @@ export function AppearanceForm({
                 type="radio"
                 name="accent"
                 value={option.key}
-                checked={accent === option.key}
+                defaultChecked={branding.accent === option.key}
                 onChange={() => setAccent(option.key)}
                 className="sr-only"
               />
@@ -108,7 +115,7 @@ export function AppearanceForm({
                 type="radio"
                 name="typeface"
                 value={option.key}
-                checked={typeface === option.key}
+                defaultChecked={branding.typeface === option.key}
                 onChange={() => setTypeface(option.key)}
                 className="mt-1"
               />
