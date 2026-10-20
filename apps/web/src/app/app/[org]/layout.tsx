@@ -1,9 +1,48 @@
+import type { Metadata } from 'next';
 import { OperatorShell } from '@/components/operator-shell';
 import { countUnreadNotifications, getBranding, resolveMenuPermissions } from '@propertyos/domain';
 import {
   SECTION_PERMISSIONS, sectionsAwaitingSecondFactor, visibleGroups,
 } from '@/components/operator-sections';
-import { readAs, requireOperator } from '@/lib/auth';
+import { getViewer, readAs, requireOperator } from '@/lib/auth';
+
+/**
+ * The browser tab is part of the branding too.
+ *
+ * A landlord who has set up their own mark and colours should not find
+ * somebody else's product name on the tab, in a bookmark, or in the browser
+ * history of every member of their staff. So the title becomes their
+ * organisation's name and the icon becomes their logo.
+ *
+ * This resolves the slug WITHOUT redirecting: metadata is generated beside the
+ * page, and a caller who may not see this organisation gets the neutral title
+ * while the layout below does the actual refusing. A missing or unreadable
+ * organisation therefore falls back to the product's own name rather than
+ * confirming anything about whether the slug exists.
+ */
+export async function generateMetadata(
+  { params }: { params: Promise<{ org: string }> },
+): Promise<Metadata> {
+  const { org } = await params;
+  const viewer = await getViewer();
+  const organisation = viewer?.organisations.find((o) => o.slug === org);
+  if (!viewer || !organisation) return {};
+
+  const branding = await readAs(viewer, (tx) => getBranding(tx, organisation.id));
+  return {
+    title: { default: organisation.name, template: `%s · ${organisation.name}` },
+    ...(branding.hasLogo
+      ? {
+        icons: {
+          icon: [{
+            url: `/app/${org}/brand-logo?v=${branding.logoVersion ?? 'current'}`,
+            ...(branding.logoMime ? { type: branding.logoMime } : {}),
+          }],
+        },
+      }
+      : {}),
+  };
+}
 
 export default async function OrgLayout({
   children, params,

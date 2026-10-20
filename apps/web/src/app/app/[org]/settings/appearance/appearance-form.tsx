@@ -250,7 +250,7 @@ export function LogoForm({ org, branding }: { org: string; branding: Branding })
         </Button>
         {uploadState?.ok ? (
           <p className="text-[length:var(--text-meta)] font-medium text-positive-600">
-            Saved. It is already in the sidebar.
+            Saved. It is already in the sidebar, and on statements from now on.
           </p>
         ) : null}
       </form>

@@ -64,7 +64,9 @@ interface Brand {
   colour: [number, number, number];
 }
 
-const LOGO_MAX_HEIGHT = 34;
+// Tall enough to read, short enough that the landlord's name still fits
+// between the mark and the rule under the header band.
+const LOGO_MAX_HEIGHT = 26;
 const LOGO_MAX_WIDTH = 190;
 
 function resolveBrand(document: PdfDocument, context: StatementPdfContext): Brand {
@@ -226,7 +228,7 @@ function drawHeader(
   // mark is not a legal name. Where the mark IS the name, saying it twice is
   // just noise.
   if (brand.image) {
-    page.text(context.organisationName, MARGIN, MARGIN + marked + 6, { size: 9, colour: MUTED });
+    page.text(context.organisationName, MARGIN, MARGIN + marked + 4, { size: 9, colour: MUTED });
   }
 
   const y = MARGIN + 58;

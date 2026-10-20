@@ -28,7 +28,6 @@ const PORTAL = 'https://propertyos.example.invalid';
 describe('Invoice delivery', () => {
   let org: OrganisationFixture;
   let leaseId: string;
-  let silentLeaseId: string;
   let documentIds: string[] = [];
 
   /** The invoices of the period, whatever state they are in. */
@@ -79,8 +78,9 @@ describe('Invoice delivery', () => {
         }));
       // Activation writes the rent schedule itself, which is what a real
       // month's billing run reads.
+      // Only the reachable lease is referred to by id later; the silent one is
+      // here to be suppressed, and is found through the invoice list.
       if (target === 'reachable') leaseId = lease.leaseId;
-      else silentLeaseId = lease.leaseId;
     }
 
     // A real billing run, so the invoices under test are the ones the product

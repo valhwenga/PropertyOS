@@ -9,8 +9,10 @@
  * every member of staff and every resident.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { withAnonymous } from '@propertyos/db';
 import {
-  BRAND_ACCENTS, getBranding, getLogo, removeLogo, setBranding, setLogo,
+  BRAND_ACCENTS, getBranding, getLogo, getSignInBranding, getSignInLogo, removeLogo,
+  setBranding, setLogo,
 } from '@propertyos/domain';
 import {
   addMember, as, closeOwner, createOrganisation, ownerSql, type OrganisationFixture,
@@ -161,5 +163,65 @@ describe('Organisation branding', () => {
       setBranding(tx, org.organisationId, other.adminUserId, {
         accent: 'plum', typeface: 'system',
       }))).rejects.toThrow();
+  });
+
+  /* ------------------------------------------- the landlord's sign-in page */
+
+  describe('a landlord’s own sign-in page', () => {
+    // Nobody is signed in on a sign-in page, so every read here runs with no
+    // actor at all: `withAnonymous` is the same transaction shape the page
+    // itself uses, and every ordinary RLS policy evaluates to false inside it.
+
+    it('serves the organisation’s colours and mark by slug', async () => {
+      await as(org.adminUserId, (tx) =>
+        setBranding(tx, org.organisationId, org.adminUserId, {
+          accent: 'forest', typeface: 'single',
+        }));
+      await as(org.adminUserId, (tx) =>
+        setLogo(tx, org.organisationId, org.adminUserId, { bytes: png(80, 40) }));
+
+      const branding = await withAnonymous((tx) => getSignInBranding(tx, org.slug));
+      expect(branding).toMatchObject({ accent: 'forest', typeface: 'single', hasLogo: true });
+
+      const logo = await withAnonymous((tx) => getSignInLogo(tx, org.slug));
+      expect(logo?.mime).toBe('image/png');
+    });
+
+    it('tells an unknown slug nothing, by answering exactly as a plain one does', async () => {
+      // The whole point: a wrong guess must be indistinguishable from an
+      // organisation that simply never chose any branding, so the URL cannot
+      // be used to work out who this product's customers are.
+      const unknown = await withAnonymous((tx) => getSignInBranding(tx, 'not-a-customer'));
+      expect(unknown).toMatchObject({ accent: 'spike', typeface: 'default', hasLogo: false });
+      expect(await withAnonymous((tx) => getSignInLogo(tx, 'not-a-customer'))).toBeNull();
+    });
+
+    it('stops showing a brand once the organisation is closed', async () => {
+      const closing = await createOrganisation('Closing Letting');
+      await as(closing.adminUserId, (tx) =>
+        setBranding(tx, closing.organisationId, closing.adminUserId, {
+          accent: 'plum', typeface: 'default',
+        }));
+      await as(closing.adminUserId, (tx) =>
+        setLogo(tx, closing.organisationId, closing.adminUserId, { bytes: png() }));
+      expect(await withAnonymous((tx) => getSignInBranding(tx, closing.slug)))
+        .toMatchObject({ accent: 'plum' });
+
+      await ownerSql()`
+        update organisations set status = 'closed' where id = ${closing.organisationId}
+      `;
+      // Their staff can sign in to nothing, so a page wearing their brand
+      // would be a promise this product is no longer keeping for them.
+      expect(await withAnonymous((tx) => getSignInBranding(tx, closing.slug)))
+        .toMatchObject({ accent: 'spike', hasLogo: false });
+      expect(await withAnonymous((tx) => getSignInLogo(tx, closing.slug))).toBeNull();
+    });
+
+    it('does not expose the branding table itself to an anonymous reader', async () => {
+      await expect(withAnonymous((tx) => tx`
+        select accent from organisation_branding
+         where organisation_id = ${org.organisationId}::uuid
+      `)).resolves.toHaveLength(0);
+    });
   });
 });

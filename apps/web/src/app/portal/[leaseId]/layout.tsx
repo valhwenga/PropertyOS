@@ -1,9 +1,41 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PortalBottomNav, PortalSidebar } from '@/components/portal-nav';
 import { getBrandingForLease } from '@propertyos/domain';
-import { readAs, requireViewer } from '@/lib/auth';
+import { getViewer, readAs, requireViewer } from '@/lib/auth';
 import { loadLandlordContact, loadTenancy } from '@/lib/portal-queries';
+
+/**
+ * The tab says whose portal this is.
+ *
+ * A resident has a relationship with their landlord, so the tab, the bookmark
+ * and the icon carry the landlord's name and mark — not this product's. A
+ * lease the caller has no link to yields nothing at all, exactly as the page
+ * itself does.
+ */
+export async function generateMetadata(
+  { params }: { params: Promise<{ leaseId: string }> },
+): Promise<Metadata> {
+  const { leaseId } = await params;
+  const viewer = await getViewer();
+  if (!viewer?.residentLeases.some((l) => l.leaseId === leaseId)) return {};
+
+  const { contact, branding } = await readAs(viewer, async (tx) => ({
+    contact: await loadLandlordContact(tx, leaseId),
+    branding: await getBrandingForLease(tx, leaseId),
+  }));
+  const landlord = contact?.trading_name ?? 'Your tenancy';
+  return {
+    title: { default: landlord, template: `%s · ${landlord}` },
+    // No version to hang on the URL here: the resident-facing read returns the
+    // logo itself rather than when it changed, and the route's own short
+    // private cache is what bounds how stale an icon can be.
+    ...(branding.hasLogo
+      ? { icons: { icon: [{ url: `/portal/${leaseId}/brand-logo` }] } }
+      : {}),
+  };
+}
 
 /**
  * One tenancy: who it is with, which home it is, and its sections.

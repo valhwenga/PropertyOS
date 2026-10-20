@@ -63,10 +63,29 @@ export default async function AppearancePage({
           <Panel
             title="Logo"
             titleId="logo-panel"
-            description="Shown in the sidebar here, and at the top of your residents’ portal."
+            description="Shown in the sidebar here, at the top of your residents’ portal, on their statements, as the browser tab’s icon, and on your own sign-in page."
           >
             <div className="p-4">
               <LogoForm org={org} branding={branding} />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Your sign-in page"
+            titleId="sign-in-page"
+            description="A bookmark for your staff that opens in your colours rather than ours."
+          >
+            <div className="space-y-2 p-4">
+              <p className="text-[length:var(--text-table)] text-ink-700">
+                <code className="rounded bg-ink-50 px-1.5 py-0.5">/sign-in/{org}</code>
+              </p>
+              <p className="text-[length:var(--text-meta)] text-ink-500">
+                It accepts exactly the same credentials as the ordinary sign-in page and lets
+                nobody in who could not sign in there — it only looks different. The page shows
+                your logo and accent and deliberately not your name, and an address that matches
+                no organisation shows the plain page rather than an error, so the URL cannot be
+                used to work out who uses this product.
+              </p>
             </div>
           </Panel>
         </>
@@ -85,8 +104,14 @@ export default async function AppearancePage({
             Each accent has its own dark palette, so both themes stay readable.
           </li>
           <li>
-            Generated documents — lease agreements, statement PDFs — are deliberately unchanged.
-            They are legal records, their layout is fixed, and no logo is drawn onto one.
+            Statement PDFs carry your logo in the header, with your registered name in words
+            beneath it, and the attribution to this product moves to one small line at the
+            foot of the page. Where there is no logo, or where the file cannot be embedded,
+            your name takes its place: a statement is never left ungenerated over a mark.
+          </li>
+          <li>
+            Lease agreements are deliberately unchanged. They are the signed record of an
+            agreement, their layout is fixed, and nothing decorative is drawn onto one.
           </li>
           <li>
             Every change is recorded in the audit trail, with who made it and when.

@@ -40,7 +40,7 @@ from the backend before it could show something it currently cannot.
 
 | Gap | State | Consequence |
 | --- | --- | --- |
-| Landlord logo | **No column anywhere** | The portal is branded with the landlord's trading name as a typographic wordmark. No logo is drawn or inferred. A logo would need storage, an upload path with the same scanning rules as every other file, and a size/format policy. |
+| Landlord logo | **Closed** (migration 0055, ADR 0012, ADR 0015) | A landlord uploads a PNG or JPEG, validated from its own bytes, and it appears in the console sidebar, on the portal, on statement PDFs, as the browser tab's icon and on their own `/sign-in/<slug>` page. A format the PDF writer cannot embed faithfully falls back to the landlord's name in text rather than failing to produce a statement. |
 | Bank account type | **Not recorded** | `bank_accounts` holds bank, holder, last four, branch code and the sealed number. There is no cheque/savings/transmission field, so the portal does not claim one. |
 | Ticket status when a contractor is booked | **The ticket does not move** | `approveQuoteAndIssueWorkOrder` creates the work order and leaves the ticket at its current status, so a resident sees "Received" while a glazier is booked for Monday. The portal shows the appointment and contractor from the work order rather than inferring a status the domain never recorded — mapping `submitted` to "Scheduled" because a work order exists would be the interface inventing a state. Fixing it properly means a status transition and an event row in the maintenance workflow, which belongs with that workflow rather than with a portal pass. Pinned by a test so the day it changes, the test says so. |
 | Acknowledge or reopen a request | **No command exists** | There is no resident-facing command to accept a completion or reopen a ticket, so no button is shown for one. `awaiting_confirmation` is displayed as "Waiting on you" with the landlord as the way to respond. |
@@ -98,7 +98,9 @@ way that fails safe until someone with the relevant authority decides.
 * **The icon is a letter, not a logo.** No approved Spike mark exists, so
   `apps/web/src/app/icon.svg` is the wordmark's initial in the brand purple.
   It exists so pages stop requesting a favicon that is not there. Replace it
-  when brand sign-off lands.
+  when brand sign-off lands. It is only ever seen where no landlord's own logo
+  applies: the product's own sign-in page, the organisation chooser, and the
+  console of an organisation that has uploaded nothing.
 * **A freshly seeded operator account can see almost nothing.** Elevated roles
   are MFA-gated inside `app.has_permission`, so without a verified second factor
   an organisation administrator holds none of their elevated permissions. The

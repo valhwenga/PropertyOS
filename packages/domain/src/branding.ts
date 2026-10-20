@@ -150,6 +150,8 @@ export interface Branding {
   logoWidth: number | null;
   logoHeight: number | null;
   logoFilename: string | null;
+  /** What the logo actually is, read from its bytes at upload. */
+  logoMime: 'image/png' | 'image/jpeg' | null;
   /** Changes whenever the logo does, so a cached one is never served stale. */
   logoVersion: string | null;
 }
@@ -161,6 +163,7 @@ const DEFAULTS: Branding = {
   logoWidth: null,
   logoHeight: null,
   logoFilename: null,
+  logoMime: null,
   logoVersion: null,
 };
 
@@ -250,10 +253,10 @@ export async function getBranding(tx: Sql, organisationId: string): Promise<Bran
   const [row] = await tx<
     { accent: string; typeface: string; has_logo: boolean; logo_width: number | null;
       logo_height: number | null; logo_filename: string | null;
-      logo_version: string | null }[]
+      logo_mime: Branding['logoMime']; logo_version: string | null }[]
   >`
     select accent, typeface, logo_bytes is not null as has_logo,
-           logo_width, logo_height, logo_filename,
+           logo_width, logo_height, logo_filename, logo_mime,
            to_char(logo_updated_at, 'YYYYMMDDHH24MISS') as logo_version
       from organisation_branding
      where organisation_id = ${organisationId}::uuid
@@ -266,6 +269,7 @@ export async function getBranding(tx: Sql, organisationId: string): Promise<Bran
     logoWidth: row.logo_width,
     logoHeight: row.logo_height,
     logoFilename: row.logo_filename,
+    logoMime: row.logo_mime,
     logoVersion: row.logo_version,
   };
 }
@@ -432,4 +436,33 @@ export async function getLogoForLease(
     mime: row.logo_mime,
     version: row.logo_updated_at ? row.logo_updated_at.toISOString() : 'current',
   };
+}
+
+/* ------------------------------------------- what a sign-in page may read */
+
+/**
+ * The branding for an organisation's own sign-in page, by slug.
+ *
+ * Nobody is signed in when this runs, so it goes through a security-definer
+ * function that returns a colour, a typeface and whether a logo exists — and
+ * nothing that names the organisation. An unknown slug, or one whose
+ * organisation is suspended or closed, is indistinguishable from an
+ * organisation that never chose any branding: both give the product's defaults.
+ */
+export async function getSignInBranding(tx: Sql, slug: string): Promise<Branding> {
+  const [row] = await tx<{ accent: string; typeface: string; has_logo: boolean }[]>`
+    select accent, typeface, has_logo from app.sign_in_branding(${slug})
+  `;
+  if (!row) return DEFAULTS;
+  return { ...DEFAULTS, accent: row.accent, typeface: row.typeface, hasLogo: row.has_logo };
+}
+
+/** The logo bytes for that page. */
+export async function getSignInLogo(
+  tx: Sql, slug: string,
+): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  const [row] = await tx<{ logo_bytes: Uint8Array; logo_mime: string }[]>`
+    select logo_bytes, logo_mime from app.sign_in_logo(${slug})
+  `;
+  return row ? { bytes: row.logo_bytes, mime: row.logo_mime } : null;
 }

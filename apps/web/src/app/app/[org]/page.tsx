@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import {
@@ -7,13 +8,30 @@ import {
 import {
   countInvoicesReadyToSend, hasPermission, listAuditEvents,
 } from '@propertyos/domain';
-import { readAs, requireOperator } from '@/lib/auth';
+import { getViewer, readAs, requireOperator } from '@/lib/auth';
 import { ageingBucket, formatDate } from '@/lib/format';
 import { loadArrears, loadDashboard } from '@/lib/queries';
 import { splitEnvironmentLabel } from '@/components/environment-label';
 import { QuickActions } from './quick-actions';
 
-export const metadata = { title: 'Overview' };
+/**
+ * The overview sits in the SAME route segment as the layout that carries the
+ * organisation's title template, and a template does not apply to a page
+ * beside it. So this one states the whole title itself; without it the one
+ * page a landlord's staff open most would be the only one still wearing this
+ * product's name in the tab.
+ */
+export async function generateMetadata(
+  { params }: { params: Promise<{ org: string }> },
+): Promise<Metadata> {
+  const { org } = await params;
+  const viewer = await getViewer();
+  const organisation = viewer?.organisations.find((o) => o.slug === org);
+  return organisation
+    ? { title: { absolute: `Overview · ${organisation.name}` } }
+    : { title: 'Overview' };
+}
+
 export const dynamic = 'force-dynamic';
 
 function currentPeriodStart(): string {

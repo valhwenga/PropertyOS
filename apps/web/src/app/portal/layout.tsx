@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { AccountLink } from '@/components/account-link';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Wordmark } from '@/components/wordmark';
-import { countUnreadNotifications } from '@propertyos/domain';
+import { countUnreadNotifications, getBrandingForLease } from '@propertyos/domain';
 import { readAs, requireViewer } from '@/lib/auth';
 
 /**
@@ -11,17 +11,22 @@ import { readAs, requireViewer } from '@/lib/auth';
  * Mobile-first: usable one-handed at 360px with no horizontal scrolling, and
  * with the sections along the bottom where a thumb already is.
  *
- * The header carries the person and their account controls. It deliberately
- * does NOT carry the landlord's name — that belongs beside the property, in
- * the tenancy itself, because a resident with two tenancies has two landlords.
+ * The header carries the person and their account controls. Whose mark sits in
+ * it depends on how many tenancies this person has: with ONE there is exactly
+ * one landlord, and the header is theirs. With two or more there is no single
+ * answer, so the header stays neutral and each landlord's mark appears where it
+ * is unambiguous — beside the property, inside the tenancy itself.
  *
  * Platform attribution sits in the footer, once, quietly. The portal is the
  * landlord's front door; Spike is the machinery.
  */
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requireViewer();
-  const unread = await readAs(viewer, (tx) =>
-    countUnreadNotifications(tx, viewer.authUserId));
+  const only = viewer.residentLeases.length === 1 ? viewer.residentLeases[0]! : null;
+  const { unread, branding } = await readAs(viewer, async (tx) => ({
+    unread: await countUnreadNotifications(tx, viewer.authUserId),
+    branding: only ? await getBrandingForLease(tx, only.leaseId) : null,
+  }));
   // The bottom padding clears the fixed section bar and, beneath it, the home
   // indicator on a phone that has one. It lives on the whole column so the
   // footer clears the bar as well — padding only the page content would leave
@@ -37,7 +42,18 @@ export default async function PortalLayout({ children }: { children: React.React
             href="/portal"
             className="rounded text-base focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spike-500"
           >
-            <Wordmark compact />
+            {/* One tenancy, one landlord: their mark. The alt text is the
+                destination rather than the brand, because the image is a link
+                to the resident's own tenancies. */}
+            {only && branding?.hasLogo ? (
+              <img
+                src={`/portal/${only.leaseId}/brand-logo`}
+                alt=""
+                className="h-6 w-auto max-w-[9rem] object-contain"
+              />
+            ) : (
+              <Wordmark compact />
+            )}
             <span className="sr-only">Your tenancies</span>
           </Link>
           <div className="flex items-center gap-2">
