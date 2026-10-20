@@ -18,6 +18,14 @@ import { requirePermission } from './permissions';
  * gets the narrowest path this codebase has: two formats, validated from the
  * bytes rather than from the name or the browser's claim, a size ceiling, a
  * pixel ceiling, and a content type served from what the database recorded.
+ *
+ * Those two ceilings are a BACKSTOP, not a chore for the landlord. The upload
+ * screen scales a picture to fit before it is sent — see `lib/fit-image.ts` —
+ * so an ordinary upload of a 4000px brand asset simply works. What arrives
+ * here oversized therefore did not come from that screen, and is refused
+ * rather than resized: this layer is where the limits are enforced, and a
+ * command that quietly rewrote what it was given would be a worse place to
+ * put the convenience.
  */
 
 /* ------------------------------------------------------------------ accents */
@@ -376,7 +384,10 @@ export async function setLogo(
 
   if (input.bytes.length === 0) throw invalid('That file is empty.');
   if (input.bytes.length > LOGO_MAX_BYTES) {
-    throw invalid('A logo must be 512 KB or smaller. Export it at a smaller size and try again.');
+    throw invalid(
+      'This file is larger than 512 KB. The Appearance screen scales a picture down before '
+      + 'sending it, so a file this size reached us another way.',
+    );
   }
 
   const facts = readImageFacts(input.bytes);
@@ -387,7 +398,11 @@ export async function setLogo(
     );
   }
   if (facts.width > LOGO_MAX_PIXELS || facts.height > LOGO_MAX_PIXELS) {
-    throw invalid(`A logo may be at most ${LOGO_MAX_PIXELS}px on its longest side.`);
+    throw invalid(
+      `This picture is ${facts.width}×${facts.height}. The Appearance screen scales anything `
+      + `larger than ${LOGO_MAX_PIXELS}px down before sending it, keeping its proportions, so `
+      + 'a picture this size reached us another way.',
+    );
   }
   if (facts.width < LOGO_MIN_PIXELS || facts.height < LOGO_MIN_PIXELS) {
     throw invalid(`A logo must be at least ${LOGO_MIN_PIXELS}px on each side.`);

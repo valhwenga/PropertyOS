@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState } from 'react';
 import { Button, ErrorState } from '@propertyos/ui';
 import type { BrandAccent, BrandTypeface, Branding } from '@propertyos/domain';
+import { prepareLogo } from '@/lib/fit-image';
 import { removeLogoAction, saveAppearanceAction, uploadLogoAction } from './actions';
 
 /**
@@ -180,9 +181,44 @@ export function AppearanceForm({
 export function LogoForm({ org, branding }: { org: string; branding: Branding }) {
   const [uploadState, upload, uploading] = useActionState(uploadLogoAction, null);
   const [removeState, remove, removing] = useActionState(removeLogoAction, null);
+  // What the browser did to the chosen file, said plainly. Null where it did
+  // nothing, which is the common case for a file that already fitted.
+  const [fitted, setFitted] = useState<string | null>(null);
+  const [fitting, setFitting] = useState(false);
 
   const problem = (uploadState && !uploadState.ok && uploadState)
     || (removeState && !removeState.ok && removeState) || null;
+
+  /**
+   * Scales the chosen picture to fit before it is ever sent.
+   *
+   * The file input's own list is replaced with the fitted file, so the form
+   * still posts one file under one name and the server action is unchanged.
+   * If any of this fails — an undecodable file, a browser without
+   * DataTransfer — the original file stays in the input and the server
+   * answers as it always did. Nothing here decides what is allowed.
+   */
+  const onChoose = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const chosen = input.files?.[0];
+    setFitted(null);
+    if (!chosen) return;
+
+    setFitting(true);
+    try {
+      const prepared = await prepareLogo(chosen);
+      if (prepared.file !== chosen && typeof DataTransfer !== 'undefined') {
+        const carrier = new DataTransfer();
+        carrier.items.add(prepared.file);
+        input.files = carrier.files;
+      }
+      setFitted(prepared.note);
+    } catch {
+      // Keep the original; the server will say what is wrong with it.
+    } finally {
+      setFitting(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -233,15 +269,23 @@ export function LogoForm({ org, branding }: { org: string; branding: Branding })
           name="logo"
           type="file"
           accept="image/png,image/jpeg"
+          onChange={onChoose}
           className="
             block w-full rounded-[var(--radius-control)] border border-ink-200 bg-surface
             px-3 py-2 text-[length:var(--text-table)] text-ink-700
           "
         />
         <p className="text-[length:var(--text-meta)] text-ink-500">
-          PNG or JPEG, up to 512 KB and 1024 pixels on its longest side. SVG is not accepted:
-          an SVG can carry script, and this file is shown to your residents.
+          Any size. A large picture is scaled down here, in your browser, to fit 1024 pixels on
+          its longest side, keeping its proportions exactly. PNG or JPEG: SVG is not accepted,
+          because an SVG can carry script and this file is shown to your residents.
         </p>
+        {fitting ? (
+          <p className="text-[length:var(--text-meta)] text-ink-500">Fitting the picture…</p>
+        ) : null}
+        {fitted ? (
+          <p className="text-[length:var(--text-meta)] text-ink-700">{fitted}</p>
+        ) : null}
         {/* Deliberately not disabled until a file is chosen: the server says
             "Choose a file first" in words, and a button that is inert for
             reasons a reader cannot see is worse than one that answers. */}

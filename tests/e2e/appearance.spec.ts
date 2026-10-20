@@ -85,6 +85,49 @@ function wholePngBytes(): Buffer {
   ]);
 }
 
+/**
+ * A real PNG of any size, in two solid bands so it compresses small.
+ *
+ * The point of the test is the DIMENSIONS, so the pixels themselves are as
+ * cheap as possible: a 3000x1200 image is 10MB raw and a few hundred bytes
+ * deflated.
+ */
+function hugePngBytes(width: number, height: number): Buffer {
+  const crc = (bytes: Buffer) => {
+    let value = 0xffffffff;
+    for (const byte of bytes) {
+      value ^= byte;
+      for (let bit = 0; bit < 8; bit += 1) {
+        value = value & 1 ? (value >>> 1) ^ 0xedb88320 : value >>> 1;
+      }
+    }
+    return (value ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, body: Buffer) => {
+    const out = Buffer.alloc(12 + body.length);
+    out.writeUInt32BE(body.length, 0);
+    out.write(type, 4, 'ascii');
+    body.copy(out, 8);
+    out.writeUInt32BE(crc(out.subarray(4, 8 + body.length)), 8 + body.length);
+    return out;
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;  // bit depth
+  ihdr[9] = 2;  // truecolour
+  const raw = Buffer.concat(Array.from({ length: height }, (_, row) => Buffer.concat([
+    Buffer.from([0]),
+    Buffer.alloc(width * 3, row < height / 2 ? 31 : 240),
+  ])));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
 test.describe('appearance', () => {
   test.describe.configure({ timeout: 240_000 });
 
@@ -259,5 +302,36 @@ test.describe('appearance', () => {
     await expect(page.getByText(/follow you to your next device/)).toBeVisible({
       timeout: 30_000,
     });
+  });
+
+  test('a large logo is fitted by the browser rather than refused', async ({ page }) => {
+    // The complaint this answers: the product refused anything over 1024px and
+    // left the landlord to go and shrink it in an image editor they do not
+    // have open. A 3000x1200 brand asset is an ordinary thing to be handed.
+    await signIn(page, ADMIN);
+    await page.goto('/app');
+    const org = await page.locator('a[href^="/app/"]').first().getAttribute('href');
+
+    await page.goto(`${org}/settings/appearance`, { waitUntil: 'domcontentloaded' });
+    await page.setInputFiles('#logo', {
+      name: 'enormous-brand-asset.png',
+      mimeType: 'image/png',
+      buffer: hugePngBytes(3000, 1200),
+    });
+
+    // The browser says what it did, in words, before anything is sent.
+    await expect(page.getByText(/Resized from 3000×1200 to 1024×410/))
+      .toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole('button', { name: 'Upload', exact: true }).click();
+    await expect(page.getByAltText(/logo as it appears/)).toBeVisible({ timeout: 30_000 });
+
+    // Stored at the fitted size, with the proportions intact: 3000/1200 = 2.5,
+    // and 1024/410 is the same ratio to within half a pixel.
+    await expect(page.getByText('1024×410 pixels')).toBeVisible({ timeout: 30_000 });
+
+    // Put it back.
+    await page.getByRole('button', { name: 'Remove logo' }).click();
+    await expect(page.getByText(/No logo yet/)).toBeVisible({ timeout: 30_000 });
   });
 });
