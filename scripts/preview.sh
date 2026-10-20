@@ -84,6 +84,66 @@ if [ "${NODE_ENV:-}" = 'production' ]; then
   die 'NODE_ENV=production. The preview seeds synthetic demo data and must never run against production.'
 fi
 
+# The port, before anything is migrated or seeded.
+#
+# Next reports EADDRINUSE at the very END of the run, after the database work
+# and the banner, which reads like the preview failed rather than like another
+# copy of it is already answering. Checking first costs nothing and says what to
+# do about it.
+#
+# The test is whether anything ANSWERS on the port, not whether a process can be
+# found holding it: a server inside a container, or one owned by another user,
+# is invisible to lsof and still takes the port. The pid is looked up only to
+# make the message more useful, and the check does not depend on finding one.
+port_answers() {
+  node -e "
+    const net = require('net');
+    const s = net.connect($PORT, '127.0.0.1');
+    s.on('connect', () => { s.destroy(); process.exit(0); });
+    s.on('error', () => process.exit(1));
+    setTimeout(() => { s.destroy(); process.exit(1); }, 1500);
+  " >/dev/null 2>&1
+}
+
+port_holder() {
+  if command -v lsof >/dev/null; then
+    lsof -ti "tcp:$PORT" -sTCP:LISTEN 2>/dev/null | head -1
+  elif command -v ss >/dev/null; then
+    ss -lptnH "sport = :$PORT" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2
+  fi
+}
+
+if port_answers; then
+  HOLDER="$(port_holder || true)"
+  if [ -n "$HOLDER" ]; then
+    HOLDER_CMD="$(ps -p "$HOLDER" -o command= 2>/dev/null | cut -c1-70)"
+    die "something is already listening on port $PORT (pid $HOLDER).
+    ${HOLDER_CMD:-unknown process}
+
+    It is probably a preview you started earlier. If that one is older than this
+    checkout it is serving the OLD build, which looks exactly like this run
+    failing to take effect. Stop it and run this again:
+
+      kill $HOLDER
+
+    Or leave it and serve this copy somewhere else:
+
+      ./scripts/preview.sh --port=$((PORT + 1))"
+  fi
+  die "something is already answering on port $PORT, and this script cannot see
+    which process it is.
+
+    It is probably a preview you started earlier. If that one is older than this
+    checkout it is serving the OLD build, which looks exactly like this run
+    failing to take effect. Find and stop it:
+
+      lsof -ti tcp:$PORT | xargs kill      # macOS and Linux
+
+    Or leave it and serve this copy somewhere else:
+
+      ./scripts/preview.sh --port=$((PORT + 1))"
+fi
+
 # ------------------------------------------------------------- 2. postgresql
 # Either talk to a PostgreSQL already listening on localhost, or bring one up in
 # Docker. Nothing else is started automatically: a database the script did not
