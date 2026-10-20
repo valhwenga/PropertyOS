@@ -6,11 +6,14 @@ import {
 } from '@propertyos/ui';
 import { CONTROL_CLASS } from '@propertyos/ui';
 import {
-  buildStatement, DomainError, hasPermission, listLeaseAgreementGenerations,
+  buildStatement, CHARGE_CATEGORIES, DomainError, hasPermission, listInvoicesForLease,
+  listLeaseAgreementGenerations,
   listLeaseLifecycleEvents, listLeaseTemplates,
 } from '@propertyos/domain';
 import { loadPortalAccess } from '@/lib/operations-queries';
+import { todayIn } from '@/lib/today';
 import { AgreementPanel } from './agreement/agreement-panel';
+import { ChargePanel } from './charge-panel';
 import { LifecyclePanel } from './lifecycle/lifecycle-panel';
 import { PortalAccessPanel } from './portal-panel';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -91,6 +94,13 @@ export default async function LeaseDetailPage({
         canManageResidents: await hasPermission(
           tx, context.organisationId, 'resident.manage',
         ),
+        // Raising a charge is posting to the ledger, so it takes the same
+        // permission a billing run does.
+        canPostCharges: await hasPermission(tx, context.organisationId, 'billing.post'),
+        // The documents themselves, as the tenant sees them. An operator
+        // answering "what did you send me" should be able to open the same
+        // file rather than describing it.
+        documents: await listInvoicesForLease(tx, leaseId, 24),
       };
     } catch (error) {
       if (error instanceof DomainError && error.code === 'not_found') return null;
@@ -193,7 +203,22 @@ export default async function LeaseDetailPage({
                 tone="plain"
               />
             }
-            hint="A separate liability. It does not reduce the receivable."
+            hint={
+              <>
+                A separate liability. It does not reduce the receivable.
+                {/* The full history — receipts, interest, every deduction with
+                    the reason recorded for it — as the document the tenant
+                    gets at the end of the lease. */}
+                {statement.depositHeldMinor !== 0n ? (
+                  <>
+                    {' '}
+                    <a href={`${base}/deposit.pdf`} className="text-spike-600 hover:underline">
+                      Deposit statement (PDF)
+                    </a>
+                  </>
+                ) : null}
+              </>
+            }
           />
           <Figure
             label="Contracted rent"
@@ -379,6 +404,63 @@ export default async function LeaseDetailPage({
             </ul>
           </Disclosure>
         </section>
+      ) : null}
+
+      {current === 'account' && data.documents.length > 0 ? (
+        <Panel
+          title="Documents issued"
+          titleId="documents-issued"
+          description="The invoices and credit notes this tenant can download, in the design chosen in Settings → Appearance."
+        >
+          <ul className="divide-y divide-ink-100">
+            {data.documents.map((document) => (
+              <li
+                key={document.documentId}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5"
+              >
+                <a
+                  href={`${base.replace(`/leases/${leaseId}`, '')}/billing/invoices/${document.documentId}/invoice.pdf`}
+                  className="technical text-[length:var(--text-table)] font-medium text-spike-600 hover:underline"
+                >
+                  {document.documentNumber}
+                </a>
+                {document.kind === 'credit_note' ? (
+                  <StatusBadge tone="positive">Credit note</StatusBadge>
+                ) : null}
+                {document.reversed ? (
+                  <StatusBadge tone="caution">Reversed</StatusBadge>
+                ) : null}
+                <span className="text-[length:var(--text-meta)] text-ink-500">
+                  issued {formatDate(document.issueDate, context.timeZone)} · due{' '}
+                  {formatDate(document.dueDate, context.timeZone)}
+                </span>
+                <span className="ml-auto tabular text-[length:var(--text-table)] text-ink-700">
+                  <Money
+                    minor={document.totalMinor < 0n ? -document.totalMinor : document.totalMinor}
+                    currency={document.currencyCode}
+                    tone="plain"
+                  />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
+
+      {current === 'account' && data.canPostCharges ? (
+        <Panel
+          title="Raise a charge"
+          titleId="raise-a-charge"
+          description="Water, electricity, sewerage, refuse or anything else this tenant owes outside the monthly rent. It posts to the ledger and appears on their next invoice."
+        >
+          <ChargePanel
+            org={org}
+            leaseId={leaseId}
+            categories={CHARGE_CATEGORIES}
+            today={todayIn(context.timeZone)}
+            currencySymbol={lease.currency_code === 'ZAR' ? 'R' : lease.currency_code}
+          />
+        </Panel>
       ) : null}
 
       {current === 'parties' ? (

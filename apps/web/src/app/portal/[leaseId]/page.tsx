@@ -172,7 +172,16 @@ export default async function TenancyHomePage({
             <span className="font-medium text-ink-700">Deposit recorded as held:</span>{' '}
             <Money minor={statement.depositHeldMinor} currency={currency} />. Your landlord
             records holding this; it is not paid to Spike, and it does not pay your rent or
-            reduce the balance above.
+            reduce the balance above.{' '}
+            {/* What was received, what interest was credited, what was deducted
+                and why. The document somebody needs at the end of a lease,
+                when a deposit comes back smaller than it went in. */}
+            <a
+              href={`/portal/${leaseId}/deposit.pdf`}
+              className="font-medium text-spike-600 hover:underline"
+            >
+              Download the deposit statement (PDF)
+            </a>
           </p>
         ) : null}
 

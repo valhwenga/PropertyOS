@@ -1,4 +1,5 @@
 import type { Sql } from '@propertyos/db';
+import { chargeCategoryLabel } from './charge-categories';
 import { notFound } from './errors';
 import type { Minor } from './money';
 
@@ -22,6 +23,8 @@ import type { Minor } from './money';
 export interface InvoiceLine {
   lineNumber: number;
   category: string;
+  /** The words a tenant reads, resolved from the category. */
+  categoryLabel: string;
   description: string;
   amountMinor: Minor;
   servicePeriodStart: string | null;
@@ -31,6 +34,20 @@ export interface InvoiceLine {
     numerator: number;
     denominator: number;
     fullPeriodAmountMinor: Minor;
+  } | null;
+  /**
+   * The arithmetic behind a metered charge, where it was recorded.
+   *
+   * Reported exactly as stored. `quantity × rate` is shown to the tenant as
+   * evidence, and where it does not come to the amount charged the document
+   * says so rather than silently preferring either number.
+   */
+  measurement: {
+    quantity: number;
+    unit: string;
+    unitRateMinor: Minor;
+    meterPrevious: number | null;
+    meterCurrent: number | null;
   } | null;
 }
 
@@ -75,8 +92,18 @@ export interface InvoiceDocument {
   landlord: InvoiceLandlord;
   /** Null where no verified operating account exists; the document then says so. */
   payTo: InvoicePayTo | null;
-  /** True once a credit note has reversed it; the document says so in large type. */
+  /**
+   * What has since been credited back against this document.
+   *
+   * Read from the credit notes themselves rather than from a flag: a flag has
+   * to be maintained, and the one thing worse than an invoice that does not
+   * know it was cancelled is one that says it was when it wasn't.
+   */
+  creditedMinor: Minor;
+  /** Credited in full. The document says so in large type: do not pay it. */
   reversed: boolean;
+  /** For a credit note: the invoice it corrects, and why. */
+  corrects: { documentNumber: string; reason: string | null } | null;
 }
 
 interface DocumentRow {
@@ -87,7 +114,8 @@ interface DocumentRow {
   address_line1: string; address_line2: string | null; suburb: string | null;
   city: string; province: string | null; postal_code: string | null;
   resident_name: string | null; resident_email: string | null;
-  reversed_by_document_id: string | null;
+  credited_minor: string;
+  corrects_document_number: string | null; correction_reason: string | null;
 }
 
 interface LineRow {
@@ -95,6 +123,8 @@ interface LineRow {
   service_period_start: string | null; service_period_end: string | null;
   prorated: boolean; proration_numerator: number | null;
   proration_denominator: number | null; full_period_amount_minor: string | null;
+  quantity: string | null; unit: string | null; unit_rate_minor: string | null;
+  meter_previous: string | null; meter_current: string | null;
 }
 
 /** The address as lines, with the parts that were never captured left out. */
@@ -111,6 +141,7 @@ function toLines(rows: LineRow[]): InvoiceLine[] {
   return rows.map((row) => ({
     lineNumber: row.line_number,
     category: row.category,
+    categoryLabel: chargeCategoryLabel(row.category),
     description: row.description,
     amountMinor: BigInt(row.amount_minor),
     servicePeriodStart: row.service_period_start,
@@ -121,6 +152,15 @@ function toLines(rows: LineRow[]): InvoiceLine[] {
         numerator: row.proration_numerator,
         denominator: row.proration_denominator,
         fullPeriodAmountMinor: BigInt(row.full_period_amount_minor),
+      }
+      : null,
+    measurement: row.quantity !== null && row.unit !== null && row.unit_rate_minor !== null
+      ? {
+        quantity: Number(row.quantity),
+        unit: row.unit,
+        unitRateMinor: BigInt(row.unit_rate_minor),
+        meterPrevious: row.meter_previous === null ? null : Number(row.meter_previous),
+        meterCurrent: row.meter_current === null ? null : Number(row.meter_current),
       }
       : null,
   }));
@@ -139,7 +179,9 @@ export async function loadInvoiceForOperator(
   const [document] = await tx<DocumentRow[]>`
     select d.id, d.document_number, d.document_type::text, d.status::text,
            d.issue_date::text, d.due_date::text, d.period_start::text, d.period_end::text,
-           d.currency_code, d.total_minor::text, d.lease_id, d.reversed_by_document_id,
+           d.currency_code, d.total_minor::text, d.lease_id,
+           d.correction_reason, corrected.document_number as corrects_document_number,
+           coalesce(credits.total, 0)::text as credited_minor,
            l.reference as lease_reference,
            p.name as property_name, u.code as unit_code,
            p.address_line1, p.address_line2, p.suburb, p.city, p.province, p.postal_code,
@@ -152,6 +194,14 @@ export async function loadInvoiceForOperator(
       left join lease_parties lp on lp.lease_id = l.id
         and lp.role = 'primary_resident' and lp.removed_on is null
       left join resident_profiles rp on rp.id = lp.resident_id
+      left join charge_documents corrected on corrected.id = d.corrects_document_id
+      -- Credit notes raised against this document, by their own posted totals.
+      left join lateral (
+        select sum(-c.total_minor) as total
+          from charge_documents c
+         where c.corrects_document_id = d.id
+           and c.document_type = 'credit_note' and c.status = 'posted'
+      ) credits on true
      where d.id = ${documentId}::uuid and d.organisation_id = ${organisationId}::uuid
   `;
   if (!document) throw notFound('That invoice does not exist, or is not yours to read.');
@@ -161,7 +211,9 @@ export async function loadInvoiceForOperator(
       select line_number, category, description, amount_minor::text,
              service_period_start::text, service_period_end::text,
              prorated, proration_numerator, proration_denominator,
-             full_period_amount_minor::text
+             full_period_amount_minor::text,
+             quantity::text, unit, unit_rate_minor::text,
+             meter_previous::text, meter_current::text
         from charge_lines
        where document_id = ${documentId}::uuid
        order by line_number
@@ -199,7 +251,9 @@ export async function loadInvoiceForResident(
   const [document] = await tx<DocumentRow[]>`
     select d.id, d.document_number, d.document_type::text, d.status::text,
            d.issue_date::text, d.due_date::text, d.period_start::text, d.period_end::text,
-           d.currency_code, d.total_minor::text, d.lease_id, d.reversed_by_document_id,
+           d.currency_code, d.total_minor::text, d.lease_id,
+           d.correction_reason, corrected.document_number as corrects_document_number,
+           coalesce(credits.total, 0)::text as credited_minor,
            l.reference as lease_reference,
            p.name as property_name, u.code as unit_code,
            p.address_line1, p.address_line2, p.suburb, p.city, p.province, p.postal_code,
@@ -212,6 +266,14 @@ export async function loadInvoiceForResident(
       left join lease_parties lp on lp.lease_id = l.id
         and lp.role = 'primary_resident' and lp.removed_on is null
       left join resident_profiles rp on rp.id = lp.resident_id
+      left join charge_documents corrected on corrected.id = d.corrects_document_id
+      -- Credit notes raised against this document, by their own posted totals.
+      left join lateral (
+        select sum(-c.total_minor) as total
+          from charge_documents c
+         where c.corrects_document_id = d.id
+           and c.document_type = 'credit_note' and c.status = 'posted'
+      ) credits on true
      where d.id = ${documentId}::uuid and d.lease_id = ${leaseId}::uuid
   `;
   if (!document) throw notFound('That invoice does not exist, or is not yours to read.');
@@ -221,7 +283,9 @@ export async function loadInvoiceForResident(
       select line_number, category, description, amount_minor::text,
              service_period_start::text, service_period_end::text,
              prorated, proration_numerator, proration_denominator,
-             full_period_amount_minor::text
+             full_period_amount_minor::text,
+             quantity::text, unit, unit_rate_minor::text,
+             meter_previous::text, meter_current::text
         from charge_lines
        where document_id = ${documentId}::uuid
        order by line_number
@@ -252,6 +316,21 @@ interface PayToRow {
   branch_code: string | null;
 }
 
+/** One shape for the landlord, whichever read produced the row. */
+function toLandlord(row: InvoiceLandlordRow | undefined): InvoiceLandlord {
+  return {
+    legalName: row?.legal_name ?? null,
+    tradingName: row?.trading_name ?? null,
+    registrationNumber: row?.registration_number ?? null,
+    vatNumber: row?.vat_number ?? null,
+    physicalAddress: row?.physical_address ?? null,
+    phone: row?.phone ?? null,
+    email: row?.email ?? null,
+    agentName: row?.agent_name ?? null,
+    agentContact: row?.agent_contact ?? null,
+  };
+}
+
 function assemble(
   document: DocumentRow, lines: LineRow[],
   landlord: InvoiceLandlordRow | undefined, payTo: PayToRow | undefined,
@@ -274,17 +353,7 @@ function assemble(
     propertyAddress: addressLines(document),
     residentName: document.resident_name ?? 'Resident',
     residentEmail: document.resident_email,
-    landlord: {
-      legalName: landlord?.legal_name ?? null,
-      tradingName: landlord?.trading_name ?? null,
-      registrationNumber: landlord?.registration_number ?? null,
-      vatNumber: landlord?.vat_number ?? null,
-      physicalAddress: landlord?.physical_address ?? null,
-      phone: landlord?.phone ?? null,
-      email: landlord?.email ?? null,
-      agentName: landlord?.agent_name ?? null,
-      agentContact: landlord?.agent_contact ?? null,
-    },
+    landlord: toLandlord(landlord),
     payTo: payTo
       ? {
         bankName: payTo.bank_name,
@@ -293,7 +362,17 @@ function assemble(
         branchCode: payTo.branch_code,
       }
       : null,
-    reversed: document.reversed_by_document_id !== null,
+    creditedMinor: BigInt(document.credited_minor),
+    // A positive document fully credited is cancelled. A credit note is never
+    // "reversed" by this measure, whatever is raised against it.
+    reversed: BigInt(document.total_minor) > 0n
+      && BigInt(document.credited_minor) >= BigInt(document.total_minor),
+    corrects: document.corrects_document_number
+      ? {
+        documentNumber: document.corrects_document_number,
+        reason: document.correction_reason,
+      }
+      : null,
   };
 }
 
@@ -301,6 +380,8 @@ export interface InvoiceSummary {
   documentId: string;
   documentNumber: string;
   documentType: string;
+  /** What to call it on a list: an invoice, or the credit note that undid one. */
+  kind: 'invoice' | 'credit_note';
   issueDate: string;
   dueDate: string;
   totalMinor: Minor;
@@ -317,6 +398,10 @@ export interface InvoiceSummary {
  * the list, marked, because a tenant who was sent one is entitled to find it
  * again and see that it was cancelled.
  *
+ * Credit notes are listed beside the invoices rather than hidden. A tenant who
+ * was charged R900 in error and credited it back has two documents, and being
+ * shown only the first is how somebody pays a bill that was already withdrawn.
+ *
  * Row-level security does the rest: a lease the caller cannot reach returns
  * nothing rather than erroring.
  */
@@ -326,25 +411,64 @@ export async function listInvoicesForLease(
   const rows = await tx<
     { id: string; document_number: string; document_type: string; issue_date: string;
       due_date: string; total_minor: string; currency_code: string;
-      reversed_by_document_id: string | null }[]
+      credited_minor: string }[]
   >`
-    select id, document_number, document_type::text, issue_date::text, due_date::text,
-           total_minor::text, currency_code, reversed_by_document_id
-      from charge_documents
-     where lease_id = ${leaseId}::uuid
-       and status = 'posted'
-       and document_type in ('rent_invoice', 'utility_invoice')
-     order by issue_date desc, document_number desc
+    select d.id, d.document_number, d.document_type::text, d.issue_date::text,
+           d.due_date::text, d.total_minor::text, d.currency_code,
+           coalesce((
+             select sum(-c.total_minor) from charge_documents c
+              where c.corrects_document_id = d.id
+                and c.document_type = 'credit_note' and c.status = 'posted'
+           ), 0)::text as credited_minor
+      from charge_documents d
+     where d.lease_id = ${leaseId}::uuid
+       and d.status = 'posted'
+       and d.document_type in ('rent_invoice', 'utility_invoice', 'adjustment_debit',
+                               'credit_note')
+     order by d.issue_date desc, d.document_number desc
      limit ${limit}
   `;
   return rows.map((row) => ({
     documentId: row.id,
     documentNumber: row.document_number,
     documentType: row.document_type,
+    kind: row.document_type === 'credit_note' ? 'credit_note' as const : 'invoice' as const,
     issueDate: row.issue_date,
     dueDate: row.due_date,
     totalMinor: BigInt(row.total_minor),
     currencyCode: row.currency_code,
-    reversed: row.reversed_by_document_id !== null,
+    reversed: BigInt(row.total_minor) > 0n
+      && BigInt(row.credited_minor) >= BigInt(row.total_minor),
   }));
+}
+
+/**
+ * Who the landlord is, for a document that is not an invoice.
+ *
+ * The invoice reads this as part of assembling itself; a deposit statement
+ * needs the same facts and none of the rest, so it gets its own small read
+ * rather than loading an invoice to borrow a header from.
+ */
+export async function loadLandlordIdentity(
+  tx: Sql, organisationId: string,
+): Promise<InvoiceLandlord> {
+  const [row] = await tx<InvoiceLandlordRow[]>`
+    select legal_name, trading_name, registration_number, vat_number,
+           physical_address, phone, email::text, agent_name, agent_contact
+      from organisation_profiles
+     where organisation_id = ${organisationId}::uuid
+  `;
+  return toLandlord(row);
+}
+
+/** The same, for a tenant: through the function that checks the portal link. */
+export async function loadLandlordIdentityForLease(
+  tx: Sql, leaseId: string,
+): Promise<InvoiceLandlord> {
+  const [row] = await tx<InvoiceLandlordRow[]>`
+    select legal_name, trading_name, registration_number, vat_number,
+           physical_address, phone, email, agent_name, agent_contact
+      from app.resident_invoice_landlord(${leaseId}::uuid)
+  `;
+  return toLandlord(row);
 }

@@ -269,10 +269,13 @@ export default async function StatementPage({
 
       {invoices.length > 0 ? (
         <Card className="p-4">
-          <h3 className="text-sm font-semibold text-ink-900">Your invoices</h3>
+          <h3 className="text-sm font-semibold text-ink-900">
+            Your invoices and credit notes
+          </h3>
           <p className="mt-0.5 text-xs text-ink-500">
             Each one is the document your landlord issued, with the reference to quote when
-            you pay. It shows what was charged on its own date, not what is outstanding now.
+            you pay. An invoice shows what was charged on its own date, not what is
+            outstanding now; a credit note is money taken back off, with nothing to pay.
           </p>
           <ul className="mt-3 divide-y divide-ink-100">
             {invoices.map((invoice) => (
@@ -283,11 +286,22 @@ export default async function StatementPage({
                 >
                   {invoice.documentNumber} (PDF)
                 </a>
+                {invoice.kind === 'credit_note' ? (
+                  <span className="rounded bg-positive-50 px-1.5 py-0.5 text-xs font-medium text-positive-700">
+                    Credit note
+                  </span>
+                ) : null}
                 <span className="text-xs text-ink-500">
                   issued {formatDate(invoice.issueDate)} · due {formatDate(invoice.dueDate)}
                 </span>
                 <span className="ml-auto text-sm tabular text-ink-700">
-                  <Money minor={invoice.totalMinor} currency={invoice.currencyCode} />
+                  <Money
+                    minor={invoice.totalMinor < 0n ? -invoice.totalMinor : invoice.totalMinor}
+                    currency={invoice.currencyCode}
+                  />
+                  {invoice.kind === 'credit_note' ? (
+                    <span className="ml-1 text-xs text-positive-700">credited</span>
+                  ) : null}
                 </span>
                 {invoice.reversed ? (
                   <span className="w-full text-xs font-medium text-caution-700">

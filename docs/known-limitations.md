@@ -95,11 +95,21 @@ way that fails safe until someone with the relevant authority decides.
   `tests/unit/content-security-policy.test.ts` fails if anyone makes it
   unconditional. The policy still carries `'unsafe-inline'` for scripts in both
   builds; moving to nonces is the real fix and is not done.
-* **An invoice carries no VAT breakdown.** `charge_lines` has no tax columns,
-  so the document prints the VAT number where one is recorded and calculates
-  nothing. A breakdown assembled from a rate nobody entered is a figure a
-  landlord would then file a return on. Tax handling is a feature, not a
-  rendering detail, and belongs with the ledger.
+* **No VAT is calculated anywhere, and no document says "tax invoice".**
+  `charge_lines` has no tax columns, so an invoice prints the VAT number where
+  one is recorded and nothing else about tax. The words *tax invoice* have a
+  meaning in the VAT Act — a document using them must show the tax charged —
+  and most residential letting is an exempt supply in any case, so the
+  documents say INVOICE. `docs/scopes/vat.md` scopes what it would take:
+  schema, a dated rates table, a third journal leg, per-lease treatment, and
+  the tests that are the real work.
+* **A meter reading is evidence, not a calculation.** A utility line stores
+  the quantity, the tariff and the meter pair beside the amount an operator
+  entered; nothing multiplies them into a total. Stepped municipal tariffs
+  mean the product of the two is frequently not the bill, so the invoice shows
+  both and flags a difference rather than correcting either. There is no meter
+  register, no reading history and no estimate: a reading belongs to the
+  charge it was captured on.
 * **The icon is a letter, not a logo.** No approved Spike mark exists, so
   `apps/web/src/app/icon.svg` is the wordmark's initial in the brand purple.
   It exists so pages stop requesting a favicon that is not there. Replace it

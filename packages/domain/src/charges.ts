@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { recordAudit, emitEvent } from './audit';
+import { CHARGE_CATEGORY_KEYS } from './charge-categories';
 import { DomainError, fromDatabaseError, invalid, notFound } from './errors';
 import { postJournal, resolveSystemAccounts } from './ledger';
 import type { Minor } from './money';
@@ -9,7 +10,9 @@ import { nextDocumentNumber } from './numbering';
 import { requirePermission } from './permissions';
 
 export const chargeLineSchema = z.object({
-  category: z.enum(['rent', 'utility_water', 'utility_electricity', 'parking', 'adjustment', 'other']),
+  // The list, not free text: the category decides which income account is
+  // credited, and it is the word a tenant reads on their invoice.
+  category: z.enum(CHARGE_CATEGORY_KEYS as [string, ...string[]]),
   description: z.string().trim().min(1).max(300),
   amountMinor: z.bigint(),
   dueDate: z.string().date(),
@@ -20,7 +23,36 @@ export const chargeLineSchema = z.object({
   prorationDenominator: z.number().int().positive().optional(),
   fullPeriodAmountMinor: z.bigint().optional(),
   scheduleId: z.string().uuid().optional(),
-});
+
+  /**
+   * The arithmetic behind a metered charge, where there is one.
+   *
+   * All three together or none: half a calculation on an invoice invites a
+   * tenant to check it and gives them nothing to check it with. The database
+   * enforces the same rule, so a caller that bypasses this schema still cannot
+   * store half of one.
+   *
+   * None of it is used to COMPUTE the amount. The amount posted is the amount
+   * charged; this is the evidence for it, and the invoice says so where the
+   * two disagree. A ledger that recomputes a posted line changes what somebody
+   * owes after the fact.
+   */
+  quantity: z.number().positive().optional(),
+  unit: z.string().trim().min(1).max(16).optional(),
+  unitRateMinor: z.bigint().nonnegative().optional(),
+  meterPrevious: z.number().nonnegative().optional(),
+  meterCurrent: z.number().nonnegative().optional(),
+}).refine(
+  (line) => [line.quantity, line.unit, line.unitRateMinor].filter((v) => v !== undefined).length
+    % 3 === 0,
+  { message: 'A measured line needs a quantity, a unit and a rate — or none of them.' },
+).refine(
+  (line) => (line.meterPrevious === undefined) === (line.meterCurrent === undefined),
+  { message: 'Meter readings come in pairs: the previous one and the current one.' },
+).refine(
+  (line) => line.meterCurrent === undefined || line.quantity !== undefined,
+  { message: 'A meter reading needs the quantity it produced.' },
+);
 
 export interface PostChargeInput {
   leaseId: string;
@@ -170,6 +202,11 @@ export async function postCharge(
           service_period_start: l.servicePeriodStart ?? null,
           service_period_end: l.servicePeriodEnd ?? null,
           due_date: l.dueDate,
+          quantity: l.quantity ?? null,
+          unit: l.unit ?? null,
+          unit_rate_minor: l.unitRateMinor?.toString() ?? null,
+          meter_previous: l.meterPrevious ?? null,
+          meter_current: l.meterCurrent ?? null,
         })),
       )}
     `;

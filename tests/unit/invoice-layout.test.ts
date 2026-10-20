@@ -61,15 +61,25 @@ describe('every invoice design', () => {
     expect(text).toContain('LSE-SAMPLE');
 
     // The money and the date it is wanted by, in the reader's date format.
-    expect(text).toContain('R10,465.00');
+    expect(text).toContain('R10,464.96');
     expect(text).toContain('07/03/2026');
     expect(text).not.toContain('2026-03-07');
 
     // Every line, with the proration shown as arithmetic rather than asserted.
     expect(text).toContain('Monthly rent');
-    expect(text).toContain('Water and electricity recovery');
     expect(text).toContain('20 of 31 days');
     expect(text).toContain('R441.75');
+
+    // The utilities by name — a tenant querying a municipal recovery needs to
+    // know which one this is — and the sum behind each.
+    expect(text).toContain('Water consumption');
+    expect(text).toContain('Sewerage / domestic effluent');
+    expect(text).toContain('meter 4312 to 4324');
+    expect(text).toContain('12 kl × R32.15');
+
+    // And it never calls itself a tax invoice: no tax is shown, most
+    // residential letting is exempt, and the words have a legal meaning.
+    expect(text).not.toContain('TAX INVOICE');
 
     // Where to pay, without the full account number, which is deliberately
     // not on a document that gets emailed.
@@ -118,9 +128,19 @@ describe('what an invoice refuses to pretend', () => {
   });
 
   it('says plainly when a credit note has cancelled it', () => {
-    const text = textOf(renderInvoicePdf(alter({ reversed: true })));
-    expect(text).toContain('REVERSED');
+    const text = textOf(renderInvoicePdf(alter({
+      reversed: true, creditedMinor: 1_046_496n,
+    })));
+    expect(text).toContain('CREDITED IN FULL');
     expect(text).toContain('Do not pay it');
+  });
+
+  it('warns when only PART of it has been credited back', () => {
+    // The dangerous case: the total above is no longer what is owed, and an
+    // invoice that stays silent invites payment of the larger number.
+    const text = textOf(renderInvoicePdf(alter({ creditedMinor: 38_580n })));
+    expect(text).toContain('R385.80 of this invoice has since been credited back');
+    expect(text).not.toContain('CREDITED IN FULL');
   });
 
   it('does not invent banking details it was not given', () => {
@@ -158,5 +178,63 @@ describe('what an invoice refuses to pretend', () => {
     })));
     expect(text).not.toContain(long);
     expect(text).toContain('The Extremely Long Property Management An…');
+  });
+
+  it('shows a measured line that does not multiply out, without changing it', () => {
+    // The posted amount is what is owed. Where the quantity and rate do not
+    // come to it, the document says so — it does not silently prefer either.
+    const text = textOf(renderInvoicePdf(alter({
+      lines: [{ ...SAMPLE_INVOICE.lines[1]!, amountMinor: 50_000n }],
+      totalMinor: 50_000n,
+    })));
+    expect(text).toContain('comes to R385.80');
+    expect(text).toContain('R500.00');
+  });
+
+  it('reads a credit note as a credit note, in every design', () => {
+    for (const template of every) {
+      const text = textOf(renderInvoicePdf(alter({
+        documentType: 'credit_note',
+        documentNumber: 'CRN-000012',
+        totalMinor: -38_580n,
+        lines: [{ ...SAMPLE_INVOICE.lines[1]!, amountMinor: -38_580n }],
+        corrects: { documentNumber: 'INV-SAMPLE-0042', reason: 'Meter was misread' },
+      }), { template }));
+
+      expect(text, template).toContain('CREDIT NOTE');
+      // Modern sets its labels in capitals; the other two do not.
+      expect(text.toUpperCase()).toContain('AMOUNT CREDITED');
+      // The amount a reader sees is positive; the sign is carried by words.
+      expect(text).toContain('R385.80');
+      // Never a negative in a column headed AMOUNT: the document's own words
+      // carry the direction.
+      expect(text).not.toContain('R-385.80');
+      // No due date at all — there is nothing to pay. (Modern and Compact
+      // carry the number in their own header rather than in the fact list,
+      // which is why only the absence of a due date is asserted for all three.)
+      expect(text).toContain('CRN-000012');
+      expect(text).not.toContain('Due');
+      // What it undoes, and why.
+      expect(text).toContain('INV-SAMPLE-0042');
+      expect(text).toContain('Meter was misread');
+      // Nothing to pay, so no bank details at all — but still the reference,
+      // because the tenant's next payment needs it.
+      expect(text).not.toContain('HOW TO PAY');
+      expect(text).toContain('Nothing is payable on this credit note');
+      expect(text).toContain('LSE-SAMPLE');
+    }
+  });
+
+  it('never prints a category key at a tenant', () => {
+    const text = textOf(renderInvoicePdf(alter({
+      lines: [{
+        ...SAMPLE_INVOICE.lines[0]!,
+        category: 'utility_fixed',
+        categoryLabel: 'Utilities',
+        description: 'Monthly service charge',
+      }],
+    })));
+    expect(text).toContain('Utilities — Monthly service charge');
+    expect(text).not.toContain('utility_fixed');
   });
 });

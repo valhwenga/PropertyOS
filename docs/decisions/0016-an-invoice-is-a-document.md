@@ -43,12 +43,57 @@ see.
 Three, not thirty: each was laid out and looked at. A fourth that nobody has
 read is not a choice, it is a risk with a name.
 
+## Everything a charge can be
+
+An invoice could only ever say "rent", because a schedule was the only way to
+raise anything and a schedule holds a fixed monthly amount. Migration 0061
+widens that to the charges a South African tenant actually receives — water,
+electricity, sewerage (what a municipal account calls *domestic effluent*),
+refuse, gas, levies, parking, administration and recoveries — and gives a
+metered line the arithmetic behind its amount:
+
+```
+meter 4312 to 4324  ·  12 kl × R32.15
+```
+
+Three rules, enforced in the database rather than in a form:
+
+1. **A measured line is quantity, unit and rate together, or none of them.**
+   Half a calculation invites a tenant to check it and gives them nothing to
+   check it with.
+2. **Meter readings come in pairs.** One reading answers nothing.
+3. **Nothing is recomputed.** The amount posted is the amount charged. Stepped
+   municipal tariffs mean quantity × rate is frequently *not* the bill, so the
+   invoice prints both and says they differ rather than quietly preferring
+   either. A ledger that recalculates a posted line changes what somebody owes
+   after the fact.
+
+## Credit notes and deposits are documents too
+
+A credit note renders in the same three designs and is unmistakably not a
+demand: it says CREDIT NOTE, shows the amount as a positive with the direction
+in words, carries **no due date and no banking details**, names the invoice it
+corrects and the reason recorded for it — and keeps the payment reference,
+because the tenant's next payment still needs one. An invoice that has been
+*partly* credited says how much, since the total printed on it is no longer
+what is owed.
+
+A **deposit statement** accounts to a tenant for the one piece of money they
+previously could not see at all: every receipt, every interest credit, every
+deduction with the reason recorded for it, and what remains. The deductions are
+listed rather than summarised, because "deductions R4,200" is precisely the
+document that starts the argument this one exists to end. It goes through
+`app.resident_deposit_history`, which returns the money's history and nothing
+about the organisation — no approver, no internal note.
+
 ## What it refuses to do
 
-- **No VAT arithmetic.** `charge_lines` has no tax columns, so this document
-  prints the VAT number where one is recorded and calculates nothing. A
-  breakdown assembled from a rate nobody entered would be a number a landlord
-  then files a return on.
+- **No VAT arithmetic, and the word "tax" is not used.** `charge_lines` has no
+  tax columns, so this document prints the VAT number where one is recorded and
+  calculates nothing. It is titled **INVOICE**, never *tax invoice*: that
+  phrase has a meaning in the VAT Act, a document using it must show the tax
+  charged, and residential letting is an exempt supply in any case.
+  `docs/scopes/vat.md` is what would have to be true to use the words.
 - **No balance.** The invoice states what was charged on its issue date and
   says, on every design, that payments already made are on the statement. A
   figure on an invoice that drifts is worse than no invoice.
