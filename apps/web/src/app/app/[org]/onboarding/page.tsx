@@ -44,6 +44,24 @@ export default async function OnboardingPage({
         </ul>
       </Card>
 
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div>
+          <p className="text-sm font-semibold text-ink-900">
+            When the leases are in: invite the residents
+          </p>
+          <p className="text-sm text-ink-700">
+            Everybody on an active lease who has no portal access yet, in one pass — rather
+            than one lease screen at a time, which is how fifty residents never get invited.
+          </p>
+        </div>
+        <a
+          href={`/app/${org}/onboarding/portal-invitations`}
+          className="rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50"
+        >
+          Invite residents →
+        </a>
+      </Card>
+
       <nav aria-label="Import steps">
         <ol className="flex flex-wrap gap-2">
           {ORDER.map((step) => (

@@ -237,3 +237,188 @@ export async function revokePortalAccess(
     reason: params.reason,
   });
 }
+
+export interface PortalInvitationCandidate {
+  leaseId: string;
+  leaseReference: string;
+  unitLabel: string;
+  residentId: string;
+  residentName: string;
+  email: string | null;
+  /** Why this one cannot be invited yet, if it cannot. */
+  blockedReason: string | null;
+}
+
+/**
+ * Everybody on an active lease who could be given portal access and has not
+ * been.
+ *
+ * The onboarding import brings in properties, units, residents and leases in
+ * one sitting, and then every resident had to be invited from their own lease
+ * screen, one at a time — fifty leases is fifty screens, which is how a
+ * landlord decides the portal is not worth it.
+ *
+ * It lists the ones that CANNOT be invited too, with the reason, because a
+ * list that silently omits them is a list somebody will trust: a resident with
+ * no email address recorded is the common case, and the fix is to add it rather
+ * than to wonder where they went.
+ */
+export async function listPortalInvitationCandidates(
+  tx: Sql,
+  organisationId: string,
+): Promise<PortalInvitationCandidate[]> {
+  await requirePermission(tx, organisationId, 'resident.manage');
+
+  const rows = await tx<
+    { lease_id: string; lease_reference: string; unit_label: string; resident_id: string;
+      resident_name: string; email: string | null; live_link: boolean }[]
+  >`
+    select l.id as lease_id, l.reference as lease_reference,
+           p.name || ' / ' || u.code as unit_label,
+           rp.id as resident_id,
+           rp.first_name || ' ' || rp.last_name as resident_name,
+           rp.email::text as email,
+           exists (
+             select 1 from portal_links pl
+              where pl.lease_id = l.id and pl.resident_id = rp.id
+                and pl.revoked_at is null
+                and pl.status in ('invited', 'active')
+                and pl.expires_at > now()
+           ) as live_link
+      from leases l
+      join properties p on p.id = l.property_id
+      join units u on u.id = l.unit_id
+      join lease_parties lpty on lpty.lease_id = l.id and lpty.removed_on is null
+      join resident_profiles rp on rp.id = lpty.resident_id
+     where l.organisation_id = ${organisationId}::uuid
+       and l.status in ('active', 'notice_given')
+     order by p.name, u.code, rp.last_name, rp.first_name
+     limit 500
+  `;
+
+  return rows
+    .filter((r) => !r.live_link)
+    .map((r) => ({
+      leaseId: r.lease_id,
+      leaseReference: r.lease_reference,
+      unitLabel: r.unit_label,
+      residentId: r.resident_id,
+      residentName: r.resident_name,
+      email: r.email,
+      blockedReason: r.email
+        ? null
+        : 'No email address recorded for this resident. Add one on their record first.',
+    }));
+}
+
+export interface IssuedPortalInvitation {
+  residentName: string;
+  leaseReference: string;
+  email: string;
+  token: string;
+  expiresAt: string;
+}
+
+/**
+ * Issues portal invitations for several residents at once.
+ *
+ * It does NOT weaken the mis-link guard, which is the whole reason this is
+ * harder than a loop. `issueInvitation` refuses unless the caller passes the
+ * recipient's name as the operator confirmed it, because sending one
+ * resident's statements to another is the incident §8 names. So each row
+ * carries the name the operator READ on the review screen, and the domain
+ * re-derives it and compares: if anything changed between the screen and the
+ * submission, that row fails and says so rather than being sent to whoever is
+ * on the lease now.
+ *
+ * One bad row does not take the others with it. Rather than a savepoint per
+ * row — which the shared `Sql` type does not expose, and which would hide a
+ * genuine fault as a per-row note — every row is CHECKED first against the
+ * same review the single-invitation screen shows, and only the sound ones are
+ * issued. A row that fails the check is reported with its reason and nothing
+ * else is affected; an unexpected database error still aborts the run, which
+ * is right, because that is not a fact about one resident.
+ */
+export async function issuePortalInvitations(
+  tx: Sql,
+  organisationId: string,
+  actorUserId: string,
+  rows: Array<{
+    leaseId: string; residentId: string; email: string; confirmedRecipient: string;
+  }>,
+  options: { expiryDays?: number } = {},
+): Promise<{
+  issued: IssuedPortalInvitation[];
+  failed: Array<{ residentName: string; reason: string }>;
+}> {
+  await requirePermission(tx, organisationId, 'resident.manage');
+  if (rows.length === 0) throw invalid('Choose at least one resident to invite.');
+  if (rows.length > 200) {
+    throw invalid('Invite at most 200 residents at a time, so a mistake stays small.');
+  }
+
+  const issued: IssuedPortalInvitation[] = [];
+  const failed: Array<{ residentName: string; reason: string }> = [];
+  const sound: Array<typeof rows[number] & { leaseReference: string }> = [];
+
+  for (const row of rows) {
+    try {
+      const review = await prepareInvitation(tx, organisationId, {
+        leaseId: row.leaseId, residentId: row.residentId,
+      });
+      // The guard that makes this safe to do in bulk: the name the operator
+      // READ on the review is compared with the resident on the lease now. If
+      // somebody changed the parties while the page was open, this row stops
+      // rather than sending one resident's statements to another.
+      if (review.residentName !== row.confirmedRecipient) {
+        failed.push({
+          residentName: row.confirmedRecipient,
+          reason: 'The resident on this lease has changed since the list was shown. '
+            + 'Open the lease and invite them from there.',
+        });
+        continue;
+      }
+      if (review.existingPortalUser) {
+        failed.push({
+          residentName: row.confirmedRecipient,
+          reason: `Already has portal access as ${review.existingPortalUser}.`,
+        });
+        continue;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email.trim())) {
+        failed.push({
+          residentName: row.confirmedRecipient,
+          reason: 'That email address is not one this product will send a link to.',
+        });
+        continue;
+      }
+      sound.push({ ...row, leaseReference: review.leaseReference });
+    } catch (error) {
+      failed.push({
+        residentName: row.confirmedRecipient,
+        reason: error instanceof DomainError
+          ? error.message
+          : 'That resident could not be checked against their lease.',
+      });
+    }
+  }
+
+  for (const row of sound) {
+    const result = await issueInvitation(tx, organisationId, actorUserId, {
+      leaseId: row.leaseId,
+      residentId: row.residentId,
+      email: row.email,
+      confirmedRecipient: row.confirmedRecipient,
+      ...(options.expiryDays ? { expiryDays: options.expiryDays } : {}),
+    });
+    issued.push({
+      residentName: row.confirmedRecipient,
+      leaseReference: row.leaseReference,
+      email: row.email.trim().toLowerCase(),
+      token: result.token,
+      expiresAt: result.expiresAt.toISOString(),
+    });
+  }
+
+  return { issued, failed };
+}
