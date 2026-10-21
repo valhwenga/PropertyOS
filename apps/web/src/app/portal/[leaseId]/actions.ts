@@ -7,6 +7,7 @@ import {
 } from '@propertyos/domain';
 import { DomainError } from '@propertyos/domain';
 import { command } from '@/lib/actions';
+import { storeUpload } from '@/lib/uploads';
 import { parseDayMonthYear } from '@propertyos/domain/dates';
 
 /**
@@ -90,6 +91,67 @@ export async function submitMaintenanceRequest(_previous: unknown, formData: For
     revalidatePath(`/portal/${leaseId}`);
     revalidatePath(`/portal/${leaseId}/requests`);
   }
+  return result;
+}
+
+/**
+ * A photograph on a maintenance request.
+ *
+ * A resident could describe a problem and not show it, which is the difference
+ * between "there is a leak under the sink" and a landlord seeing where the
+ * water is going. The document policies already allowed this — a resident's own
+ * upload on their own lease, quarantined, internal, classified `maintenance` —
+ * and nothing in the product had ever written that kind.
+ *
+ * Attached after the request exists rather than with it, deliberately: a photo
+ * that fails to upload must not take the report with it, and a resident
+ * standing in a wet kitchen should get the request in before fighting with
+ * their phone's camera roll.
+ *
+ * The link goes in `maintenance_attachments`, which already existed with an
+ * `audience` column and a resident insert policy — the schema had been waiting
+ * for this screen. `resident_visible` is the only audience a resident may
+ * write, and it is the right one: a photograph somebody took of their own
+ * kitchen is not an internal note about them.
+ */
+export async function attachRequestPhoto(_previous: unknown, formData: FormData) {
+  const leaseId = String(formData.get('leaseId'));
+  const ticketId = String(formData.get('ticketId'));
+
+  const result = await command(async ({ tx, viewer, correlationId }) => {
+    const organisationId = organisationForLease(viewer, leaseId);
+
+    // The ticket has to be one of theirs. RLS would refuse the insert anyway;
+    // this makes the refusal a sentence rather than a silent nothing.
+    const [ticket] = await tx<{ id: string; reference: string }[]>`
+      select id, reference from maintenance_tickets
+       where id = ${ticketId}::uuid and lease_id = ${leaseId}::uuid
+    `;
+    if (!ticket) throw new DomainError('not_found', 'Request not found.');
+
+    const stored = await storeUpload(tx, {
+      organisationId,
+      actorUserId: viewer.authUserId,
+      file: formData.get('photo'),
+      classification: 'maintenance',
+      title: `Photo for ${ticket.reference}`,
+      leaseId,
+      imagesOnly: true,
+      asResident: true,
+      correlationId,
+    });
+
+    await tx`
+      insert into maintenance_attachments (
+        organisation_id, ticket_id, document_id, audience
+      ) values (
+        ${organisationId}, ${ticketId}, ${stored.documentId}, 'resident_visible'
+      )
+    `;
+
+    return { quarantined: stored.quarantined, scanStatus: stored.scanStatus };
+  });
+  if (result.ok) revalidatePath(`/portal/${leaseId}/requests/${ticketId}`);
   return result;
 }
 

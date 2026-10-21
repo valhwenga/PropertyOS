@@ -6,6 +6,7 @@ import { readAs, requireViewer } from '@/lib/auth';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { loadResidentRequest, loadTenancy } from '@/lib/portal-queries';
 import { Row, SectionHeading } from '../../section';
+import { AttachPhotoForm } from './attach-photo';
 import { requestPriority, requestStatus, requestTitle } from '../status';
 
 export const metadata = { title: 'Your request' };
@@ -132,6 +133,13 @@ export default async function RequestDetailPage({
           </Card>
         )}
       </section>
+
+      {/* ------------------------------------------------ attaching one more */}
+      <AttachPhotoForm
+        leaseId={leaseId}
+        ticketId={ticketId}
+        scannerConfigured={Boolean(process.env.MALWARE_SCANNER)}
+      />
 
       {/* -------------------------------------------------------- the photos */}
       {photos.length > 0 ? (

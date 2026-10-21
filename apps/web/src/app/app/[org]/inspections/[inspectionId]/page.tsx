@@ -7,6 +7,7 @@ import { getInspection, hasPermission } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { FindingsForm, FinaliseInspectionForm, ReviseInspectionForm } from '../inspection-forms';
+import { InspectionPhotoForm } from './photo-form';
 
 export const metadata = { title: 'Inspection' };
 export const dynamic = 'force-dynamic';
@@ -180,18 +181,57 @@ export default async function InspectionPage({
               ? 'Recording findings needs the inspection permission.'
               : 'Closed to editing. A correction creates a new version.'}
           </p>
+          <p className="pb-1 text-xs text-ink-400">
+            {process.env.MALWARE_SCANNER
+              ? 'A photograph is scanned before it can be opened.'
+              : 'No virus scanner is configured, so a photograph attached here is stored and '
+                + 'cannot be opened by anybody — including you — until one is. It is kept, and '
+                + 'it becomes readable the day a scanner is configured.'}
+          </p>
           {inspection.items.map((i) => (
-            <div key={i.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1
-              border-t border-ink-100 py-3">
-              <span className="text-sm font-medium text-ink-900">{i.item}</span>
-              <span className="text-xs uppercase tracking-wide text-ink-400">{i.room}</span>
-              <StatusBadge tone={CONDITION_TONE[i.condition] ?? 'neutral'}>
-                {CONDITION_LABEL[i.condition] ?? i.condition}
-              </StatusBadge>
-              {i.damageType ? (
-                <span className="text-sm text-ink-700">{DAMAGE_LABEL[i.damageType]}</span>
+            <div key={i.id} className="space-y-2 border-t border-ink-100 py-3">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-sm font-medium text-ink-900">{i.item}</span>
+                <span className="text-xs uppercase tracking-wide text-ink-400">{i.room}</span>
+                <StatusBadge tone={CONDITION_TONE[i.condition] ?? 'neutral'}>
+                  {CONDITION_LABEL[i.condition] ?? i.condition}
+                </StatusBadge>
+                {i.damageType ? (
+                  <span className="text-sm text-ink-700">{DAMAGE_LABEL[i.damageType]}</span>
+                ) : null}
+                {i.note ? <span className="text-sm text-ink-500">{i.note}</span> : null}
+              </div>
+
+              {i.photos.length > 0 ? (
+                <ul className="space-y-1 text-xs">
+                  {i.photos.map((photo) => (
+                    <li key={photo.documentId}>
+                      {photo.quarantined ? (
+                        <span className="text-ink-500">
+                          {photo.title} — held unopened, no scanner configured
+                        </span>
+                      ) : (
+                        <Link
+                          href={`/app/${org}/documents/${photo.documentId}`}
+                          className="text-spike-600 hover:underline"
+                        >
+                          {photo.title} ↓
+                        </Link>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               ) : null}
-              {i.note ? <span className="text-sm text-ink-500">{i.note}</span> : null}
+
+              {data.canRecord ? (
+                <InspectionPhotoForm
+                  org={org}
+                  inspectionId={inspectionId}
+                  itemId={i.id}
+                  label={`${i.room} — ${i.item}`}
+                  count={i.photos.length}
+                />
+              ) : null}
             </div>
           ))}
         </Card>

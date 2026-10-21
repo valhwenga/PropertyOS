@@ -62,6 +62,18 @@ export function sha256(buffer: Uint8Array): string {
  * has cleared quarantine — and the database check constraint
  * `documents_quarantine_not_shared` rejects the combination even if this code
  * were wrong.
+ *
+ * `asResident` is the portal's path, and it exists because there was none: the
+ * row-level policy `documents_resident_insert` has always admitted a
+ * resident's own upload on their own lease — quarantined, internal, classified
+ * `proof_of_payment` or `maintenance` — and this function demanded
+ * `document.manage`, which no resident holds. So a resident could not attach a
+ * photograph of their own leaking sink, and the thing standing in the way was
+ * not the schema.
+ *
+ * The flag does not relax anything the policy enforces; it checks the same
+ * conditions a step earlier so the answer is a sentence rather than a bare
+ * denial, and so the two cannot drift apart silently.
  */
 export async function registerDocument(
   tx: Sql,
@@ -69,9 +81,27 @@ export async function registerDocument(
   actorUserId: string,
   input: z.input<typeof registerDocumentSchema>,
   scan: { status: ScanStatus; detail?: string },
+  options: { asResident?: boolean } = {},
 ): Promise<{ documentId: string; storageKey: string; quarantined: boolean }> {
-  await requirePermission(tx, organisationId, 'document.manage');
   const d = registerDocumentSchema.parse(input);
+
+  if (options.asResident) {
+    if (!d.leaseId) {
+      throw new DomainError('validation_failed', 'A resident upload belongs to one of your leases.');
+    }
+    if (d.classification !== 'proof_of_payment' && d.classification !== 'maintenance') {
+      throw new DomainError(
+        'forbidden',
+        'A resident may attach proof of payment or a photograph of a maintenance problem.',
+      );
+    }
+    const [allowed] = await tx<{ ok: boolean }[]>`
+      select app.can_access_lease_as_resident(${d.leaseId}::uuid) as ok
+    `;
+    if (!allowed?.ok) throw notFound('Lease');
+  } else {
+    await requirePermission(tx, organisationId, 'document.manage');
+  }
 
   const storageKey = buildStorageKey(organisationId, d.classification, d.filename);
   // Only a clean result from a real scanner releases an UPLOAD from quarantine.

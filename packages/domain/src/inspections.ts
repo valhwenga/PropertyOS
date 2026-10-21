@@ -398,6 +398,8 @@ export interface InspectionDetail {
   items: Array<{
     id: string; room: string; item: string;
     condition: string; damageType: string | null; note: string | null;
+    /** Photographs attached to this item, newest last. */
+    photos: Array<{ documentId: string; title: string; quarantined: boolean }>;
   }>;
   responses: Array<{
     response: string; comment: string | null; respondedAt: string; residentName: string | null;
@@ -438,6 +440,25 @@ export async function getInspection(
      order by sort_order, room, item
   `;
 
+  // The photographs, which until now nothing in the product ever wrote: a
+  // report could record "damaged" against a worktop and hold no picture of it,
+  // which is the first thing a resident disputing a deduction asks for. The
+  // quarantine flag travels with them so a screen can say why a file cannot be
+  // opened rather than offering a link that refuses.
+  const photos = await tx<
+    { inspection_item_id: string; document_id: string; title: string; quarantined: boolean }[]
+  >`
+    select ip.inspection_item_id, ip.document_id, d.title, d.quarantined
+      from inspection_photos ip
+      join documents d on d.id = ip.document_id
+     where ip.inspection_item_id in (
+             select id from inspection_items
+              where inspection_id = ${inspectionId}::uuid
+           )
+       and d.deleted_at is null
+     order by ip.captured_at
+  `;
+
   const responses = await tx<Record<string, string | null>[]>`
     select a.response, a.comment, a.responded_at::text as responded_at,
            nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), '')
@@ -470,6 +491,11 @@ export async function getInspection(
     items: items.map((i) => ({
       id: i.id!, room: i.room!, item: i.item!,
       condition: i.condition!, damageType: i.damage_type ?? null, note: i.note ?? null,
+      photos: photos
+        .filter((p) => p.inspection_item_id === i.id)
+        .map((p) => ({
+          documentId: p.document_id, title: p.title, quarantined: p.quarantined,
+        })),
     })),
     responses: responses.map((r) => ({
       response: r.response!, comment: r.comment ?? null,

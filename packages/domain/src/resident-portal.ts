@@ -154,6 +154,8 @@ export interface ResidentInspection {
   items: Array<{
     id: string; room: string; item: string;
     condition: string; damageType: string | null; note: string | null;
+    /** The photographs behind this line, which a deduction has to rest on. */
+    photos: Array<{ documentId: string; title: string; openable: boolean }>;
   }>;
   /** This resident's own answer, if they have given one. */
   myResponse: { response: string; comment: string | null; respondedAt: string } | null;
@@ -210,6 +212,22 @@ export async function residentInspections(
      where inspection_id = any(${ids}::uuid[])
      order by inspection_id, sort_order, room, item
   `;
+  // Readable by the resident since migration 0070: these are the evidence
+  // behind a deduction from their own deposit, and were visible only to the
+  // party making the deduction.
+  const photos = await tx<
+    { inspection_item_id: string; document_id: string; title: string; quarantined: boolean }[]
+  >`
+    select ip.inspection_item_id, ip.document_id, d.title, d.quarantined
+      from inspection_photos ip
+      join documents d on d.id = ip.document_id
+     where ip.inspection_item_id in (
+             select id from inspection_items where inspection_id = any(${ids}::uuid[])
+           )
+       and d.deleted_at is null
+     order by ip.captured_at
+  `;
+
   const mine = await tx<
     { inspection_id: string; response: string; comment: string | null; responded_at: string }[]
   >`
@@ -232,6 +250,15 @@ export async function residentInspections(
       .map((i) => ({
         id: i.id, room: i.room, item: i.item, condition: i.condition,
         damageType: i.damage_type, note: i.note,
+        photos: photos
+          .filter((p) => p.inspection_item_id === i.id)
+          .map((p) => ({
+            documentId: p.document_id,
+            title: p.title,
+            // A quarantined file is refused to everybody, so the screen says
+            // that instead of offering a link that cannot work.
+            openable: !p.quarantined,
+          })),
       })),
     myResponse: (() => {
       const answer = mine.find((m) => m.inspection_id === r.id);

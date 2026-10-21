@@ -3,10 +3,11 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import {
-  createInspection, createTemplateVersion, finaliseInspection,
+  createInspection, createTemplateVersion, DomainError, finaliseInspection,
   recordInspectionFindings, reviseInspection,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
+import { storeUpload } from '@/lib/uploads';
 import { requireOperator } from '@/lib/auth';
 
 /**
@@ -121,6 +122,61 @@ export async function reviseInspectionAction(_previous: unknown, formData: FormD
  * Never an edit. An inspection records the version it was performed against,
  * and changing a checklist must not retroactively alter what was checked.
  */
+/**
+ * A photograph against one checklist item.
+ *
+ * `inspection_photos` has existed since the operations migration and nothing
+ * in the product ever wrote a row into it — so a move-out report could record
+ * "damaged · damage" against a worktop and hold no picture of it, which is the
+ * one thing a resident disputing a deduction will ask for.
+ *
+ * Attached per ITEM rather than per inspection: "there is a photograph
+ * somewhere on this report" is not evidence about a worktop.
+ */
+export async function attachInspectionPhotoAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org'));
+  const inspectionId = String(formData.get('inspectionId'));
+  const itemId = String(formData.get('itemId'));
+
+  const result = await command(async ({ tx, viewer, correlationId }) => {
+    const context = await requireOperator(org);
+
+    const [item] = await tx<{ id: string; item: string; room: string }[]>`
+      select it.id, it.item, it.room
+        from inspection_items it
+       where it.id = ${itemId}::uuid
+         and it.inspection_id = ${inspectionId}::uuid
+         and it.organisation_id = ${context.organisationId}::uuid
+    `;
+    if (!item) throw new DomainError('not_found', 'That checklist item was not found.');
+
+    const [inspection] = await tx<{ property_id: string; lease_id: string | null }[]>`
+      select property_id, lease_id from inspections
+       where id = ${inspectionId}::uuid and organisation_id = ${context.organisationId}::uuid
+    `;
+
+    const stored = await storeUpload(tx, {
+      organisationId: context.organisationId,
+      actorUserId: viewer.authUserId,
+      file: formData.get('photo'),
+      classification: 'inspection',
+      title: `${item.room} — ${item.item}`,
+      ...(inspection?.lease_id ? { leaseId: inspection.lease_id } : {}),
+      ...(inspection?.property_id ? { propertyId: inspection.property_id } : {}),
+      imagesOnly: true,
+      correlationId,
+    });
+
+    await tx`
+      insert into inspection_photos (organisation_id, inspection_item_id, document_id)
+      values (${context.organisationId}, ${itemId}, ${stored.documentId})
+    `;
+    return { quarantined: stored.quarantined };
+  });
+  if (result.ok) revalidatePath(`/app/${org}/inspections/${inspectionId}`);
+  return result;
+}
+
 export async function createTemplateVersionAction(_previous: unknown, formData: FormData) {
   const org = str(formData, 'org');
   const lines = str(formData, 'items')

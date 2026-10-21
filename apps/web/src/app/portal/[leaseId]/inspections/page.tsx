@@ -118,6 +118,27 @@ export default async function InspectionsPage({
                       {item.note ? (
                         <span className="w-full text-xs text-ink-500">{item.note}</span>
                       ) : null}
+                      {item.photos.length > 0 ? (
+                        <ul className="w-full space-y-1 pt-1 text-xs">
+                          {item.photos.map((photo) => (
+                            <li key={photo.documentId}>
+                              {photo.openable ? (
+                                <a
+                                  href={`/portal/${leaseId}/documents/${photo.documentId}`}
+                                  className="text-spike-600 hover:underline"
+                                >
+                                  {photo.title} — download the photograph ↓
+                                </a>
+                              ) : (
+                                <span className="text-ink-500">
+                                  {photo.title} — the photograph is held unopened on this
+                                  installation and nobody can open it, your landlord included
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -148,7 +169,9 @@ export default async function InspectionsPage({
       )}
 
       <p className="text-xs text-ink-400">
-        Your landlord sees your answer on the report itself. Disagreeing does not change what
+        Photographs on a report are the evidence behind any deduction from your deposit, so
+        you can see the same ones your landlord can. Your landlord sees your answer on the
+        report itself. Disagreeing does not change what
         the report says — it records your side of it next to theirs, which is what a deduction
         from your deposit has to be justified against.
       </p>
