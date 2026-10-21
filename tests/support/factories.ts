@@ -145,6 +145,15 @@ export async function grantPortalAccess(
   return authUserId;
 }
 
+/**
+ * An APPROVED support session, which is the only kind that reaches anything.
+ *
+ * `approved_at` is set here deliberately: since migration 0065 a session the
+ * customer has not approved returns no organisation from
+ * `app.support_organisation_ids()`, so a fixture without it would grant
+ * nothing and every isolation test using it would pass for the wrong reason.
+ * The approval path itself is exercised through `approveSupportSession`.
+ */
 export async function grantSupportSession(
   organisationId: string,
   operatorUserId: string,
@@ -154,11 +163,33 @@ export async function grantSupportSession(
   const sql = ownerSql();
   const [row] = await sql<{ id: string }[]>`
     insert into support_sessions (
-      organisation_id, operator_user_id, reason, authorised_by, expires_at, read_only
+      organisation_id, operator_user_id, reason, authorised_by, expires_at, read_only,
+      approved_at
     ) values (
       ${organisationId}, ${operatorUserId},
       'Customer raised a reconciliation query via support ticket SPK-1001',
-      ${authorisedBy}, now() + (${hours} || ' hours')::interval, true
+      ${authorisedBy}, now() + (${hours} || ' hours')::interval, true,
+      now()
+    )
+    returning id
+  `;
+  return row!.id;
+}
+
+/** A session Spike has asked for and nobody has approved. Reaches nothing. */
+export async function requestSupportSession(
+  organisationId: string,
+  operatorUserId: string,
+  hours = 2,
+): Promise<string> {
+  const sql = ownerSql();
+  const [row] = await sql<{ id: string }[]>`
+    insert into support_sessions (
+      organisation_id, operator_user_id, reason, expires_at, read_only
+    ) values (
+      ${organisationId}, ${operatorUserId},
+      'Customer raised a reconciliation query via support ticket SPK-1002',
+      now() + (${hours} || ' hours')::interval, true
     )
     returning id
   `;

@@ -228,10 +228,21 @@ export interface CustomerDetail {
     revokedAt: string | null;
     readOnly: boolean;
     customerAuthorised: boolean;
+    approvedByName: string | null;
+    approvedViaWindow: boolean;
     actionsRecorded: number;
     openedByMe: boolean;
+    /** Approved and live: this operator can read the customer's records now. */
     open: boolean;
+    /** Asked for and not answered. It reaches nothing. */
+    waiting: boolean;
   }>;
+  /**
+   * A window the customer has open, if any. Shown to an operator because
+   * without it they cannot tell whether opening a session will reach anything
+   * or sit waiting on somebody.
+   */
+  openWindow: { expiresAt: string; authorisedByName: string | null; reason: string } | null;
   platformActions: Array<{
     id: string;
     at: string;
@@ -296,13 +307,22 @@ export async function customerDetail(
   const sessions = await tx<
     { id: string; operator_user_id: string; operator_name: string | null; reason: string;
       granted_at: string; expires_at: string; revoked_at: string | null;
-      read_only: boolean; authorised_by: string | null; actions_recorded: string }[]
+      read_only: boolean; authorised_by: string | null; approved_at: string | null;
+      approved_by_name: string | null; approved_via_grant_id: string | null;
+      actions_recorded: string }[]
   >`
     select ss.id, ss.operator_user_id,
            (select full_name from user_profiles up where up.auth_user_id = ss.operator_user_id)
              as operator_name,
            ss.reason, ss.granted_at::text, ss.expires_at::text, ss.revoked_at::text,
-           ss.read_only, ss.authorised_by::text,
+           ss.read_only, ss.authorised_by::text, ss.approved_at::text,
+           ss.approved_via_grant_id::text,
+           -- The approver is the customer's own staff member. A platform
+           -- operator cannot read that profile, so this is null for them and
+           -- the screen says "approved" without a name rather than inventing
+           -- one.
+           (select full_name from user_profiles up where up.auth_user_id = ss.authorised_by)
+             as approved_by_name,
            (select count(*) from audit_events ae where ae.support_session_id = ss.id)::text
              as actions_recorded
       from support_sessions ss
@@ -324,6 +344,19 @@ export async function customerDetail(
        and ae.action like 'platform.%'
      order by ae.occurred_at desc
      limit 50
+  `;
+
+  const [openWindow] = await tx<
+    { expires_at: string; authorised_by_name: string | null; reason: string }[]
+  >`
+    select g.expires_at::text, g.reason,
+           (select full_name from user_profiles up where up.auth_user_id = g.authorised_by)
+             as authorised_by_name
+      from support_access_grants g
+     where g.organisation_id = ${organisationId}::uuid
+       and g.revoked_at is null and g.expires_at > now()
+     order by g.expires_at desc
+     limit 1
   `;
 
   const now = Date.now();
@@ -380,10 +413,22 @@ export async function customerDetail(
       revokedAt: ss.revoked_at,
       readOnly: ss.read_only,
       customerAuthorised: ss.authorised_by !== null,
+      approvedByName: ss.approved_by_name,
+      approvedViaWindow: ss.approved_via_grant_id !== null,
       actionsRecorded: Number(ss.actions_recorded),
       openedByMe: ss.operator_user_id === operator.authUserId,
-      open: ss.revoked_at === null && new Date(ss.expires_at).getTime() > now,
+      open: ss.approved_at !== null && ss.revoked_at === null
+        && new Date(ss.expires_at).getTime() > now,
+      waiting: ss.approved_at === null && ss.revoked_at === null
+        && new Date(ss.expires_at).getTime() > now,
     })),
+    openWindow: openWindow
+      ? {
+        expiresAt: openWindow.expires_at,
+        authorisedByName: openWindow.authorised_by_name,
+        reason: openWindow.reason,
+      }
+      : null,
     platformActions: actions.map((a) => ({
       id: a.id,
       at: a.occurred_at,
@@ -491,16 +536,32 @@ export async function setAccountStatus(
 }
 
 /**
- * Requests a support session.
+ * Asks for a support session.
  *
- * Creating the session is itself the audited event. The session is read-only,
- * time limited, and must name a reason — there is no path to a permanent
- * all-customer role anywhere in this codebase.
+ * Asking, not taking. Since migration 0065 the session this creates reaches
+ * NOTHING until the customer approves it — `app.support_organisation_ids()`
+ * excludes an unapproved one, so every read policy in the schema returns no
+ * rows rather than a filtered subset. Before that, an operator inserted a row
+ * for themselves and read the customer's records at once, while
+ * `authorised_by` sat null and the customer's own screen said "Not authorised
+ * by you" against every session there had ever been.
  *
- * `authorisedBy` records WHO at the customer approved it. A session created
- * without customer authorisation is still bounded and audited, but it is
- * recorded as such so a review can find it.
+ * The one exception is not an exception to the rule: if the customer has an
+ * open window (`support_access_grants`), the session is approved on arrival and
+ * records which window admitted it, so the trail still answers who let support
+ * in and when they decided to.
+ *
+ * There is no path here that approves a session on Spike's own say-so. An
+ * operator who could do that in an emergency could do it at any time.
  */
+/** When a window closes, as epoch milliseconds. */
+async function windowExpiry(tx: Sql, grantId: string): Promise<number> {
+  const [row] = await tx<{ expires_at: string }[]>`
+    select expires_at::text from support_access_grants where id = ${grantId}::uuid
+  `;
+  return row ? new Date(row.expires_at).getTime() : Date.now();
+}
+
 export async function openSupportSession(
   tx: Sql,
   authUserId: string,
@@ -508,9 +569,8 @@ export async function openSupportSession(
     organisationId: string;
     reason: string;
     hours: number;
-    authorisedByUserId?: string;
   },
-): Promise<{ supportSessionId: string; expiresAt: Date }> {
+): Promise<{ supportSessionId: string; expiresAt: Date; approved: boolean }> {
   const operator = await requirePlatformOperator(tx, authUserId);
   if (params.reason.trim().length < 10) {
     throw invalid('A support session requires a reason of at least 10 characters, including the ticket reference.');
@@ -520,12 +580,36 @@ export async function openSupportSession(
   }
 
   const expiresAt = new Date(Date.now() + params.hours * 3_600_000);
+
+  // A window the customer opened in advance approves this session as it is
+  // created. The narrowest live one is used — not the longest — so a session
+  // can never outlast the permission that admitted it.
+  const [openWindow] = await tx<{ id: string; authorised_by: string }[]>`
+    select id, authorised_by::text from support_access_grants
+     where organisation_id = ${params.organisationId}::uuid
+       and revoked_at is null
+       and expires_at > now()
+     order by expires_at
+     limit 1
+  `;
+  const approvedWindow = openWindow ?? null;
+  // The session cannot outlive the window that approved it.
+  const effectiveExpiry = approvedWindow
+    ? new Date(Math.min(
+      expiresAt.getTime(),
+      await windowExpiry(tx, approvedWindow.id),
+    ))
+    : expiresAt;
+
   const [session] = await tx<{ id: string }[]>`
     insert into support_sessions (
-      organisation_id, operator_user_id, reason, authorised_by, expires_at, read_only
+      organisation_id, operator_user_id, reason, authorised_by, expires_at, read_only,
+      approved_at, approved_via_grant_id
     ) values (
       ${params.organisationId}, ${operator.authUserId}, ${params.reason},
-      ${params.authorisedByUserId ?? null}, ${expiresAt.toISOString()}, true
+      ${approvedWindow?.authorised_by ?? null},
+      ${effectiveExpiry.toISOString()}, true,
+      ${approvedWindow ? new Date().toISOString() : null}, ${approvedWindow?.id ?? null}
     )
     returning id
   `;
@@ -540,21 +624,33 @@ export async function openSupportSession(
     reason: params.reason,
     supportSessionId: session.id,
     after: {
-      expiresAt: expiresAt.toISOString(),
+      expiresAt: effectiveExpiry.toISOString(),
       readOnly: true,
-      customerAuthorised: Boolean(params.authorisedByUserId),
+      approved: approvedWindow !== null,
+      approvedViaWindow: approvedWindow?.id ?? null,
     },
   });
-  // The customer is notified that their data was accessed.
+  // The customer is told either that their data was accessed, or that
+  // somebody is waiting on them — which is the more urgent of the two.
   await emitEvent(tx, {
     organisationId: params.organisationId,
-    eventType: 'platform.support_session.opened',
+    eventType: approvedWindow
+      ? 'platform.support_session.opened'
+      : 'platform.support_session.requested',
     resourceType: 'support_session',
     resourceId: session.id,
-    payload: { expiresAt: expiresAt.toISOString(), readOnly: true },
+    payload: {
+      expiresAt: effectiveExpiry.toISOString(),
+      readOnly: true,
+      approved: approvedWindow !== null,
+    },
   });
 
-  return { supportSessionId: session.id, expiresAt };
+  return {
+    supportSessionId: session.id,
+    expiresAt: effectiveExpiry,
+    approved: approvedWindow !== null,
+  };
 }
 
 export async function closeSupportSession(
@@ -596,45 +692,6 @@ export async function closeSupportSession(
     supportSessionId: session.id,
   });
 }
-
-/** The access log a CUSTOMER sees: who at Spike looked at their data, and why. */
-export async function supportAccessHistory(
-  tx: Sql,
-  organisationId: string,
-): Promise<Array<{
-  id: string; operatorName: string; reason: string; grantedAt: string;
-  expiresAt: string; revokedAt: string | null; readOnly: boolean;
-  authorisedByName: string | null; actionsRecorded: number;
-}>> {
-  const rows = await tx<
-    { id: string; operator_name: string; reason: string; granted_at: string; expires_at: string;
-      revoked_at: string | null; read_only: boolean; authorised_by_name: string | null;
-      actions_recorded: string }[]
-  >`
-    select s.id, s.reason, s.granted_at::text, s.expires_at::text, s.revoked_at::text, s.read_only,
-           op.full_name as operator_name,
-           auth_by.full_name as authorised_by_name,
-           (select count(*) from audit_events ae where ae.support_session_id = s.id)::text as actions_recorded
-    from support_sessions s
-    join user_profiles op on op.auth_user_id = s.operator_user_id
-    left join user_profiles auth_by on auth_by.auth_user_id = s.authorised_by
-    where s.organisation_id = ${organisationId}::uuid
-    order by s.granted_at desc
-  `;
-  return rows.map((r) => ({
-    id: r.id,
-    operatorName: r.operator_name,
-    reason: r.reason,
-    grantedAt: r.granted_at,
-    expiresAt: r.expires_at,
-    revokedAt: r.revoked_at,
-    readOnly: r.read_only,
-    authorisedByName: r.authorised_by_name,
-    actionsRecorded: Number(r.actions_recorded),
-  }));
-}
-
-/* ------------------------------------------------------------- entitlements */
 
 /* Entitlements live in ./entitlements, and are re-exported from the package
  * index beside these. The enforcement points are in customer code. */

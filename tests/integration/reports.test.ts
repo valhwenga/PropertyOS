@@ -8,7 +8,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  activateLease, allocateReceipt, arrearsAgeing, changePlan, checkEntitlement,
+  activateLease, allocateReceipt, approveSupportSession, arrearsAgeing, changePlan,
+  checkEntitlement,
   closeSupportSession, collectionReport, confirmReceipt, createResident,
   createStandaloneHouse, createProperty, createUnit, depositRegister, draftLease,
   expenseReport, journalLinesExport, leaseExpiryReport, listCustomers,
@@ -365,16 +366,32 @@ describe('Spike platform administration', () => {
     });
   });
 
-  it('opens an audited, time-limited, read-only support session', async () => {
+  it('opens a session that reaches nothing until the customer approves it', async () => {
     const session = await as(operator, (tx) =>
       openSupportSession(tx, operator, {
         organisationId: orgA.organisationId,
         reason: 'Customer raised reconciliation query, ticket SPK-2041',
         hours: 2,
-        authorisedByUserId: orgA.adminUserId,
       }),
     );
     expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(session.approved).toBe(false);
+
+    // This assertion is the point. It used to read the other way: opening a
+    // session granted access immediately, `authorised_by` was never set by any
+    // path, and the customer's own screen said "Not authorised by you" about
+    // every session there had ever been. An unapproved session now returns no
+    // organisation from `app.support_organisation_ids()`, so every read policy
+    // in the schema yields nothing — not a filtered subset, nothing.
+    await as(operator, async (tx) => {
+      expect(await tx`select id from resident_profiles`).toHaveLength(0);
+      expect(await tx`select id from leases`).toHaveLength(0);
+    });
+
+    // The customer approves it, having seen who asked and why.
+    await as(orgA.adminUserId, (tx) =>
+      approveSupportSession(tx, orgA.adminUserId, { supportSessionId: session.supportSessionId }),
+    );
 
     // Reading is now possible...
     await as(operator, async (tx) => {

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { clearSupportAccess } from './demo-state';
 import { signIn } from './sign-in';
 
 /**
@@ -36,6 +37,11 @@ test.describe('Spike platform console', () => {
     // Unique per run: the demo database is not reset between runs, and a
     // reason reused from a previous run matches two rows in the history.
     const ticket = `SPK-9002-${Date.now().toString().slice(-6)}`;
+
+    // No window open and nothing already approved, whatever an earlier run
+    // left behind: this test is about a session that has to be approved.
+    await clearSupportAccess('demo-blue-crane');
+
     await signIn(page, SPIKE);
     await page.goto('/platform', { waitUntil: 'domcontentloaded' });
 
@@ -77,10 +83,10 @@ test.describe('Spike platform console', () => {
 
     const sessions = page.locator('section', { hasText: 'Support access' });
     await expect(sessions.getByText(ticket).first()).toBeVisible();
-    await expect(sessions.getByText('Open').first()).toBeVisible();
-    // Honest about what it could not record: there is no screen on the
-    // customer's side that authorises access in advance.
-    await expect(sessions.getByText('not linked to a customer approval').first()).toBeVisible();
+    // Asked for, not taken: until the customer approves it, the session reads
+    // nothing. This used to say "Open" the instant Spike created it.
+    await expect(sessions.getByText('Waiting on the customer').first()).toBeVisible();
+    await expect(sessions.getByText('reaches nothing yet').first()).toBeVisible();
 
     /* ------------------------------- and the customer ends it themselves */
     await page.context().clearCookies();
@@ -91,22 +97,85 @@ test.describe('Spike platform console', () => {
       : (await page.locator('a[href^="/app/"]').first().getAttribute('href'))!;
 
     await page.goto(`${org}/settings/support-access`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText(ticket).first()).toBeVisible();
 
-    const revoke = page.getByRole('button', { name: /End .* access now/ }).first();
-    await expect(revoke).toBeVisible();   // the button the page had always promised
-    await revoke.click();
+    // The request is waiting for them, with who asked and why.
+    const waiting = page.locator('section', { hasText: 'Waiting for you' });
+    await expect(waiting.getByText(ticket).first()).toBeVisible();
+    await expect(waiting.getByText(/reaches nothing until you approve it/)).toBeVisible();
 
-    // The page itself is the confirmation: the session's row becomes revoked
-    // and the banner above the table turns over. Asserting a message beside
-    // the button would be asserting something that cannot render — the button
-    // is gone once the row is revoked.
+    await waiting.getByRole('button', { name: /Let .* in/ }).first().click();
+
+    // The page itself is the confirmation: the row moves out of "waiting for
+    // you" and into an open session. Asserting a message beside the button
+    // would be asserting something that cannot render — the button is gone.
+    await expect(page.getByText(/support session is open/)).toBeVisible();
+    await expect(page.getByRole('row', { name: new RegExp(ticket) })).toContainText('Open');
+
+    // And ending it is one click, which is what this page has always promised.
+    await page.getByRole('button', { name: /End .* access now/ }).first().click();
     await expect(page.getByText('No open support sessions')).toBeVisible();
-    await expect(page.getByRole('row', { name: new RegExp(ticket) })).toContainText('Revoked');
+    await expect(page.getByRole('row', { name: new RegExp(ticket) })).toContainText('Ended');
     await expect(page.getByRole('button', { name: /End .* access now/ })).toHaveCount(0);
   });
 
+  test('a window the customer opens lets support in without asking again', async ({ page }) => {
+    const ticket = `SPK-9003-${Date.now().toString().slice(-6)}`;
+
+    /* --------------------------------- the customer opens the window first */
+    await clearSupportAccess('demo-blue-crane');
+    await signIn(page, LANDLORD);
+    await page.goto('/app/demo-blue-crane/settings/support-access', {
+      waitUntil: 'domcontentloaded',
+    });
+    const windowForm = page.locator('form', { has: page.locator('#window-reason') });
+    await windowForm.locator('#window-reason').fill('Raising a query about the March statement');
+    await windowForm.locator('#hours').selectOption('4');
+    await windowForm.getByRole('button', { name: 'Open the window' }).click();
+    await expect(page.getByText(/Support may let itself in until/)).toBeVisible();
+
+    /* ------------------------------- and Spike's session arrives approved */
+    await page.context().clearCookies();
+    await signIn(page, SPIKE);
+    await page.goto('/platform/customers/demo-blue-crane', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText(/They have let support in until/)).toBeVisible();
+
+    const supportPanel = page.locator('form', { has: page.locator('#support-reason') });
+    await supportPanel.locator('#support-reason').fill(
+      `${ticket}: looking at the March statement as agreed`,
+    );
+    await supportPanel.locator('#hours').selectOption('2');
+    await supportPanel.getByRole('button', { name: 'Open session' }).click();
+
+    const sessions = page.locator('section', { hasText: 'Support access' });
+    await expect(sessions.getByRole('row', { name: new RegExp(ticket) })).toContainText('Approved');
+    await expect(sessions.getByText('approved in advance').first()).toBeVisible();
+
+    /* ------------------------ the customer can shut the window, and does */
+    await page.context().clearCookies();
+    await signIn(page, LANDLORD);
+    await page.goto('/app/demo-blue-crane/settings/support-access', {
+      waitUntil: 'domcontentloaded',
+    });
+    // Scoped to the history table: this page has two tables, and a reference
+    // that appears in both matches two rows.
+    const history = page.getByRole('table', { name: 'Spike support access history' });
+    await expect(history.getByRole('row', { name: new RegExp(ticket) })).toContainText('in advance');
+    await page.getByRole('button', { name: 'Close the window' }).click();
+    await expect(page.getByText(/Support may let itself in until/)).toHaveCount(0);
+
+    // Closing the window does not silently end the session opened under it:
+    // that is a separate record with its own expiry, and the customer ends it
+    // themselves so they can see what they are taking away.
+    await expect(history.getByRole('row', { name: new RegExp(ticket) })).toContainText('Open');
+    await page.getByRole('button', { name: /End .* access now/ }).first().click();
+    await expect(page.getByText('No open support sessions')).toBeVisible();
+  });
+
   test('suspending stops the console, and stops nothing else', async ({ page }) => {
+    // Starts from an account its staff can sign in to, whatever an earlier run
+    // left behind — including this spec's own earlier run, interrupted before
+    // it restored the account.
+    await clearSupportAccess('demo-blue-crane');
     await signIn(page, SPIKE);
     await page.goto('/platform', { waitUntil: 'domcontentloaded' });
     // The landlord account signed in further down is a member of this one.

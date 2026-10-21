@@ -143,9 +143,10 @@ export function AccountStatusForm({
 }
 
 export function SupportSessionForm({
-  organisationId, slug,
+  organisationId, slug, openWindow,
 }: {
   organisationId: string; slug: string;
+  openWindow: { expiresAt: string; authorisedByName: string | null } | null;
 }) {
   const [state, action, pending] = useActionState(openSupportSessionAction, null);
   const opened = state?.ok
@@ -154,11 +155,24 @@ export function SupportSessionForm({
 
   return (
     <Card className="p-5">
-      <h2 className="text-sm font-semibold text-ink-900">Open a support session</h2>
+      <h2 className="text-sm font-semibold text-ink-900">Ask for a support session</h2>
       <p className="mt-1 text-sm text-ink-700">
         Read-only, time limited, and shown to the customer in their own settings with your
         name and this reason. Every record you open under it is recorded against it.
       </p>
+      {openWindow ? (
+        <p className="mt-2 rounded-lg border border-positive-600/25 bg-positive-50 p-3 text-sm text-ink-700">
+          <strong>They have let support in until {openWindow.expiresAt.slice(0, 16).replace('T', ' ')}</strong>
+          {openWindow.authorisedByName ? ` — ${openWindow.authorisedByName} opened the window` : ''}.
+          A session you open now is approved on arrival, and cannot outlast that window.
+        </p>
+      ) : (
+        <p className="mt-2 rounded-lg border border-info-700/25 bg-info-50 p-3 text-sm text-ink-700">
+          <strong>This reaches nothing until they approve it.</strong> There is no window open,
+          so the session will sit on their support access screen, showing your name and your
+          reason, until an administrator there approves it. Nothing here can approve it for them.
+        </p>
+      )}
       <form action={action} className="mt-3 space-y-3">
         <input type="hidden" name="organisationId" value={organisationId} />
         <input type="hidden" name="slug" value={slug} />
@@ -171,10 +185,8 @@ export function SupportSessionForm({
             placeholder="SPK-1182: statement shows a duplicate receipt, approved by M. Dlamini on the call"
           />
           <p className="text-xs text-ink-500">
-            Name who at the customer approved it. The approval cannot be recorded as a link
-            yet — there is no screen on their side that grants access in advance — so the
-            session will be shown to them as <strong>not authorised by you</strong> until
-            that exists.
+            This is what the customer reads when deciding, so write it for them: the ticket,
+            and what you need to look at.
           </p>
         </div>
         <div className="space-y-1.5">

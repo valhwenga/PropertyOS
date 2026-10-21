@@ -64,6 +64,7 @@ export default async function PlatformCustomerPage({
 
   const status = ACCOUNT_STATUS[detail.status] ?? ACCOUNT_STATUS.trial!;
   const openSessions = detail.supportSessions.filter((s) => s.open);
+  const waitingSessions = detail.supportSessions.filter((s) => s.waiting);
   const planOptions = plans.map((p) => ({
     key: p.key,
     name: p.name,
@@ -179,7 +180,11 @@ export default async function PlatformCustomerPage({
             slug={detail.slug}
             status={detail.status}
           />
-          <SupportSessionForm organisationId={detail.organisationId} slug={detail.slug} />
+          <SupportSessionForm
+            organisationId={detail.organisationId}
+            slug={detail.slug}
+            openWindow={detail.openWindow}
+          />
         </div>
       </section>
 
@@ -190,11 +195,25 @@ export default async function PlatformCustomerPage({
         {openSessions.length > 0 ? (
           <Card className="border-caution-700/25 bg-caution-50 p-4">
             <p className="text-sm font-semibold text-caution-700">
-              {openSessions.length} session{openSessions.length === 1 ? '' : 's'} open right now
+              {openSessions.length} approved session{openSessions.length === 1 ? '' : 's'} open
+              right now
             </p>
             <p className="mt-1 text-sm text-ink-700">
-              Including colleagues&rsquo;. The customer can revoke any of them from their own
+              Including colleagues&rsquo;. The customer can end any of them from their own
               settings, and so can the operator who opened it.
+            </p>
+          </Card>
+        ) : null}
+
+        {waitingSessions.length > 0 ? (
+          <Card className="border-info-700/25 bg-info-50 p-4">
+            <p className="text-sm font-semibold text-info-700">
+              {waitingSessions.length} request{waitingSessions.length === 1 ? '' : 's'} waiting on
+              the customer
+            </p>
+            <p className="mt-1 text-sm text-ink-700">
+              A session nobody has approved reads nothing at all. It is showing on their support
+              access screen with the operator&rsquo;s name and reason.
             </p>
           </Card>
         ) : null}
@@ -230,18 +249,22 @@ export default async function PlatformCustomerPage({
                 <Td numeric className="tabular">{s.actionsRecorded}</Td>
                 <Td>
                   {s.revokedAt
-                    ? <StatusBadge tone="neutral" glyph="■">Revoked</StatusBadge>
+                    ? <StatusBadge tone="neutral" glyph="■">Ended</StatusBadge>
                     : s.open
-                      ? <StatusBadge tone="caution" glyph="●">Open</StatusBadge>
-                      : <StatusBadge tone="neutral" glyph="○">Expired</StatusBadge>}
-                  {s.customerAuthorised ? null : (
+                      ? <StatusBadge tone="caution" glyph="●">Approved</StatusBadge>
+                      : s.waiting
+                        ? <StatusBadge tone="info" glyph="◐">Waiting on the customer</StatusBadge>
+                        : <StatusBadge tone="neutral" glyph="○">Expired</StatusBadge>}
+                  {s.waiting ? (
+                    <span className="mt-0.5 block text-xs text-ink-400">reaches nothing yet</span>
+                  ) : s.customerAuthorised ? (
                     <span className="mt-0.5 block text-xs text-ink-400">
-                      not linked to a customer approval
+                      {s.approvedViaWindow ? 'approved in advance' : 'approved by the customer'}
                     </span>
-                  )}
+                  ) : null}
                 </Td>
                 <Td>
-                  {s.open && s.openedByMe
+                  {(s.open || s.waiting) && s.openedByMe
                     ? <CloseSessionButton supportSessionId={s.id} slug={detail.slug} />
                     : null}
                 </Td>
