@@ -18,6 +18,7 @@ import { AgreementPanel } from './agreement/agreement-panel';
 import { ChargePanel } from './charge-panel';
 import { CreditNoteForm } from './credit-note-form';
 import { SchedulePanel } from './schedule-panel';
+import { ActivationPanel } from './activation-panel';
 import { LifecyclePanel } from './lifecycle/lifecycle-panel';
 import { PortalAccessPanel } from './portal-panel';
 import { readAs, requireOperator } from '@/lib/auth';
@@ -41,9 +42,11 @@ export default async function LeaseDetailPage({
     const [lease] = await tx<
       { id: string; reference: string; status: string; start_date: string; end_date: string | null;
         rent_minor: string; currency_code: string; unit_label: string; resident_name: string;
-        deposit_required_minor: string; execution_exception_reason: string | null }[]
+        deposit_required_minor: string; execution_exception_reason: string | null;
+        version: number }[]
     >`
       select l.id, l.reference, l.status::text, l.start_date::text, l.end_date::text,
+             l.version,
              l.rent_minor::text, l.currency_code, l.deposit_required_minor::text,
              l.execution_exception_reason,
              p.name || ' / ' || u.code as unit_label,
@@ -115,6 +118,21 @@ export default async function LeaseDetailPage({
         // answering "what did you send me" should be able to open the same
         // file rather than describing it.
         documents: await listInvoicesForLease(tx, leaseId, 24),
+        // Candidates for "the signed lease" when activating: anything already
+        // filed against this lease that a person could open. A quarantined
+        // file is deliberately not offered — it cannot be shared or
+        // downloaded, so attaching it as the executed contract would record a
+        // document nobody can read.
+        executedCandidates: await tx<{ id: string; title: string; kind: string }[]>`
+          select id, title, classification::text as kind
+            from documents
+           where lease_id = ${leaseId}::uuid
+             and organisation_id = ${context.organisationId}::uuid
+             and deleted_at is null
+             and not quarantined
+           order by uploaded_at desc
+           limit 25
+        `,
       };
     } catch (error) {
       if (error instanceof DomainError && error.code === 'not_found') return null;
@@ -279,6 +297,35 @@ export default async function LeaseDetailPage({
             {lease.execution_exception_reason}
           </p>
         </Card>
+      ) : null}
+
+      {/* A draft lease's one essential action, above the tabs: until it is
+          activated nothing on the tabs below has anything to show. */}
+      {lease.status === 'draft' || lease.status === 'awaiting_execution' ? (
+        data.canChangeTerms ? (
+          <ActivationPanel
+            org={org}
+            leaseId={leaseId}
+            status={lease.status}
+            version={lease.version}
+            startDate={lease.start_date}
+            documents={data.executedCandidates.map((d) => ({
+              id: d.id,
+              label: `${d.title} · ${d.kind.replace(/_/g, ' ')}`,
+            }))}
+          />
+        ) : (
+          <Card className="border-info-700/25 bg-info-50 p-4">
+            <p className="text-[length:var(--text-table)] font-semibold text-info-700">
+              This lease has not been activated
+            </p>
+            <p className="mt-1 text-[length:var(--text-table)] text-ink-700">
+              Nothing is billed and no unit is reserved until it is. Activating a lease needs
+              the lease permission, which your roles do not include — an administrator or a
+              portfolio manager can do it.
+            </p>
+          </Card>
+        )
       ) : null}
 
       {/* Four tabs, each backed by data this page already loads and a route
