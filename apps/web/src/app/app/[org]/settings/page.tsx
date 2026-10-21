@@ -87,6 +87,15 @@ const SECTIONS = [
       + 'Yours to take whenever you want it.',
   },
   {
+    href: 'subscription',
+    icon: 'billing' as const,
+    permission: 'organisation.settings.manage' as PermissionKey,
+    title: 'Your Spike subscription',
+    description:
+      'What you are on, what Spike has charged you, every line on each invoice, and what is '
+      + 'still owing.',
+  },
+  {
     href: 'support-access',
     icon: 'support' as const,
     permission: 'support.access.manage' as PermissionKey,

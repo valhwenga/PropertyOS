@@ -155,6 +155,33 @@ async function main(): Promise<void> {
         legalEntityName: '[DEMO] Karoo Letting CC', planKey: 'starter',
       }, otherAdminId);
 
+    // The demo landlord is a PAYING customer, not a trial.
+    //
+    // Every organisation is born `trial`, and a trial is deliberately never
+    // billed — so with both demo organisations on trial the whole subscription
+    // billing area of the product showed nothing at all in the demo, and a
+    // billing run reported two customers skipped and no invoice. Found by
+    // running it. Karoo stays on trial on purpose, so the skip is visible too.
+    await tx`
+      update organisations set status = 'active' where id = ${org.organisationId}
+    `;
+    await tx`
+      update subscriptions set status = 'active' where organisation_id = ${org.organisationId}
+    `;
+
+    // Spike's own invoicing details, so the billing screens have something to
+    // show. No VAT number: the demo documents are headed INVOICE and show no
+    // tax, which is the honest state until a real registration is recorded.
+    await tx`
+      update platform_billing_settings
+         set legal_name = 'Spike Technologies (Pty) Ltd',
+             address = '1 Example Road, Cape Town, 8001',
+             email = 'billing@demo.invalid',
+             bank_details = 'Example Bank · account 1234567890 · branch 250655',
+             payment_terms_days = 14
+       where id
+    `;
+
     // A finance approver alongside the administrator.
     const [financeMembership] = await tx<{ id: string }[]>`
       insert into memberships (organisation_id, auth_user_id, status)

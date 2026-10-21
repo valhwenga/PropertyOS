@@ -111,7 +111,20 @@ describe('Schema invariants', () => {
           -- table would have been the weaker way to fit them in. Their policies
           -- are asserted directly in tests/db/isolation.test.ts — a customer
           -- reads published rows and can write nothing.
-          'system_lease_templates', 'system_lease_template_versions'
+          'system_lease_templates', 'system_lease_template_versions',
+          -- Spike's own invoicing identity: one row, belonging to the company
+          -- doing the charging rather than to any customer. Its policy is
+          -- app.is_platform_operator(), and what a CUSTOMER may read of it --
+          -- the supplier details printed on an invoice they hold -- goes
+          -- through app.platform_biller() rather than through this table.
+          'platform_billing_settings',
+          -- The lines of a subscription invoice. The organisation is on the
+          -- invoice and the lines' own policies read it from there; a second
+          -- copy here would be a second thing to get wrong, and the two could
+          -- disagree. Asserted directly in
+          -- tests/integration/subscription-billing.test.ts: an administrator of
+          -- one customer reads their own lines and none of another's.
+          'subscription_invoice_lines'
         )
         and not exists (
           select 1 from pg_attribute a

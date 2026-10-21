@@ -31,6 +31,7 @@ export * from './expenses';
 export * from './reports';
 export * from './entitlements';
 export * from './platform';
+export * from './subscription-billing';
 export * from './support-access';
 export * from './csv';
 export * from './onboarding';
