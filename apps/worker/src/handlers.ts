@@ -16,15 +16,29 @@ const email = resolveEmailAdapter();
  * says the message was not delivered. Nothing here ever writes `sent` on the
  * strength of having tried.
  */
+/**
+ * Which events become a notice, and under which template.
+ *
+ * A map rather than a ladder of ternaries, because the registry at the bottom
+ * of this file has to cover every event type the domain can emit and the two
+ * lists are read together.
+ */
+const NOTIFICATION_TEMPLATES: Record<string, string> = {
+  'receipt.allocated': 'statement.issued',
+  'payment.evidence.submitted': 'payment.evidence.received',
+  'maintenance.ticket.created': 'maintenance.ticket.created',
+  // Support access: the customer has to approve a session before it reaches
+  // anything, and a request sitting on a screen nobody opened is a request
+  // nobody answers.
+  'platform.support_session.requested': 'support.access.requested',
+  'platform.support_session.opened': 'support.access.opened',
+};
+
 const notify: Handler = async (sql, job) => {
   const outboxId = String(job.payload.outboxId);
   const eventType = String(job.payload.eventType);
 
-  const templateKey =
-    eventType === 'receipt.allocated' ? 'statement.issued'
-    : eventType === 'payment.evidence.submitted' ? 'payment.evidence.received'
-    : eventType === 'maintenance.ticket.created' ? 'maintenance.ticket.created'
-    : null;
+  const templateKey = NOTIFICATION_TEMPLATES[eventType] ?? null;
   if (!templateKey) return; // Not every event has a notification.
 
   const [template] = await sql<{ channel: string; subject: string | null; body: string }[]>`
@@ -146,16 +160,54 @@ const sendInvoiceMessage: Handler = async (sql, job) => {
 };
 
 /** Recomputes nothing; it only records that an event was observed. */
+/**
+ * The event happened, the outbox row is the record, and nothing else is due.
+ *
+ * Registered explicitly rather than left out. An unregistered type has no
+ * handler, a job with no handler is retried and then marked **dead**, and the
+ * platform console counts dead jobs as "needs an operator to inspect" — so
+ * leaving an event out does not mean "nothing happens", it means a red figure
+ * and a stranger's afternoon. Five types were in exactly that state before
+ * this was written.
+ */
 const auditOnly: Handler = async () => {};
 
+/**
+ * Every event type the domain can emit, and what the worker does with it.
+ *
+ * `tests/unit/outbox-handlers.test.ts` fails if this does not cover
+ * `OUTBOX_EVENT_TYPES`, which is a closed union in the domain — so a new event
+ * cannot be added without a decision being made here about what it does.
+ */
 export const HANDLERS: Record<string, Handler> = {
   'event:charge.posted': auditOnly,
+  'event:billing_run.posted': auditOnly,
   'event:receipt.confirmed': auditOnly,
   'event:receipt.allocated': notify,
-  'event:lease.activated': auditOnly,
-  'event:billing_run.posted': auditOnly,
-  'event:organisation.created': auditOnly,
   'event:payment.evidence.submitted': notify,
-  'event:maintenance.ticket.created': notify,
   'event:invoice.message.queued': sendInvoiceMessage,
+
+  'event:lease.activated': auditOnly,
+  // The lease list and the expiry report read the lease's own status, so the
+  // transition is the whole of the effect; nothing is sent.
+  'event:lease.expired': auditOnly,
+  'event:lease.renewed': auditOnly,
+  'event:organisation.created': auditOnly,
+
+  // The link is handed over by the person who issued it — no email is sent and
+  // none is claimed anywhere — so there is nothing for the worker to do.
+  'event:portal.invitation.issued': auditOnly,
+  'event:inspection.finalised': auditOnly,
+  'event:maintenance.ticket.created': notify,
+  // Deliberately silent for now: the resident sees the appointment and the
+  // contractor on their portal, and a notice would need a template naming a
+  // person who may not have portal access.
+  'event:maintenance.work_order.issued': auditOnly,
+
+  // Spike's own actions. The customer sees a suspension the moment they try to
+  // open the console, and an approval is their own click.
+  'event:platform.account.status_changed': auditOnly,
+  'event:platform.support_session.requested': notify,
+  'event:platform.support_session.opened': notify,
+  'event:support.session.approved': auditOnly,
 };

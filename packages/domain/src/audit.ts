@@ -1,4 +1,5 @@
 import type { Sql } from '@propertyos/db';
+import type { OutboxEventType } from './events';
 
 const REDACTED = '[redacted]';
 /** Never written to the audit trail or to logs. */
@@ -62,7 +63,12 @@ export async function emitEvent(
   tx: Sql,
   input: {
     organisationId: string;
-    eventType: string;
+    /**
+     * One of the declared types. Not a free string: the worker fails a job it
+     * has no handler for, so an event nobody registered dies quietly in the
+     * dead-letter queue instead of doing whatever it was for.
+     */
+    eventType: OutboxEventType;
     resourceType: string;
     resourceId?: string | null;
     payload?: Record<string, unknown>;
