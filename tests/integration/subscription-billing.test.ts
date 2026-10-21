@@ -200,6 +200,30 @@ describe('Subscription billing', () => {
     expect(march.vatMinor).toBe(0);
   });
 
+  it('captures who it was addressed to, through the only route an operator has', async () => {
+    const [invoice] = await as(operator, (tx) =>
+      listSubscriptionInvoices(tx, operator, { organisationId: active.organisationId }),
+    );
+    // `organisation_profiles` is customer data and an operator holds no
+    // membership, so the run reads these three fields — and only these — through
+    // `app.platform_customer_billing_identity()`. Without it the invoice would
+    // have no recipient, and an invoice without a recipient is not a tax
+    // invoice. Asserted against what the customer actually has recorded.
+    const [profile] = await ownerSql()<{ legal_name: string | null }[]>`
+      select legal_name from organisation_profiles
+       where organisation_id = ${active.organisationId}
+    `;
+    expect(invoice!.recipientName).toBe(profile?.legal_name ?? 'Billed Co');
+
+    // And the operator cannot reach anything else through that function: it
+    // returns three columns, so there is nothing else to reach.
+    const direct = await as(operator, (tx) =>
+      tx`select legal_name from organisation_profiles
+          where organisation_id = ${active.organisationId}::uuid`,
+    );
+    expect(direct).toHaveLength(0);
+  });
+
   it('refuses to edit what an issued invoice charged', async () => {
     const [invoice] = await as(operator, (tx) =>
       listSubscriptionInvoices(tx, operator, { organisationId: active.organisationId }),

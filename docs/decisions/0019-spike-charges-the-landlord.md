@@ -105,6 +105,37 @@ details, and not something every colleague reads.
   organisation is on the invoice. The second exemption is only honest because a
   test asserts an administrator of one customer cannot read another's lines.
 * **Still absent, and still said so on the screens:** no payment provider, no
-  debit order, no dunning, no trial expiry, no proration when a plan changes
-  mid-period, and no PDF of a subscription invoice. The customer reads their
-  invoice on the page; they cannot yet download one.
+  debit order, no dunning, no trial expiry, and no proration when a plan
+  changes mid-period.
+
+## Addendum — the document (same day)
+
+An invoice a customer cannot keep a copy of is not much of an invoice, so both
+sides download the same PDF, from one renderer and one read.
+
+It is a separate renderer from the landlord's own invoice, deliberately: that
+one is the landlord's document, carries their logo and accent and one of three
+designs they choose, and is addressed to a resident. This is Spike's document,
+has one plain form, and is addressed to a business.
+
+Two decisions inside it:
+
+* **The heading is derived from the invoice, not from today's settings.** It
+  reads TAX INVOICE only where the invoice itself recorded a VAT registration
+  **and** shows tax. Reading the live settings would let a document change its
+  mind — Spike registering in June would retitle the invoice sent in March —
+  and a document whose text changes is not a document. A test asserts the
+  half-done state too: a registration recorded with no tax on the invoice is
+  still headed INVOICE, because a TAX INVOICE showing no tax fails section
+  20(4) either way round.
+* **The recipient's name and address are captured on the invoice at issue**,
+  which needed migration 0068 and a new definer function. A tax invoice carries
+  the recipient's particulars, and the billing run could not read them:
+  `organisation_profiles` is customer data and a platform operator holds no
+  membership. `app.platform_customer_billing_identity()` returns three fields —
+  registered name, registered address, VAT number — to a platform operator and
+  nothing else, and is the only route; a test asserts the operator still reads
+  nothing from the table directly. Where a customer has recorded no
+  particulars the document falls back to the organisation's name and says
+  "Address not recorded", because inventing an address is worse than admitting
+  there is not one.

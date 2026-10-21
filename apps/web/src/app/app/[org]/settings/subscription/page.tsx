@@ -5,7 +5,9 @@ import type { StatusTone } from '@propertyos/ui';
 import {
   billerForInvoice, customerSubscriptionInvoices, formatMinor, formatMoney, listPlans,
 } from '@propertyos/domain';
+import Link from 'next/link';
 import { BackLink } from '@/components/back-link';
+import { SectionIcon } from '@/components/icons';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 
@@ -159,6 +161,14 @@ export default async function SubscriptionPage({
                       <p className="tabular text-lg font-semibold">
                         {formatMoney(i.totalMinor, i.currencyCode)}
                       </p>
+                      <Link
+                        href={`/app/${org}/settings/subscription/${i.id}/invoice.pdf`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-2.5 py-1.5 text-sm text-ink-700 hover:border-spike-300"
+                        aria-label={`Download ${i.invoiceNumber} as a PDF`}
+                      >
+                        <SectionIcon name="download" className="h-4 w-4" />
+                        PDF
+                      </Link>
                     </div>
                   </div>
 

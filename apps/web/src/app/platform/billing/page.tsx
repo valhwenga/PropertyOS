@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import {
   Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
@@ -143,7 +144,13 @@ export default async function PlatformBillingPage() {
               return (
                 <tr key={i.id} className="align-top">
                   <Td>
-                    <span className="tabular font-medium">{i.invoiceNumber}</span>
+                    <Link
+                      href={`/platform/billing/${i.id}/invoice.pdf`}
+                      className="tabular font-medium underline decoration-ink-200 underline-offset-2 hover:decoration-ink-900"
+                      aria-label={`Download ${i.invoiceNumber} as a PDF`}
+                    >
+                      {i.invoiceNumber}
+                    </Link>
                     {i.supplierVatNumber ? null : (
                       <span className="mt-0.5 block text-xs text-ink-400">no tax shown</span>
                     )}

@@ -172,6 +172,10 @@ export interface SubscriptionInvoice {
   vatMinor: number;
   totalMinor: number;
   supplierVatNumber: string | null;
+  /** Who it was addressed to, as at issue. */
+  recipientName: string | null;
+  recipientAddress: string | null;
+  recipientVatNumber: string | null;
   status: 'issued' | 'paid' | 'void';
   paidOn: string | null;
   paidMinor: number | null;
@@ -244,7 +248,9 @@ export async function runSubscriptionBilling(
     { id: string; name: string; status: string; currency_code: string;
       plan_key: string; plan_name: string; included_units: number;
       monthly_price_minor: string; additional_unit_price_minor: string;
-      billable_units: number; already: string | null }[]
+      billable_units: number; already: string | null;
+      recipient_name: string | null; recipient_address: string | null;
+      recipient_vat_number: string | null }[]
   >`
     select o.id, o.name, o.status::text, o.currency_code,
            p.key as plan_key, p.name as plan_name, p.included_units,
@@ -252,11 +258,19 @@ export async function runSubscriptionBilling(
            coalesce(u.billable_units, 0) as billable_units,
            (select i.invoice_number from subscription_invoices i
              where i.organisation_id = o.id and i.period_start = ${periodStart}::date)
-             as already
+             as already,
+           -- Who to address it to, captured now and frozen on the row. The
+           -- customer's own profile is closed to an operator, so this comes
+           -- through a definer function that returns these three fields and
+           -- nothing else.
+           b.legal_name as recipient_name,
+           b.physical_address as recipient_address,
+           b.vat_number as recipient_vat_number
       from organisations o
       join subscriptions s on s.organisation_id = o.id
       join plans p on p.key = s.plan_key
       left join app.platform_customer_usage() u on u.organisation_id = o.id
+      left join lateral app.platform_customer_billing_identity(o.id) b on true
      order by o.name
   `;
 
@@ -330,14 +344,16 @@ export async function runSubscriptionBilling(
       insert into subscription_invoices (
         organisation_id, invoice_number, period_start, period_end, issue_date, due_date,
         currency_code, plan_key, plan_name, included_units, billable_units, units_over,
-        subtotal_minor, vat_rate_bp, vat_minor, total_minor, supplier_vat_number, created_by
+        subtotal_minor, vat_rate_bp, vat_minor, total_minor, supplier_vat_number, created_by,
+        recipient_name, recipient_address, recipient_vat_number
       ) values (
         ${c.id}, ${invoiceNumber}, ${periodStart}, ${periodEnd}, ${r.issueDate},
         (${r.issueDate}::date + ${biller.paymentTermsDays} * interval '1 day')::date,
         ${c.currency_code}, ${c.plan_key}, ${c.plan_name}, ${c.included_units},
         ${billable}, ${unitsOver},
         ${subtotal}, ${biller.chargesVat ? biller.vatRateBp : 0}, ${vat}, ${total},
-        ${biller.vatNumber}, ${operator.authUserId}::uuid
+        ${biller.vatNumber}, ${operator.authUserId}::uuid,
+        ${c.recipient_name ?? c.name}, ${c.recipient_address}, ${c.recipient_vat_number}
       )
       returning id
     `;
@@ -498,6 +514,8 @@ function mapInvoice(
     currency_code: string; plan_key: string; plan_name: string; included_units: number;
     billable_units: number; units_over: number; subtotal_minor: string; vat_rate_bp: number;
     vat_minor: string; total_minor: string; supplier_vat_number: string | null;
+    recipient_name: string | null; recipient_address: string | null;
+    recipient_vat_number: string | null;
     status: string; paid_on: string | null; paid_minor: string | null;
     payment_reference: string | null; void_reason: string | null;
   },
@@ -524,6 +542,9 @@ function mapInvoice(
     vatMinor: Number(row.vat_minor),
     totalMinor: Number(row.total_minor),
     supplierVatNumber: row.supplier_vat_number,
+    recipientName: row.recipient_name,
+    recipientAddress: row.recipient_address,
+    recipientVatNumber: row.recipient_vat_number,
     status: row.status as 'issued' | 'paid' | 'void',
     paidOn: row.paid_on,
     paidMinor: row.paid_minor === null ? null : Number(row.paid_minor),
@@ -539,7 +560,8 @@ const INVOICE_COLUMNS = `
   i.period_start::text, i.period_end::text, i.issue_date::text, i.due_date::text,
   i.currency_code, i.plan_key, i.plan_name, i.included_units, i.billable_units,
   i.units_over, i.subtotal_minor::text, i.vat_rate_bp, i.vat_minor::text,
-  i.total_minor::text, i.supplier_vat_number, i.status::text, i.paid_on::text,
+  i.total_minor::text, i.supplier_vat_number, i.recipient_name, i.recipient_address,
+  i.recipient_vat_number, i.status::text, i.paid_on::text,
   i.paid_minor::text, i.payment_reference, i.void_reason
 `;
 
@@ -616,6 +638,30 @@ export async function customerSubscriptionInvoices(
   const lines = await linesFor(tx, rows.map((r) => r.id));
   const [today] = await tx<{ d: string }[]>`select current_date::text as d`;
   return rows.map((r) => mapInvoice(r, lines.get(r.id) ?? [], today!.d));
+}
+
+/**
+ * One invoice, under whichever RLS context the caller has.
+ *
+ * The same function serves the customer's download and the operator's: who may
+ * read which invoice is the policies' business, and a caller who may not read
+ * it gets nothing rather than a refusal naming a document they cannot see.
+ */
+export async function subscriptionInvoiceById(
+  tx: Sql,
+  invoiceId: string,
+): Promise<SubscriptionInvoice | null> {
+  const rows = await tx<Parameters<typeof mapInvoice>[0][]>`
+    select ${tx.unsafe(INVOICE_COLUMNS)}
+      from subscription_invoices i
+      join organisations o on o.id = i.organisation_id
+     where i.id = ${invoiceId}::uuid
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  const lines = await linesFor(tx, [row.id]);
+  const [today] = await tx<{ d: string }[]>`select current_date::text as d`;
+  return mapInvoice(row, lines.get(row.id) ?? [], today!.d);
 }
 
 /** The supplier details printed on an invoice, readable by whoever holds one. */
