@@ -62,6 +62,24 @@ export default async function OnboardingPage({
         </a>
       </Card>
 
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div>
+          <p className="text-sm font-semibold text-ink-900">
+            And bring your documents across
+          </p>
+          <p className="text-sm text-ink-700">
+            Signed leases, identity documents and inspection reports you already hold, placed
+            against the right lease by the name of the file.
+          </p>
+        </div>
+        <a
+          href={`/app/${org}/onboarding/documents`}
+          className="rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50"
+        >
+          Import documents →
+        </a>
+      </Card>
+
       <nav aria-label="Import steps">
         <ol className="flex flex-wrap gap-2">
           {ORDER.map((step) => (

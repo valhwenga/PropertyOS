@@ -1045,3 +1045,106 @@ async function applyDeposits(
 
   return rows.length;
 }
+
+export interface DocumentMatch {
+  filename: string;
+  /** The lease this file belongs to, where the name says so unambiguously. */
+  leaseId: string | null;
+  leaseReference: string | null;
+  propertyId: string | null;
+  propertyCode: string | null;
+  /** Why it could not be placed, when it could not. */
+  unmatchedReason: string | null;
+}
+
+/**
+ * Works out which lease or property each file belongs to, from its name.
+ *
+ * Step 8 of the blueprint's import order is the documents, and it was the one
+ * step with no path at all: a landlord arriving with four hundred lease PDFs
+ * and ID copies had to attach them one at a time from each lease screen, which
+ * nobody does — so the contracts stay in a folder on somebody's laptop and the
+ * product holds leases with no lease agreement in them.
+ *
+ * Matching is on the references the product itself prints — a lease reference
+ * like `LSE-000007`, or a property code — because those are what a landlord
+ * exporting from their old system or renaming a folder can actually put in a
+ * filename. It is deliberately strict:
+ *
+ *   * a name containing exactly one known reference is matched;
+ *   * a name containing two is reported as ambiguous rather than guessed at,
+ *     because filing a tenant's ID copy against the wrong tenancy is the kind
+ *     of mistake nobody finds for a year;
+ *   * a name containing none is reported as unmatched, with what to rename it
+ *     to.
+ *
+ * It writes nothing. The caller shows this to the operator, who decides.
+ */
+export async function matchDocumentsToLeases(
+  tx: Sql,
+  organisationId: string,
+  filenames: string[],
+): Promise<DocumentMatch[]> {
+  await requirePermission(tx, organisationId, 'document.manage');
+
+  const leases = await tx<{ id: string; reference: string }[]>`
+    select id, reference from leases where organisation_id = ${organisationId}::uuid
+  `;
+  const properties = await tx<{ id: string; code: string }[]>`
+    select id, code from properties
+     where organisation_id = ${organisationId}::uuid and code is not null
+  `;
+
+  return filenames.map((filename) => {
+    const haystack = filename.toUpperCase();
+    const leaseHits = leases.filter((l) => haystack.includes(l.reference.toUpperCase()));
+    // Property codes are short and can appear inside other words, so they are
+    // matched on a whole token rather than anywhere in the name: a code "A1"
+    // must not claim "FLAT-A12-LEASE.PDF".
+    const tokens = new Set(haystack.split(/[^A-Z0-9]+/).filter(Boolean));
+    const propertyHits = properties.filter((p) => tokens.has(p.code.toUpperCase()));
+
+    if (leaseHits.length === 1) {
+      return {
+        filename,
+        leaseId: leaseHits[0]!.id,
+        leaseReference: leaseHits[0]!.reference,
+        propertyId: null,
+        propertyCode: null,
+        unmatchedReason: null,
+      };
+    }
+    if (leaseHits.length > 1) {
+      return {
+        filename,
+        leaseId: null, leaseReference: null, propertyId: null, propertyCode: null,
+        unmatchedReason: `The name mentions ${leaseHits.length} leases `
+          + `(${leaseHits.map((l) => l.reference).join(', ')}), so it is not clear which it `
+          + 'belongs to. Rename it to name one.',
+      };
+    }
+    if (propertyHits.length === 1) {
+      return {
+        filename,
+        leaseId: null, leaseReference: null,
+        propertyId: propertyHits[0]!.id,
+        propertyCode: propertyHits[0]!.code,
+        unmatchedReason: null,
+      };
+    }
+    if (propertyHits.length > 1) {
+      return {
+        filename,
+        leaseId: null, leaseReference: null, propertyId: null, propertyCode: null,
+        unmatchedReason: `The name mentions ${propertyHits.length} property codes, so it is `
+          + 'not clear which it belongs to.',
+      };
+    }
+    return {
+      filename,
+      leaseId: null, leaseReference: null, propertyId: null, propertyCode: null,
+      unmatchedReason: 'No lease reference or property code in the name. Include one, for '
+        + 'example LSE-000007-lease.pdf, or upload it from the lease itself.',
+    };
+  });
+}
