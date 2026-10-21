@@ -284,6 +284,13 @@ export async function renewLease(
       action: 'lease.renewed', resourceType: 'lease', resourceId: created.id,
       after: { supersedes: original.id, reference, rentMinor: params.newRentMinor.toString() },
     });
+    await emitEvent(tx, {
+      organisationId,
+      eventType: 'lease.renewed',
+      resourceType: 'lease',
+      resourceId: created.id,
+      payload: { supersedes: original.id, startDate: params.newStartDate },
+    });
     return { leaseId: created.id, reference };
   } catch (error) {
     if (error instanceof DomainError) throw error;
@@ -325,6 +332,13 @@ export async function expireLease(
     organisationId, actorUserId,
     action: 'lease.expired', resourceType: 'lease', resourceId: params.leaseId,
     after: { holdover: params.holdover },
+  });
+  await emitEvent(tx, {
+    organisationId,
+    eventType: 'lease.expired',
+    resourceType: 'lease',
+    resourceId: params.leaseId,
+    payload: { holdover: params.holdover, endDate: lease.end_date },
   });
 }
 

@@ -5,7 +5,9 @@ import { Button, Card, ErrorState, StatusBadge } from '@propertyos/ui';
 import { DateField } from '@/components/date-field';
 import { DeliveryNote } from '@/components/delivery-note';
 import { FieldErrors } from '@/components/field-errors';
-import { extendLeaseAction, terminateLeaseAction } from './actions';
+import {
+  expireLeaseAction, extendLeaseAction, renewLeaseAction, terminateLeaseAction,
+} from './actions';
 
 /**
  * Dates arrive already formatted.
@@ -28,6 +30,18 @@ export interface LifecycleEvent {
 const FIELD = 'w-full rounded-lg border border-ink-200 bg-surface px-3 py-2 text-sm text-ink-900';
 
 /**
+ * The day after an ISO date, as the natural start of a renewal.
+ *
+ * Done on the UTC calendar rather than with a local Date, so the suggestion
+ * does not shift by a day for somebody whose browser is west of Greenwich.
+ */
+function nextDay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const next = new Date(Date.UTC(y!, (m ?? 1) - 1, (d ?? 1) + 1));
+  return next.toISOString().slice(0, 10);
+}
+
+/**
  * Ending or extending the lease, and the record of both.
  *
  * The reason is required by the database, not just by this form: the history
@@ -35,15 +49,26 @@ const FIELD = 'w-full rounded-lg border border-ink-200 bg-surface px-3 py-2 text
  * cannot end without someone saying why.
  */
 export function LifecyclePanel({
-  org, leaseId, status, endDateDisplay, events,
+  org, leaseId, status, endDateDisplay, events, endDate, termEnded, rentMajor, suggestedEnd,
 }: {
   org: string; leaseId: string; status: string; endDateDisplay: string | null;
   events: LifecycleEvent[];
+  /** ISO. `DateField` formats it; a display string leaves the field empty. */
+  endDate: string | null;
+  /** Whether the end date has passed, which is when expiring is the honest option. */
+  termEnded: boolean;
+  /** The current rent in major units, as a renewal's starting point. */
+  rentMajor: string;
+  /** A year after the new term starts, as ISO. */
+  suggestedEnd: string | null;
 }) {
   const [termState, termAction, terminating] = useActionState(terminateLeaseAction, null);
   const [extState, extAction, extending] = useActionState(extendLeaseAction, null);
-  const [open, setOpen] = useState<'none' | 'end' | 'extend'>('none');
+  const [expState, expAction, expiring] = useActionState(expireLeaseAction, null);
+  const [renState, renAction, renewing] = useActionState(renewLeaseAction, null);
+  const [open, setOpen] = useState<'none' | 'end' | 'extend' | 'expire' | 'renew'>('none');
   const ended = status === 'closed' || status === 'cancelled';
+  const expired = status === 'expired';
 
   return (
     <section className="space-y-3">
@@ -54,15 +79,33 @@ export function LifecyclePanel({
         {ended ? (
           <StatusBadge tone="neutral">This lease has ended</StatusBadge>
         ) : (
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setOpen(open === 'extend' ? 'none' : 'extend')}
+          <div className="flex flex-wrap gap-2">
+            {expired ? null : (
+              <button type="button" onClick={() => setOpen(open === 'extend' ? 'none' : 'extend')}
+                      className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm text-ink-700">
+                Extend
+              </button>
+            )}
+            <button type="button" onClick={() => setOpen(open === 'renew' ? 'none' : 'renew')}
                     className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm text-ink-700">
-              Extend
+              Renew for a new term
             </button>
-            <button type="button" onClick={() => setOpen(open === 'end' ? 'none' : 'end')}
-                    className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm text-ink-700">
-              End the lease
-            </button>
+            {/* Offered once the term has actually run out. On a lease with
+                months to run, ending early is `terminate` with a reason, and
+                calling that "expired" would record something that did not
+                happen. */}
+            {termEnded && !expired ? (
+              <button type="button" onClick={() => setOpen(open === 'expire' ? 'none' : 'expire')}
+                      className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm text-ink-700">
+                The term has ended
+              </button>
+            ) : null}
+            {expired ? null : (
+              <button type="button" onClick={() => setOpen(open === 'end' ? 'none' : 'end')}
+                      className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm text-ink-700">
+                End the lease
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -82,6 +125,110 @@ export function LifecyclePanel({
           inbox={extState.inbox} email={extState.email} emailDetail={extState.emailDetail}
           nobody="The lease has been extended. Nobody on it has a portal account, so no notice was sent."
         />
+      ) : null}
+
+      {termEnded && !expired && !ended && open === 'none' ? (
+        <Card className="border-caution-700/25 bg-caution-50 p-4">
+          <p className="text-sm font-semibold text-caution-700">
+            This lease's term ended {endDateDisplay}, and it is still recorded as {status}
+          </p>
+          <p className="mt-1 text-sm text-ink-700">
+            Nothing happens on its own: the product does not guess whether the tenant left or
+            stayed on. Record which it was with <strong>The term has ended</strong>, or agree a
+            new term with <strong>Renew for a new term</strong>.
+          </p>
+        </Card>
+      ) : null}
+
+      {open === 'renew' && !ended ? (
+        <Card className="p-4">
+          <form action={renAction} className="space-y-3">
+            <input type="hidden" name="org" value={org} />
+            <input type="hidden" name="leaseId" value={leaseId} />
+            {renState && !renState.ok ? (
+              <div>
+                <ErrorState title="Could not renew this lease" detail={renState.message}
+                            correlationId={renState.correlationId} />
+                <FieldErrors errors={renState.fieldErrors} />
+              </div>
+            ) : null}
+            {renState?.ok ? (
+              <p className="text-sm font-medium text-positive-600">
+                {(renState as unknown as { reference: string }).reference} drafted for the new
+                term. It is a draft: open it and activate it when the renewal is signed —
+                nothing is billed and the unit is not reserved for it until you do.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-ink-700">
+                  A renewal is a new lease linked to this one. This one keeps its history and
+                  its arrears; the successor starts as a <strong>draft</strong> and goes
+                  through the same activation step, because a renewal is an agreement rather
+                  than a number somebody typed.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <DateField name="newStartDate" label="New term starts" required
+                             value={endDate ? nextDay(endDate) : null}
+                             hint={endDateDisplay ? `The current term ends ${endDateDisplay}.` : undefined} />
+                  <DateField name="newEndDate" label="New term ends" value={suggestedEnd}
+                             hint="Leave empty for a month-to-month renewal." />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink-700" htmlFor="newRent">
+                    Rent for the new term
+                  </label>
+                  <input id="newRent" name="newRent" required defaultValue={rentMajor}
+                         inputMode="decimal" className={`mt-1 ${FIELD}`} />
+                  <p className="mt-1 text-xs text-ink-500">
+                    The current rent, as a starting point. An agreed escalation goes in here —
+                    this does not apply one for you.
+                  </p>
+                </div>
+                <Button type="submit" variant="primary" disabled={renewing}>
+                  {renewing ? 'Drafting…' : 'Draft the renewal'}
+                </Button>
+              </>
+            )}
+          </form>
+        </Card>
+      ) : null}
+
+      {open === 'expire' && termEnded && !expired && !ended ? (
+        <Card className="p-4">
+          <form action={expAction} className="space-y-3">
+            <input type="hidden" name="org" value={org} />
+            <input type="hidden" name="leaseId" value={leaseId} />
+            {expState && !expState.ok ? (
+              <ErrorState title="Could not record the end of the term" detail={expState.message}
+                          correlationId={expState.correlationId} />
+            ) : null}
+            <p className="text-sm text-ink-700">
+              This records that the term ran out. It does not clear arrears, and it does not
+              close the lease: charges already posted stay posted and any balance remains
+              payable.
+            </p>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-ink-700">Has the tenant moved out?</legend>
+              <label className="flex items-start gap-2 text-sm text-ink-700">
+                <input type="radio" name="holdover" value="no" defaultChecked className="mt-1" />
+                <span>
+                  Yes, they have left. The occupancy record is closed at the end of the term.
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-ink-700">
+                <input type="radio" name="holdover" value="yes" className="mt-1" />
+                <span>
+                  No, they are still there. Recorded as a <strong>holdover</strong>: the
+                  occupancy stays open and marked, because somebody living in a unit is a fact
+                  and the lease running out does not change it.
+                </span>
+              </label>
+            </fieldset>
+            <Button type="submit" disabled={expiring}>
+              {expiring ? 'Recording…' : 'Record the end of the term'}
+            </Button>
+          </form>
+        </Card>
       ) : null}
 
       {open === 'extend' && !ended ? (

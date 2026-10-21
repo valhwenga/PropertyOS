@@ -1,7 +1,7 @@
 /**
  * The resident portal's sections, and which one a page belongs to.
  *
- * Five, in the order a resident needs them, and labelled the way a resident
+ * Six, in the order a resident needs them, and labelled the way a resident
  * would say them: Home rather than Overview, Maintenance rather than Requests,
  * Lease details rather than Your lease.
  *
@@ -36,6 +36,12 @@ export const PORTAL_SECTIONS: readonly PortalSection[] = [
   { href: '/requests', label: 'Maintenance', hint: 'Problems you have reported', primary: true, glyph: '✸' },
   { href: '/documents', label: 'Documents', hint: 'Files shared with you', primary: true, glyph: '🗎' },
   { href: '/lease', label: 'Lease details', hint: 'Dates, rent terms and who to contact', primary: false, glyph: '≡' },
+  // Behind More rather than on the bottom bar: a resident reads an inspection
+  // report once or twice in a tenancy, and the four primary sections are what
+  // fits across a 360px screen. It is still a section of its own, because a
+  // report that can cost somebody their deposit should not be buried inside
+  // Documents as a file.
+  { href: '/inspections', label: 'Inspections', hint: 'Reports on your home, and your response', primary: false, glyph: '◉' },
 ] as const;
 
 export const PRIMARY_SECTIONS = PORTAL_SECTIONS.filter((s) => s.primary);

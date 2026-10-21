@@ -304,6 +304,33 @@ export async function loadPendingApprovals(tx: Sql, organisationId: string) {
  * matching exists yet, and the page says so rather than implying otherwise.
  */
 export async function loadReconciliation(tx: Sql, organisationId: string) {
+  /**
+   * Every recent receipt, applied or not.
+   *
+   * The page listed `unmatched` only — money not yet on a charge — so a
+   * receipt that had been fully applied appeared in no list anywhere and could
+   * be reached only by somebody who still had its URL. That made the control
+   * for reversing a receipt that should never have been recorded unreachable
+   * for the commonest case, and it made the page's own "Everything" tab a
+   * subset. 200 is the same cap the unmatched list uses.
+   */
+  const recent = await tx<
+    { receipt_id: string; receipt_number: string; received_on: string;
+      lease_reference: string | null; amount_minor: string; unapplied_minor: string;
+      in_suspense: boolean; currency_code: string; status: string }[]
+  >`
+    select rb.receipt_id, rb.receipt_number, rb.received_on::text, rb.currency_code,
+           rb.amount_minor::text, rb.unapplied_minor::text, rb.in_suspense,
+           r.status::text,
+           l.reference as lease_reference
+    from receipt_balances rb
+    join receipts r on r.id = rb.receipt_id
+    left join leases l on l.id = rb.lease_id
+    where rb.organisation_id = ${organisationId}::uuid
+    order by rb.received_on desc, rb.receipt_number desc
+    limit 200
+  `;
+
   const unmatched = await tx<
     { receipt_id: string; receipt_number: string; received_on: string; lease_reference: string | null;
       amount_minor: string; unapplied_minor: string; in_suspense: boolean; currency_code: string }[]
@@ -354,6 +381,7 @@ export async function loadReconciliation(tx: Sql, organisationId: string) {
 
   return {
     unmatched,
+    recent,
     evidence,
     everRecordedAReceipt: seen?.any_receipt ?? false,
     everReceivedEvidence: seen?.any_evidence ?? false,

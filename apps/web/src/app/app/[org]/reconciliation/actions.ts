@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import {
   allocateReceipt, confirmReceipt, identifySuspenseReceipt, parseMajorToMinor,
-  reverseAllocation, reviewPaymentEvidence, suggestAllocation, withIdempotency,
+  reverseAllocation, reverseReceipt, reviewPaymentEvidence, suggestAllocation,
+  withIdempotency,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
@@ -176,6 +177,41 @@ export async function reverseAllocationAction(_previous: unknown, formData: Form
     return { reversed: true };
   });
   if (result.ok) revalidatePath(`/app/${org}/reconciliation/${receiptId}`);
+  return result;
+}
+
+/**
+ * Reversing a whole receipt: the money did not arrive after all.
+ *
+ * `reverseReceipt` existed with tests and no screen, which left the product
+ * able to record money and unable to unrecord it. The cases are ordinary — a
+ * cheque bounced, the same EFT was captured twice, a deposit slip was keyed
+ * against the wrong landlord — and the alternative to a control was a
+ * developer with a database connection.
+ *
+ * Distinct from reversing an ALLOCATION, which already had a form: that
+ * un-applies money from a charge and leaves the receipt holding funds. This
+ * says the receipt itself was wrong, so it reverses every allocation still
+ * live on it first and marks the receipt failed. Nothing is deleted: both the
+ * original journal and its reversal stay in the ledger, which is what makes a
+ * month that has been reported on still add up.
+ */
+export async function reverseReceiptAction(_previous: unknown, formData: FormData) {
+  const org = str(formData, 'org');
+  const receiptId = str(formData, 'receiptId');
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    const outcome = await reverseReceipt(tx, context.organisationId, viewer.authUserId, {
+      receiptId,
+      postingDate: str(formData, 'postingDate'),
+      reason: str(formData, 'reason'),
+    });
+    return outcome;
+  });
+  if (result.ok) {
+    revalidatePath(`/app/${org}/reconciliation/${receiptId}`);
+    revalidatePath(`/app/${org}/reconciliation`);
+  }
   return result;
 }
 

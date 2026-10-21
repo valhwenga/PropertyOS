@@ -41,7 +41,9 @@ export default async function ReconciliationPage({
   const { org } = await params;
   const { filter, lease, amount, bankLine, on, reference } = await searchParams;
   const context = await requireOperator(org);
-  const { unmatched, evidence, everRecordedAReceipt, everReceivedEvidence, leases, openLines } =
+  const {
+    unmatched, recent, evidence, everRecordedAReceipt, everReceivedEvidence, leases, openLines,
+  } =
     await readAs(context.viewer, async (tx) => ({
       ...(await loadReconciliation(tx, context.organisationId)),
       leases: await loadLeaseChoices(tx, context.organisationId),
@@ -71,6 +73,14 @@ export default async function ReconciliationPage({
   const showEvidence = current !== 'unmatched';
 
   const inSuspense = unmatched.filter((r) => r.in_suspense).length;
+  // Only on "Everything", and only the ones the list above does not already
+  // show: two tables repeating the same rows would read as a duplicate rather
+  // than as a wider view. Before this, a fully applied receipt appeared in no
+  // list at all and could be reached only by somebody who still had its URL —
+  // so the control for reversing one was unreachable for the commonest case.
+  const applied = current === 'all'
+    ? recent.filter((r) => BigInt(r.unapplied_minor) === 0n)
+    : [];
 
   return (
     <div className="space-y-5">
@@ -202,6 +212,50 @@ export default async function ReconciliationPage({
               ))}
             </DataTable>
           )}
+        </Panel>
+      ) : null}
+
+      {applied.length > 0 ? (
+        <Panel
+          title="Money already applied"
+          description="Receipts with nothing left unapplied. Open one to see what it paid, or to reverse it if the payment itself was wrong."
+        >
+          <DataTable
+            caption="Applied receipts"
+            head={
+              <tr>
+                <Th>Received</Th><Th>Receipt</Th><Th>Lease</Th>
+                <Th>State</Th><Th numeric>Amount</Th>
+              </tr>
+            }
+          >
+            {applied.map((r) => (
+              <tr key={r.receipt_id}>
+                <Td className="whitespace-nowrap text-ink-500">
+                  {formatDate(r.received_on, context.timeZone)}
+                </Td>
+                <Td>
+                  <Link
+                    href={`${base}/${r.receipt_id}`}
+                    className="technical font-medium text-spike-600 hover:underline"
+                  >
+                    {r.receipt_number}
+                  </Link>
+                </Td>
+                <Td className="technical text-ink-700">{r.lease_reference ?? '—'}</Td>
+                <Td>
+                  {r.status === 'failed' ? (
+                    <StatusBadge tone="neutral">Reversed</StatusBadge>
+                  ) : (
+                    <StatusBadge tone="positive">Fully applied</StatusBadge>
+                  )}
+                </Td>
+                <Td numeric>
+                  <Money minor={BigInt(r.amount_minor)} currency={r.currency_code} />
+                </Td>
+              </tr>
+            ))}
+          </DataTable>
         </Panel>
       ) : null}
 

@@ -3,6 +3,15 @@
 This document is deliberately blunt. The interface rendering is not evidence
 that the product is finished.
 
+**Last reconciled against the code: 21 October 2026.** Three rows in it had
+gone stale in the safe direction — MFA enrolment, customer provisioning and the
+bank import UI were all listed as not built and all three exist — which is its
+own kind of untrue: a reader cannot tell which half of a document that
+understates is also wrong the other way. Where this file and
+`docs/MVP-RECONCILIATION.md` disagree, the reconciliation document is the one
+kept current per feature; this one is the register of what is **missing**, and
+a row here that says "not built" has to still be true.
+
 ## Not production ready
 
 PropertyOS has **not** completed: an independent financial reconciliation, a
@@ -18,17 +27,19 @@ residents until those are done.
 | Malware scanning | **Client implemented, no daemon deployed** | A ClamAV INSTREAM client, tested against a mock daemon for every documented reply shape. With `MALWARE_SCANNER` unset (the default) uploads are recorded `skipped_not_configured` and stay **quarantined**; a quarantined file cannot be shared, enforced by a database check constraint. A failed or timed-out scan is never treated as clean. **No clamd instance is deployed**, and the client has not been run against a real daemon. |
 | Supabase Auth sign-in | **Implemented, not verified against a live project** | The adapter signs in and verifies MFA challenges over Supabase's REST API and reads the `aal` claim rather than assuming it. No code path has run against a real Supabase project, so password policy, breach detection and account recovery are unexercised. |
 | Multi-factor authentication | **Enforced** | Part of permission resolution in the database (`app.has_permission` requires `aal2` for MFA-gated roles), so application code cannot bypass it. The local provider implements RFC 6238 TOTP with replay protection; Supabase owns verification in production. 13 tests. |
-| MFA enrolment UI | Not built | Factors can be created programmatically; there is no screen for a user to enrol or to view recovery codes. Recovery codes are not implemented at all. |
+| MFA enrolment UI | **Built** (was wrongly listed here as not built) | `/account/security`: enrol with a confirmation code, recovery codes issued at enrolment and shown once, re-issue, remove, and sign-in with a recovery code. Migration 0045 added the recovery codes, hashed and single-use. There is no administrator reset and no Spike reset, deliberately: anybody who could clear a colleague's factor could take over their account. |
 | Session revocation | Time-based only | No server-side session store, so a stolen cookie is valid until it expires (8 hours). Membership and portal-link revocation take effect on the next request, which limits the blast radius. |
 | Supabase Storage | **Implemented, not run against a real bucket** | Upload, read, signed-URL and delete against a private bucket, using the service role key server-side only. The local filesystem adapter is fully exercised end to end (15 HTTP checks). The Supabase path has never run against a live project. |
-| Bank CSV import UI | Schema, deduplication and matching constraints complete | The import screen and mapping preview are not built. Duplicate protection is enforced at database level and covered by tests. |
+| Bank CSV import UI | **Built** (was wrongly listed here as not built) | Preview before commit, overlapping statements, suggested payers that stay suggestions, and lines set aside with a reason. Duplicate protection is enforced at database level and covered by tests. |
 | Content Security Policy | Permits `'unsafe-inline'` for scripts | Required by Next's inline hydration bootstrap. Tightening to a nonce-based policy is outstanding. |
 | Rent payment provider | **Deliberately disabled** | See `docs/decisions/0004-money-flow.md`. Not to be enabled before merchant ownership and settlement are confirmed in writing. |
 | Contractor portal | Schema and assignment model only | Phase 2 per the blueprint. Contractor-visible comments and attachments are already separated in the data model and enforced by RLS, ready for that portal. |
 | Document upload UI | **Built for operators** | Upload with validation, scanning and quarantine; share control; authorised download. The resident photo attachment on a maintenance request is still not built. |
-| Inspection capture UI | Commands, versioning and resident response complete | The inspector's item-by-item capture screen and photo attachment are not built. |
+| Lease lifecycle | **Built** | Draft, **activate**, extend, terminate, **record the end of the term** (including a holdover) and **renew into a draft successor**. Activation had existed in the domain since the first milestone with no screen at all, so until 21 October 2026 a lease drafted in the product never billed anything; renewal had no caller anywhere in the repository. Nothing expires a lease automatically, by decision: whether the tenant left or stayed on is a fact only a person knows. |
+| Receipt correction | **Built** | A confirmed receipt can be reversed with a reason — a bounced cheque, a double capture, a slip keyed against the wrong landlord — which reverses every allocation still live on it first. Nothing is deleted: the original entries and their reversal both stay in the ledger. |
+| Inspection capture UI | Commands, versioning and the resident's response **built**; the inspector's screen is not | A resident reads a finalised report and agrees or disputes it at `/portal/<lease>/inspections` — that had been listed here as complete while `respondToInspection` had no screen anywhere, which is the gap that matters most of the two, because a report can cost a tenant their deposit. **The inspector's item-by-item capture screen and photo attachment are still not built**: an inspection is created, filled in and finalised programmatically or by the seed. |
 | Owner portal | Scope functions and policies exist | Phase 2 per the blueprint. `app.owns_property` and the owner read policies are in place. |
-| Customer provisioning UI | `createOrganisationWithOwner` and the platform console exist | Self-service sign-up and the operator "provision a customer" form are not built; organisations are currently created by the seed script or programmatically. |
+| Customer provisioning UI | **Partly built** (the operator form was wrongly listed here as missing) | The operator form exists at `/platform/new`: Spike provisions a customer and invites its first administrator, and a provisioned organisation starts with **nobody in it**. **Self-service sign-up is still not built** — a landlord cannot create their own organisation, so every customer arrives through Spike. |
 | CSV onboarding import | **Built** | Seven import kinds in the blueprint's order, with downloadable templates, row-and-field validation that writes nothing, and all-or-nothing commits. Opening balances require a cut-off date, source reference and approval. See `docs/runbooks/onboarding.md`. Document import (step 8 in the blueprint) is still not built, and there is no bulk portal-invitation step. |
 | PDF statement export | **Built** | Operator and resident PDF statements, generated by a dependency-free writer and verified by an independent parser (`pdftotext`) in the test suite. **Limit: WinAnsi text only.** English and Afrikaans including diacritics render correctly; Greek, Cyrillic and CJK are replaced with `?` rather than producing a corrupt file. Supporting those needs an embedded TrueType font, which the writer deliberately does not do. |
 | Utilities (meters, tariffs) | Phase 2 | MVP supports reviewed, manually entered utility charges only. |
@@ -170,6 +181,11 @@ way that fails safe until someone with the relevant authority decides.
   application, redeeming a tenancy invitation) will also buffer a body that
   large. Moving uploads to route handlers, which stream and can be limited
   individually, would remove that exposure and is not done.
+* **Nothing chases Spike's own money.** A subscription invoice is issued from the
+  platform console and a payment is recorded by hand from Spike's bank
+  statement. There is no payment provider, no debit order, no dunning, no trial
+  expiry and no proration when a plan changes mid-period, so "outstanding"
+  means "not yet recorded as received" rather than "unpaid".
 * **Idempotency covers the commands that create records, not every command.**
   Recording a receipt or a deposit, drafting an expense, and a resident's proof
   of payment or maintenance request are each protected by a per-form key. The

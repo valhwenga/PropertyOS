@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  activateLease, extendLease, invalid, parseDayMonthYear, terminateLease,
+  activateLease, expireLease, extendLease, invalid, parseDayMonthYear, parseMajorToMinor,
+  renewLease, terminateLease,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 import { requireOperator } from '@/lib/auth';
@@ -59,6 +60,84 @@ export async function activateLeaseAction(_previous: unknown, formData: FormData
     return outcome;
   });
   if (result.ok) revalidatePath(`/app/${org}/leases/${leaseId}`);
+  return result;
+}
+
+/**
+ * Recording that a lease has run its course.
+ *
+ * `expireLease` existed with one test, no screen and no scheduled job, and
+ * nothing else in the product writes the `expired` status — so a tenancy that
+ * reached its end date stayed `active` for ever. Both demo leases will do
+ * exactly that in December 2026 unless somebody says otherwise.
+ *
+ * It is NOT done automatically on the end date, and that is a decision rather
+ * than laziness: whether the tenant actually left, or stayed on as a holdover,
+ * is a fact about the world that only a person knows. A job that marked leases
+ * expired at midnight would be guessing, and the guess would quietly end
+ * somebody's occupancy record.
+ */
+export async function expireLeaseAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org'));
+  const leaseId = String(formData.get('leaseId'));
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    await expireLease(tx, context.organisationId, viewer.authUserId, {
+      leaseId,
+      // "Still there" is the holdover case the blueprint names: the term ended
+      // and the occupant has not moved out. The occupancy interval stays open
+      // and is marked, rather than being closed as though they had left.
+      holdover: String(formData.get('holdover') ?? '') === 'yes',
+    });
+    return {};
+  });
+  if (result.ok) revalidatePath(`/app/${org}/leases/${leaseId}`);
+  return result;
+}
+
+/**
+ * Renewing a lease: a new term, as a draft successor.
+ *
+ * `renewLease` had **no references anywhere in this repository** — not a
+ * screen, not a test — so the only way to continue a tenancy was to draft a
+ * fresh lease by hand and lose the link between the two.
+ *
+ * The successor is a DRAFT on purpose. A renewal is an agreement, and the
+ * product should not quietly reserve a unit and start billing a new rent
+ * because somebody typed a number: it goes through the same activation step,
+ * with the same requirement of a signed contract or a recorded reason, as any
+ * other lease.
+ */
+export async function renewLeaseAction(_previous: unknown, formData: FormData) {
+  const org = String(formData.get('org'));
+  const leaseId = String(formData.get('leaseId'));
+
+  const result = await command(async ({ tx, viewer }) => {
+    const context = await requireOperator(org);
+    const typedStart = String(formData.get('newStartDate') ?? '').trim();
+    const newStartDate = parseDayMonthYear(typedStart);
+    if (!newStartDate) throw invalid('Enter the new start date as dd/mm/yyyy.');
+
+    const typedEnd = String(formData.get('newEndDate') ?? '').trim();
+    const newEndDate = typedEnd ? parseDayMonthYear(typedEnd) : null;
+    if (typedEnd && !newEndDate) throw invalid('Enter the new end date as dd/mm/yyyy.');
+
+    const rent = String(formData.get('newRent') ?? '').trim();
+    if (!rent) throw invalid('Say what the rent is for the new term.');
+
+    const renewal = await renewLease(tx, context.organisationId, viewer.authUserId, {
+      leaseId,
+      newStartDate,
+      ...(newEndDate ? { newEndDate } : {}),
+      newRentMinor: parseMajorToMinor(rent, context.currencyCode),
+    });
+    return renewal;
+  });
+  if (result.ok) {
+    revalidatePath(`/app/${org}/leases/${leaseId}`);
+    revalidatePath(`/app/${org}/leases`);
+  }
   return result;
 }
 

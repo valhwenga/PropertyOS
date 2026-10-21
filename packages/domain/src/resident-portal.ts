@@ -142,3 +142,102 @@ export async function residentEmergencyContact(
   `;
   return row?.contact ?? null;
 }
+
+export interface ResidentInspection {
+  id: string;
+  inspectionType: 'move_in' | 'move_out' | 'routine' | 'other';
+  performedOn: string | null;
+  finalisedAt: string | null;
+  status: string;
+  inspectorName: string | null;
+  keysHandedOver: string | null;
+  items: Array<{
+    id: string; room: string; item: string;
+    condition: string; damageType: string | null; note: string | null;
+  }>;
+  /** This resident's own answer, if they have given one. */
+  myResponse: { response: string; comment: string | null; respondedAt: string } | null;
+}
+
+/**
+ * The inspections of this tenancy that the resident is entitled to see, with
+ * their own response to each.
+ *
+ * `respondToInspection` has existed with tests and no screen, so a report
+ * recording damage against somebody's deposit could be finalised and there was
+ * no way for them to agree or disagree with it — the one document in this
+ * product most likely to cost a tenant money, and the only one they could not
+ * answer.
+ *
+ * Read under the resident's own row-level security:
+ * `app.resident_inspection_ids()` already limits them to finalised
+ * inspections on their own leases, so an inspector's draft is not reachable
+ * here and this adds no second opinion about who may see what.
+ *
+ * `myResponse` is this resident's row only. A co-tenant's answer is their own
+ * business, and showing it would turn a dispute between two people on one
+ * lease into something each could read about the other.
+ */
+export async function residentInspections(
+  tx: Sql,
+  leaseId: string,
+  residentId: string,
+): Promise<ResidentInspection[]> {
+  const rows = await tx<
+    { id: string; inspection_type: string; performed_on: string | null;
+      finalised_at: string | null; status: string; inspector_name: string | null;
+      keys_handed_over: string | null }[]
+  >`
+    select i.id, i.inspection_type::text, i.performed_on::text, i.finalised_at::text,
+           i.status::text, i.keys_handed_over::text,
+           (select full_name from user_profiles up where up.auth_user_id = i.inspector_user_id)
+             as inspector_name
+      from inspections i
+     where i.lease_id = ${leaseId}::uuid
+       and i.status in ('finalised', 'acknowledged', 'disputed')
+     order by coalesce(i.performed_on, i.finalised_at::date) desc
+     limit 50
+  `;
+  if (rows.length === 0) return [];
+
+  const ids = rows.map((r) => r.id);
+  const items = await tx<
+    { inspection_id: string; id: string; room: string; item: string;
+      condition: string; damage_type: string | null; note: string | null }[]
+  >`
+    select inspection_id, id, room, item, condition::text, damage_type::text, note
+      from inspection_items
+     where inspection_id = any(${ids}::uuid[])
+     order by inspection_id, sort_order, room, item
+  `;
+  const mine = await tx<
+    { inspection_id: string; response: string; comment: string | null; responded_at: string }[]
+  >`
+    select inspection_id, response::text, comment, responded_at::text
+      from inspection_acknowledgements
+     where inspection_id = any(${ids}::uuid[])
+       and resident_id = ${residentId}::uuid
+  `;
+
+  return rows.map((r) => ({
+    id: r.id,
+    inspectionType: r.inspection_type as ResidentInspection['inspectionType'],
+    performedOn: r.performed_on,
+    finalisedAt: r.finalised_at,
+    status: r.status,
+    inspectorName: r.inspector_name,
+    keysHandedOver: r.keys_handed_over,
+    items: items
+      .filter((i) => i.inspection_id === r.id)
+      .map((i) => ({
+        id: i.id, room: i.room, item: i.item, condition: i.condition,
+        damageType: i.damage_type, note: i.note,
+      })),
+    myResponse: (() => {
+      const answer = mine.find((m) => m.inspection_id === r.id);
+      return answer
+        ? { response: answer.response, comment: answer.comment, respondedAt: answer.responded_at }
+        : null;
+    })(),
+  }));
+}

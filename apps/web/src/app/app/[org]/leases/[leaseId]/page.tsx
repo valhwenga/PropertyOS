@@ -24,6 +24,18 @@ import { PortalAccessPanel } from './portal-panel';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 
+/**
+ * A year after an ISO date, as the default length of a renewal.
+ *
+ * On the UTC calendar: a local Date would move the suggestion by a day for
+ * anybody west of Greenwich, and a lease that starts a day early is a lease
+ * that bills a day early.
+ */
+function aYearOn(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC((y ?? 0) + 1, (m ?? 1) - 1, (d ?? 1))).toISOString().slice(0, 10);
+}
+
 export const metadata = { title: 'Lease account' };
 export const dynamic = 'force-dynamic';
 
@@ -638,6 +650,14 @@ export default async function LeaseDetailPage({
           org={org}
           leaseId={leaseId}
           status={data.lease.status}
+          endDate={data.lease.end_date}
+          // Whether the term has actually run out, decided in the
+          // organisation's own time zone rather than the server's.
+          termEnded={Boolean(
+            data.lease.end_date && data.lease.end_date < todayIn(context.timeZone),
+          )}
+          rentMajor={minorToMajorInput(BigInt(data.lease.rent_minor), data.lease.currency_code)}
+          suggestedEnd={data.lease.end_date ? aYearOn(data.lease.end_date) : null}
           endDateDisplay={data.lease.end_date ? formatDate(data.lease.end_date, context.timeZone) : null}
           events={data.lifecycle.map((e) => ({
             id: e.id, kind: e.kind, reason: e.reason, recordedBy: e.recordedBy,

@@ -5,7 +5,9 @@ import { Card, EmptyState, Money, PageHeader, StatusBadge } from '@propertyos/ui
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadLeaseChoices, loadReceiptForAllocation } from '@/lib/operations-queries';
-import { AllocateForm, IdentifyForm, ReverseForm } from './allocation-forms';
+import {
+  AllocateForm, IdentifyForm, ReverseForm, ReverseReceiptForm,
+} from './allocation-forms';
 
 export const metadata = { title: 'Receipt' };
 export const dynamic = 'force-dynamic';
@@ -159,6 +161,26 @@ export default async function ReceiptPage({
           }))}
         />
       )}
+
+      {/* The receipt itself was wrong — a bounced cheque, a double capture, a
+          slip keyed against the wrong landlord. Distinct from reversing one
+          allocation, and offered only while the receipt is confirmed: nothing
+          else can be reversed. */}
+      {receipt.status === 'confirmed' ? (
+        <Card className="p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+            If this payment was wrong
+          </h2>
+          <div className="mt-3">
+            <ReverseReceiptForm
+              org={org}
+              receiptId={receiptId}
+              today={today}
+              allocationCount={live.length}
+            />
+          </div>
+        </Card>
+      ) : null}
 
       <Card className="p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">

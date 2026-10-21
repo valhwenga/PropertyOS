@@ -14,7 +14,8 @@ import { promisify } from 'node:util';
 import {
   activateLease, addChargeSchedule, allocateReceipt, confirmReceipt,
   createOrganisationWithOwner, issueCreditNote,
-  addBankAccount, createResident, createStandaloneHouse, createProperty, createTicket,
+  addBankAccount, createInspection, createResident, createStandaloneHouse, createProperty,
+  createTemplateVersion, createTicket, finaliseInspection, recordInspectionFindings,
   saveOrganisationProfile, shareDocument, verifyBankAccount,
   createUnit,
   createVendor, draftLease, parseMajorToMinor, postCharge, recordDepositReceipt,
@@ -254,6 +255,77 @@ async function main(): Promise<void> {
       activateLease(tx, org.organisationId, adminId, {
         leaseId: lease.leaseId, expectedVersion: 1, activationDate: '2026-01-01',
         executionExceptionReason: 'DEMO DATA: signed contract not attached.',
+      }),
+    );
+
+    // A finalised move-in inspection, so the resident's own inspection screen
+    // has something to answer.
+    //
+    // Added when that screen was built: `respondToInspection` had existed with
+    // tests and no screen, and the demo had no inspection at all — so the new
+    // page was correct and empty, which is indistinguishable from broken.
+    const inspectionTemplate = await run((tx) =>
+      createTemplateVersion(tx, org.organisationId, adminId, {
+        name: 'Move-in condition report',
+        items: [
+          { room: 'Lounge', item: 'Walls and ceiling' },
+          { room: 'Lounge', item: 'Flooring' },
+          { room: 'Kitchen', item: 'Cupboards and worktops' },
+          { room: 'Kitchen', item: 'Stove and oven' },
+          { room: 'Bathroom', item: 'Taps, shower and seals' },
+          { room: 'Outside', item: 'Garden and boundary wall' },
+        ],
+      }),
+    );
+    const inspection = await run((tx) =>
+      createInspection(tx, org.organisationId, adminId, {
+        unitId: house.unitId,
+        leaseId: lease.leaseId,
+        templateId: inspectionTemplate.templateId,
+        inspectionType: 'move_in',
+        scheduledFor: '2026-01-01',
+      }),
+    );
+    // One item with real damage, so the screen shows the case that matters:
+    // something a tenant might reasonably dispute before it reaches their
+    // deposit.
+    const inspectionItems = await tx<{ id: string; item: string }[]>`
+      select id, item from inspection_items
+       where inspection_id = ${inspection.inspectionId} order by sort_order
+    `;
+    const finding = (item: string, condition: string, damageType?: string, note?: string) => {
+      const row = inspectionItems.find((i) => i.item === item);
+      return row
+        ? [{
+          itemId: row.id,
+          condition: condition as 'good',
+          ...(damageType ? { damageType: damageType as 'damage' } : {}),
+          ...(note ? { note } : {}),
+        }]
+        : [];
+    };
+    await run((tx) =>
+      recordInspectionFindings(tx, org.organisationId, adminId, {
+        inspectionId: inspection.inspectionId,
+        findings: [
+          ...finding('Walls and ceiling', 'fair', 'fair_wear_and_tear',
+            'Scuff marks beside the plug point, noted at handover.'),
+          ...finding('Flooring', 'good'),
+          ...finding('Cupboards and worktops', 'good'),
+          ...finding('Stove and oven', 'damaged', 'damage',
+            'Right front plate does not heat. Reported by the tenant on the day.'),
+          ...finding('Taps, shower and seals', 'fair', 'fair_wear_and_tear',
+            'Shower seal perished; replacement scheduled.'),
+          ...finding('Garden and boundary wall', 'good'),
+        ],
+      }),
+    );
+    await run((tx) =>
+      finaliseInspection(tx, org.organisationId, adminId, {
+        inspectionId: inspection.inspectionId,
+        performedOn: '2026-01-01',
+        attendees: 'Nomsa Dlamini (landlord), Thandiwe Mokoena (tenant)',
+        keysHandedOver: '2026-01-01',
       }),
     );
 

@@ -52,3 +52,65 @@ export async function clearSupportAccess(slug: string): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/**
+ * Puts a lease's term in the past, and hands back where to find it.
+ *
+ * The demo's leases run into 2027, and the behaviour under test is what
+ * happens when a term has actually run out — so the fixture moves the date
+ * rather than the test waiting a year. In SQL for the same reason the support
+ * reset is: this is setup, not the behaviour under test, and driving it
+ * through the screens would be testing the screens twice.
+ */
+export async function endLeaseTermYesterday(
+  slug: string,
+): Promise<{ leaseId: string; reference: string }> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [lease] = await sql<{ id: string; reference: string }[]>`
+      update leases set end_date = current_date - 1
+       where id = (
+         select l.id from leases l
+           join organisations o on o.id = l.organisation_id
+          where o.slug = ${slug} and l.status = 'active'
+          order by l.reference
+          limit 1
+       )
+      returning id, reference
+    `;
+    if (!lease) throw new Error(`no active lease in ${slug} to end`);
+    return { leaseId: lease.id, reference: lease.reference };
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/**
+ * Removes this demo's inspection responses, so a run starts from unanswered.
+ *
+ * The demo database is not reset between runs and the first run answers the
+ * report, so a later run looking for "Waiting on you" finds a report it has
+ * already agreed with.
+ */
+export async function clearInspectionResponses(slug: string): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`
+      delete from inspection_acknowledgements
+       where organisation_id = (select id from organisations where slug = ${slug})
+    `;
+    // The status is derived from those rows, and with them gone it belongs
+    // back at finalised. Written directly rather than through
+    // `app.sync_inspection_response_status()`, which refuses a caller who is
+    // neither a member of the organisation nor a resident of the lease — this
+    // connection is the fixture's owner and is neither. Doing it here is the
+    // honest option: the function is the product's path and this is setup.
+    await sql`
+      update inspections set status = 'finalised'
+       where organisation_id = (select id from organisations where slug = ${slug})
+         and status in ('acknowledged', 'disputed')
+    `;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}

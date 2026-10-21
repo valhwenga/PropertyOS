@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  createTicket, parseMajorToMinor, revealResidentAccountNumber, submitPaymentEvidence,
-  withIdempotency,
+  createTicket, parseMajorToMinor, respondToInspection, revealResidentAccountNumber,
+  submitPaymentEvidence, withIdempotency,
 } from '@propertyos/domain';
 import { DomainError } from '@propertyos/domain';
 import { command } from '@/lib/actions';
@@ -153,6 +153,51 @@ export async function submitProofOfPayment(_previous: unknown, formData: FormDat
  * re-resolves the lease from the caller's own portal link and writes the audit
  * entry. The browser never says which account: the lease decides.
  */
+/**
+ * The resident's answer to an inspection report.
+ *
+ * `respondToInspection` has existed with tests and no screen anywhere, so a
+ * report recording damage against somebody's deposit could be finalised and
+ * the person it was about had no way to agree or disagree with it. Of every
+ * document this product produces, that is the one most likely to cost a tenant
+ * money, and it was the only one they could not answer.
+ *
+ * The resident is resolved from their OWN portal link rather than from the
+ * form: a response is recorded against a person, and the person is whoever is
+ * signed in, not whoever the request says.
+ */
+export async function respondToInspectionAction(_previous: unknown, formData: FormData) {
+  const leaseId = String(formData.get('leaseId'));
+  const inspectionId = String(formData.get('inspectionId'));
+  const response = String(formData.get('response') ?? '');
+  const comment = String(formData.get('comment') ?? '').trim();
+
+  const result = await command(async ({ tx, viewer }) => {
+    const organisationId = organisationForLease(viewer, leaseId);
+    if (response !== 'acknowledged' && response !== 'disputed') {
+      throw new DomainError('validation_failed', 'Choose whether you agree or disagree.');
+    }
+
+    const [party] = await tx<{ resident_id: string }[]>`
+      select lp.resident_id from lease_parties lp
+      join portal_links pl on pl.resident_id = lp.resident_id and pl.lease_id = lp.lease_id
+      where lp.lease_id = ${leaseId}::uuid and pl.auth_user_id = ${viewer.authUserId}::uuid
+      limit 1
+    `;
+    if (!party) throw new DomainError('not_found', 'Lease not found.');
+
+    await respondToInspection(tx, organisationId, viewer.authUserId, {
+      inspectionId,
+      residentId: party.resident_id,
+      response,
+      ...(comment ? { comment } : {}),
+    });
+    return { response };
+  });
+  if (result.ok) revalidatePath(`/portal/${leaseId}/inspections`);
+  return result;
+}
+
 export async function revealAccountNumber(_previous: unknown, formData: FormData) {
   const leaseId = String(formData.get('leaseId'));
   return command(async ({ tx, viewer }) => {

@@ -4,6 +4,7 @@ import { useActionState, useState } from 'react';
 import { Button, Card, ErrorState, Money } from '@propertyos/ui';
 import {
   applyAllocationAction, identifyReceiptAction, reverseAllocationAction,
+  reverseReceiptAction,
   suggestAllocationAction,
 } from '../actions';
 
@@ -329,6 +330,94 @@ export function ReverseForm({
           {pending ? 'Reversing…' : 'Confirm reversal'}
         </Button>
         <Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Reversing the whole receipt, because the money did not arrive.
+ *
+ * Deliberately heavier than the allocation reversal beside it: this one says a
+ * payment the product has already reported did not happen. It names its
+ * consequences in full before it is pressed, and it asks for the reason the
+ * database requires anyway.
+ */
+export function ReverseReceiptForm({
+  org, receiptId, today, allocationCount,
+}: {
+  org: string; receiptId: string; today: string; allocationCount: number;
+}) {
+  const [state, action, pending] = useActionState(reverseReceiptAction, null);
+  const [open, setOpen] = useState(false);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm text-ink-700"
+      >
+        The money did not arrive
+      </button>
+    );
+  }
+
+  return (
+    <form action={action} className="space-y-3 rounded-lg border border-caution-700/30 bg-caution-50 p-3">
+      <input type="hidden" name="org" value={org} />
+      <input type="hidden" name="receiptId" value={receiptId} />
+      <Problem state={state} title="Could not reverse this receipt" />
+      <p className="text-sm text-ink-700">
+        Use this when the payment itself was wrong: a cheque that bounced, the same transfer
+        captured twice, a deposit slip keyed against the wrong landlord.
+      </p>
+      <ul className="list-disc space-y-1 pl-5 text-sm text-ink-700">
+        <li>
+          {allocationCount === 0
+            ? 'Nothing is allocated from this receipt, so only the receipt itself is reversed.'
+            : `${allocationCount} allocation${allocationCount === 1 ? '' : 's'} still live on `
+              + 'this receipt will be reversed first, so the charges they paid go back to '
+              + 'being owed.'}
+        </li>
+        <li>
+          Nothing is deleted. The original entries and their reversal both stay in the ledger,
+          which is what keeps a month that has already been reported on adding up.
+        </li>
+        <li>The receipt is marked failed and the reason is recorded against it.</li>
+      </ul>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <label htmlFor="reverse-receipt-reason" className="block text-xs font-medium text-ink-700">
+            Why?
+          </label>
+          <input
+            id="reverse-receipt-reason" name="reason" required minLength={5}
+            placeholder="Cheque returned unpaid by the bank on 14 March"
+            className="w-80 rounded-lg border border-ink-200 px-2 py-1.5 text-sm"
+          />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="reverse-receipt-date" className="block text-xs font-medium text-ink-700">
+            Posting date
+          </label>
+          <input
+            id="reverse-receipt-date" name="postingDate" type="date" defaultValue={today} required
+            className="rounded-lg border border-ink-200 px-2 py-1.5 text-sm"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={pending}>
+          {pending ? 'Reversing…' : 'Reverse the receipt'}
+        </Button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-sm text-ink-700"
+        >
+          Leave it as it is
+        </button>
       </div>
     </form>
   );
