@@ -180,7 +180,13 @@ complete vertical workflow"*.
 14. ~~Resident portal invitations~~ — **done**. Issue from the lease with the
    recipient confirmed, redeem at `/tenancy/<token>`, revoke.
 15. ~~Customer provisioning~~ — **done**. Spike creates the organisation and
-   invites its first administrator, and is a member of nothing it creates.
+   invites its first administrator, and is a member of nothing it creates. A
+   landlord can now also **ask** for an account at `/request-access`, which an
+   operator approves at `/platform/signups` through that same provisioning
+   path. It is a request rather than a sign-up on purpose: with no email
+   provider the address cannot be verified and with no payment provider the
+   account costs nothing to open, so no organisation exists until a person
+   decides. ADR 0020.
 16. ~~Navigation grouped into Portfolio, Finance, Operations and
    Administration~~ — **done**, with each section offered only to the members
    whose roles can use it, and loading boundaries for the console and the

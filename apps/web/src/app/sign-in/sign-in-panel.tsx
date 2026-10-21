@@ -54,6 +54,14 @@ export function SignInPanel({
           <SignInForm />
         </Card>
 
+        <p className="text-center text-sm text-ink-500">
+          No account yet?{' '}
+          <a href="/request-access" className="font-medium text-spike-600 hover:underline">
+            Ask for one
+          </a>
+          .
+        </p>
+
         {localAuth ? (
           <p className="rounded-lg border border-caution-700/25 bg-caution-50 px-4 py-3 text-xs text-caution-700">
             <strong className="font-semibold">Development authentication.</strong>{' '}

@@ -3,7 +3,9 @@ import {
   Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
-import { listCustomers, listPendingCustomers, platformHealth } from '@propertyos/domain';
+import {
+  listCustomers, listPendingCustomers, listSignupRequests, platformHealth,
+} from '@propertyos/domain';
 import { readAs, readPrivilegedAs, requireViewer } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 
@@ -19,9 +21,10 @@ const ACCOUNT_STATUS: Record<string, { tone: StatusTone; glyph: string }> = {
 
 export default async function PlatformPage() {
   const viewer = await requireViewer();
-  const [customers, health] = await readAs(viewer, async (tx) => [
+  const [customers, health, openRequests] = await readAs(viewer, async (tx) => [
     await listCustomers(tx, viewer.authUserId),
     await platformHealth(tx, viewer.authUserId),
+    await listSignupRequests(tx, viewer.authUserId, { status: 'requested' }),
   ] as const);
 
   // A provisioned organisation with no members is invisible to every
@@ -51,6 +54,27 @@ export default async function PlatformPage() {
           </Link>
         }
       />
+
+      {openRequests.length > 0 ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-spike-500/25 bg-spike-50 p-4">
+          <div>
+            <p className="text-sm font-semibold text-ink-900">
+              {openRequests.length} landlord{openRequests.length === 1 ? '' : 's'} asked for an
+              account
+            </p>
+            <p className="text-sm text-ink-700">
+              Sent through the public form. Nothing about them is verified and nothing is
+              charged until you set the account up.
+            </p>
+          </div>
+          <Link
+            href="/platform/signups"
+            className="rounded-lg border border-ink-200 bg-surface px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50"
+          >
+            Read the requests →
+          </Link>
+        </Card>
+      ) : null}
 
       {pending.length > 0 ? (
         <section aria-labelledby="pending-heading" className="space-y-3">
