@@ -2,6 +2,7 @@ import { Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@p
 import { BackLink } from '@/components/back-link';
 import { supportAccessHistory } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
+import { RevokeSupportSessionButton } from './revoke-button';
 import { formatDateTime } from '@/lib/format';
 
 export const metadata = { title: 'Spike support access' };
@@ -39,8 +40,8 @@ export default async function SupportAccessPage({
           </p>
           <p className="mt-1 text-sm text-ink-700">
             Spike support can currently read your records. Sessions are read-only — support
-            cannot change your data — and expire automatically. You can revoke access at any
-            time.
+            cannot change your data — and expire automatically. End one now with the button
+            beside it; only an administrator can, and Spike has to ask again afterwards.
           </p>
         </Card>
       ) : (
@@ -64,6 +65,7 @@ export default async function SupportAccessPage({
             <tr>
               <Th>Operator</Th><Th>Reason</Th><Th>Authorised by</Th>
               <Th>Opened</Th><Th>Expires</Th><Th numeric>Actions</Th><Th>State</Th>
+              <Th>{''}</Th>
             </tr>
           }
         >
@@ -91,6 +93,15 @@ export default async function SupportAccessPage({
                     : <StatusBadge tone="caution" glyph="●">Open</StatusBadge>}
                   {h.readOnly ? (
                     <span className="mt-0.5 block text-xs text-ink-400">read-only</span>
+                  ) : null}
+                </Td>
+                <Td>
+                  {!h.revokedAt && !expired ? (
+                    <RevokeSupportSessionButton
+                      supportSessionId={h.id}
+                      org={org}
+                      operatorName={h.operatorName}
+                    />
                   ) : null}
                 </Td>
               </tr>

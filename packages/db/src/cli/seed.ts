@@ -141,7 +141,12 @@ async function main(): Promise<void> {
       createOrganisationWithOwner(tx, {
         name: '[DEMO] Blue Crane Rentals', slug: 'demo-blue-crane',
         countryCode: 'ZA', currencyCode: 'ZAR', timeZone: 'Africa/Johannesburg',
-        legalEntityName: '[DEMO] Blue Crane Rentals (Pty) Ltd', planKey: 'starter',
+        // Portfolio, not starter. The demo organisation seeds three staff —
+        // administrator, finance approver, support — and the starter plan
+        // includes exactly three, so now that the allowance is enforced at
+        // `inviteStaff` the demo would refuse the invitation flow on its first
+        // click. A landlord with this many staff would be on this plan.
+        legalEntityName: '[DEMO] Blue Crane Rentals (Pty) Ltd', planKey: 'portfolio',
       }, adminId))() as { organisationId: string; bookId: string };
 
     await createOrganisationWithOwner(tx, {

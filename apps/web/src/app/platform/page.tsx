@@ -132,8 +132,9 @@ export default async function PlatformPage() {
             {activeSessions} support session{activeSessions === 1 ? '' : 's'} currently open
           </p>
           <p className="mt-1 text-sm text-ink-700">
-            Each one is read-only, time limited, visible to the customer in their settings, and
-            every action taken under it is recorded against it.
+            Across every operator, not only your own. Each one is read-only, time limited,
+            visible to the customer in their settings, and every action taken under it is
+            recorded against it.
           </p>
         </Card>
       ) : null}
@@ -168,7 +169,12 @@ export default async function PlatformPage() {
             return (
               <tr key={c.organisationId} className="hover:bg-ink-50">
                 <td className="px-4 align-middle">
-                  <p className="font-medium text-ink-900">{c.name}</p>
+                  <Link
+                    href={`/platform/customers/${c.slug}`}
+                    className="font-medium text-ink-900 underline decoration-ink-200 underline-offset-2 hover:decoration-ink-900"
+                  >
+                    {c.name}
+                  </Link>
                   <p className="tabular text-xs text-ink-400">{c.slug}</p>
                 </td>
                 <Td><StatusBadge tone={status.tone} glyph={status.glyph}>{c.status}</StatusBadge></Td>

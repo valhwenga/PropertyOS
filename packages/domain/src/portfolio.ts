@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { recordAudit } from './audit';
 import { DomainError, fromDatabaseError, notFound, parsed } from './errors';
+import { requireEntitlement } from './entitlements';
 import { requirePermission, requirePropertyScope } from './permissions';
 
 export const createPropertySchema = z.object({
@@ -97,6 +98,12 @@ export async function createUnit(
   const u = createUnitSchema.parse(input);
   await requirePermission(tx, organisationId, 'property.update');
   await requirePropertyScope(tx, organisationId, u.propertyId);
+  // The plan's unit allowance, enforced at the one place a unit comes into
+  // existence. `requireEntitlement` was written, tested and called from
+  // nowhere, which made every plan in the price list unlimited: a customer on
+  // the ten-unit plan could add five hundred. Checked after the permission so
+  // somebody who may not do this at all is told that, not told to upgrade.
+  await requireEntitlement(tx, organisationId, 'billable_units');
 
   try {
     const [row] = await tx<{ id: string }[]>`

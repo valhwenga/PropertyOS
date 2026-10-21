@@ -109,11 +109,27 @@ export interface OperatorContext {
  * The slug is UNTRUSTED input. It is matched against the viewer's own
  * memberships; a slug the viewer is not a member of produces a redirect to
  * their own organisation list, never a peek at another customer's name.
+ *
+ * It is also where a suspended account stops. `setAccountStatus` has always
+ * said "Suspension stops access" and nothing read the column: no permission
+ * function, no policy and no screen, so a suspended customer's staff carried on
+ * working exactly as before. The check belongs HERE rather than in the layout
+ * because every console page and every Server Action passes through this
+ * function, and a layout can be served from the client router's cache while a
+ * new page loads — a suspension that is only cosmetic is worse than none.
+ *
+ * What suspension deliberately does not touch: the records themselves, the
+ * billing run, the worker, and the resident portal, which is reached through a
+ * lease rather than through here. A landlord's dispute with Spike is not a
+ * reason to take a tenant's statements away from them.
  */
 export async function requireOperator(slug: string): Promise<OperatorContext> {
   const viewer = await requireViewer();
   const organisation = viewer.organisations.find((o) => o.slug === slug);
   if (!organisation) redirect('/app');
+  if (organisation.status === 'suspended' || organisation.status === 'closed') {
+    redirect(`/account-suspended/${organisation.slug}`);
+  }
   return {
     viewer,
     organisationId: organisation.id,

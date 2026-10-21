@@ -49,7 +49,17 @@ export interface OrganisationFixture {
   slug: string;
 }
 
-export async function createOrganisation(name: string): Promise<OrganisationFixture> {
+export async function createOrganisation(
+  name: string,
+  /**
+   * The plan decides the unit and staff ALLOWANCES, which are now enforced
+   * where records are created. A suite exercising something else — invitation
+   * mechanics, say — needs room rather than the smallest plan, or it starts
+   * failing on a correct refusal that has nothing to do with what it tests.
+   * The allowances themselves are exercised in `platform-console.test.ts`.
+   */
+  options: { planKey?: 'starter' | 'portfolio' | 'professional' | 'enterprise' } = {},
+): Promise<OrganisationFixture> {
   const adminUserId = await createAuthUser(`${name} Admin`);
   const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${randomUUID().slice(0, 6)}`;
   // Provisioning runs on the privileged connection because the caller has no
@@ -65,7 +75,7 @@ export async function createOrganisation(name: string): Promise<OrganisationFixt
         currencyCode: 'ZAR',
         timeZone: 'Africa/Johannesburg',
         legalEntityName: `${name} (Pty) Ltd`,
-        planKey: 'starter',
+        planKey: options.planKey ?? 'starter',
       },
       adminUserId,
     ),

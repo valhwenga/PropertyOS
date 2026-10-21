@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { recordAudit } from './audit';
 import { DomainError, fromDatabaseError, invalid, notFound, parsed } from './errors';
+import { requireEntitlement } from './entitlements';
 import { requirePermission } from './permissions';
 
 /**
@@ -217,6 +218,10 @@ export async function inviteStaff(
 ): Promise<{ invitationId: string; token: string; expiresAt: Date }> {
   await requirePermission(tx, organisationId, 'membership.manage');
   const i = parsed(inviteSchema, input);
+  // The plan's staff allowance. Counted over members and unaccepted
+  // invitations together, so a cap cannot be walked past by inviting ten
+  // people and letting them accept later.
+  await requireEntitlement(tx, organisationId, 'staff_accounts');
 
   // Only roles the product means to hand out, and only ones that exist. A
   // typo would otherwise produce a membership with a role nothing grants.

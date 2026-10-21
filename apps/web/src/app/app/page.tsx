@@ -12,7 +12,12 @@ export default async function OrganisationChooser() {
   // A single membership goes straight through; the chooser is only useful when
   // someone genuinely works across several customers.
   if (viewer.organisations.length === 1 && viewer.residentLeases.length === 0) {
-    redirect(`/app/${viewer.organisations[0]!.slug}`);
+    const only = viewer.organisations[0]!;
+    redirect(
+      only.status === 'suspended' || only.status === 'closed'
+        ? `/account-suspended/${only.slug}`
+        : `/app/${only.slug}`,
+    );
   }
 
   return (
@@ -35,19 +40,36 @@ export default async function OrganisationChooser() {
             }
           />
         ) : (
-          viewer.organisations.map((org) => (
-            <Link key={org.id} href={`/app/${org.slug}`} className="block">
-              <Card className="flex items-center justify-between p-4 transition-colors hover:border-spike-300">
-                <div>
-                  <p className="font-medium text-ink-900">{org.name}</p>
-                  <p className="text-xs text-ink-500">
-                    {org.currencyCode} · {org.timeZone} · {org.roles.join(', ') || 'no roles assigned'}
-                  </p>
-                </div>
-                <span aria-hidden="true" className="text-spike-500">→</span>
-              </Card>
-            </Link>
-          ))
+          viewer.organisations.map((org) => {
+            // A suspended account still appears, and still leads somewhere: to
+            // the page that explains it. Hiding it would read as the
+            // organisation having been deleted.
+            const unavailable = org.status === 'suspended' || org.status === 'closed';
+            return (
+              <Link
+                key={org.id}
+                href={unavailable ? `/account-suspended/${org.slug}` : `/app/${org.slug}`}
+                className="block"
+              >
+                <Card className="flex items-center justify-between p-4 transition-colors hover:border-spike-300">
+                  <div>
+                    <p className="font-medium text-ink-900">{org.name}</p>
+                    <p className="text-xs text-ink-500">
+                      {org.currencyCode} · {org.timeZone} ·{' '}
+                      {org.roles.join(', ') || 'no roles assigned'}
+                    </p>
+                    {unavailable ? (
+                      <p className="mt-1 text-xs font-medium text-critical-700">
+                        {org.status === 'closed' ? 'Closed' : 'Suspended'} — the console cannot
+                        be opened, and nothing has been deleted
+                      </p>
+                    ) : null}
+                  </div>
+                  <span aria-hidden="true" className="text-spike-500">→</span>
+                </Card>
+              </Link>
+            );
+          })
         )}
 
         {viewer.residentLeases.length > 0 ? (

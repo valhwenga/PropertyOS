@@ -116,7 +116,11 @@ export async function listCustomers(
     left join subscriptions s on s.organisation_id = o.id
     left join plans pl on pl.key = s.plan_key
     left join app.platform_customer_usage() usage on usage.organisation_id = o.id
-    order by o.created_at desc
+    -- Name as the tie-break, not decoration: two organisations created in the
+    -- same transaction share a created_at to the microsecond, and ordering by
+    -- it alone lets Postgres return them in either order — so the customer list
+    -- reshuffles between page loads and "the first customer" means nothing.
+    order by o.created_at desc, o.name
   `;
 
   return rows.map((r) => {
@@ -140,6 +144,256 @@ export async function listCustomers(
       activeSupportSessions: Number(r.active_support_sessions),
     };
   });
+}
+
+export interface PlanRow {
+  key: string;
+  name: string;
+  includedUnits: number;
+  monthlyPriceMinor: number;
+  additionalUnitPriceMinor: number;
+  currencyCode: string;
+  staffAccounts: number | null;
+  documentsGb: number | null;
+}
+
+/** The plan catalogue. Readable by everybody: a price list is not a secret. */
+export async function listPlans(tx: Sql): Promise<PlanRow[]> {
+  const rows = await tx<
+    { key: string; name: string; included_units: number; monthly_price_minor: string;
+      additional_unit_price_minor: string; currency_code: string;
+      staff_accounts: number | null; documents_gb: number | null }[]
+  >`
+    select p.key, p.name, p.included_units, p.monthly_price_minor::text,
+           p.additional_unit_price_minor::text, p.currency_code,
+           (select limit_value from plan_entitlements
+             where plan_key = p.key and feature = 'staff_accounts') as staff_accounts,
+           (select limit_value from plan_entitlements
+             where plan_key = p.key and feature = 'documents_gb') as documents_gb
+      from plans p
+     where p.is_active
+     order by p.included_units
+  `;
+  return rows.map((r) => ({
+    key: r.key,
+    name: r.name,
+    includedUnits: r.included_units,
+    monthlyPriceMinor: Number(r.monthly_price_minor),
+    additionalUnitPriceMinor: Number(r.additional_unit_price_minor),
+    currencyCode: r.currency_code,
+    staffAccounts: r.staff_accounts,
+    documentsGb: r.documents_gb,
+  }));
+}
+
+export interface CustomerDetail {
+  organisationId: string;
+  name: string;
+  slug: string;
+  status: string;
+  countryCode: string;
+  currencyCode: string;
+  timeZone: string;
+  createdAt: string;
+  plan: PlanRow | null;
+  subscriptionStatus: string | null;
+  /** Every non-archived rentable unit, vacant ones included. */
+  billableUnits: number;
+  /** Members with access. A colleague who has been invited but has not accepted is not one. */
+  activeMembers: number;
+  activeLeases: number;
+  documentBytes: number;
+  /** Units beyond the plan's allowance, which is what the overage price applies to. */
+  unitsOverAllowance: number;
+  /**
+   * What this customer is worth per month at today's usage, in minor units:
+   * the plan price plus the overage. Nothing bills from this — it is the
+   * arithmetic an operator would otherwise do on paper, and no invoice to a
+   * customer exists anywhere in this product yet.
+   */
+  monthlyChargeMinor: number | null;
+  allowances: Array<{
+    feature: 'billable_units' | 'staff_accounts' | 'documents_gb';
+    label: string;
+    used: number;
+    limit: number | null;
+    withinLimit: boolean;
+  }>;
+  supportSessions: Array<{
+    id: string;
+    operatorName: string;
+    reason: string;
+    grantedAt: string;
+    expiresAt: string;
+    revokedAt: string | null;
+    readOnly: boolean;
+    customerAuthorised: boolean;
+    actionsRecorded: number;
+    openedByMe: boolean;
+    open: boolean;
+  }>;
+  platformActions: Array<{
+    id: string;
+    at: string;
+    action: string;
+    actorName: string | null;
+    reason: string | null;
+    before: Record<string, unknown> | null;
+    after: Record<string, unknown> | null;
+  }>;
+}
+
+/**
+ * One customer, for the operator console.
+ *
+ * Carries the same promise as `listCustomers` and has to work harder to keep
+ * it: usage comes from `app.platform_customer_usage()`, which returns counts
+ * and a byte total and nothing else, because the underlying tables are closed
+ * to an operator. Counting `units` directly here would read zero rows and
+ * report an empty customer — correct row-level security, silently wrong number.
+ *
+ * `supportSessions` and `platformActions` are Spike's own conduct, readable
+ * since migration 0064. Nothing in the return value names a resident, a
+ * property, a balance or a document.
+ */
+export async function customerDetail(
+  tx: Sql,
+  authUserId: string,
+  organisationId: string,
+): Promise<CustomerDetail> {
+  const operator = await requirePlatformOperator(tx, authUserId);
+
+  const [row] = await tx<
+    { id: string; name: string; slug: string; status: string; country_code: string;
+      currency_code: string; time_zone: string; created_at: string;
+      plan_key: string | null; subscription_status: string | null;
+      billable_units: number; member_count: number; active_leases: number;
+      document_bytes: string }[]
+  >`
+    select o.id, o.name, o.slug, o.status::text, o.country_code, o.currency_code,
+           o.time_zone, o.created_at::text,
+           s.plan_key, s.status as subscription_status,
+           coalesce(u.billable_units, 0) as billable_units,
+           coalesce(u.member_count, 0) as member_count,
+           coalesce(u.active_leases, 0) as active_leases,
+           coalesce(u.document_bytes, 0)::text as document_bytes
+      from organisations o
+      left join subscriptions s on s.organisation_id = o.id
+      left join app.platform_customer_usage() u on u.organisation_id = o.id
+     where o.id = ${organisationId}::uuid
+  `;
+  if (!row) throw notFound('Customer organisation');
+
+  const plans = await listPlans(tx);
+  const plan = plans.find((p) => p.key === row.plan_key) ?? null;
+  const billableUnits = Number(row.billable_units);
+  const activeMembers = Number(row.member_count);
+  const documentBytes = Number(row.document_bytes);
+  const documentsGb = Math.ceil(documentBytes / (1024 * 1024 * 1024));
+
+  const unitsOverAllowance = plan ? Math.max(0, billableUnits - plan.includedUnits) : 0;
+
+  const sessions = await tx<
+    { id: string; operator_user_id: string; operator_name: string | null; reason: string;
+      granted_at: string; expires_at: string; revoked_at: string | null;
+      read_only: boolean; authorised_by: string | null; actions_recorded: string }[]
+  >`
+    select ss.id, ss.operator_user_id,
+           (select full_name from user_profiles up where up.auth_user_id = ss.operator_user_id)
+             as operator_name,
+           ss.reason, ss.granted_at::text, ss.expires_at::text, ss.revoked_at::text,
+           ss.read_only, ss.authorised_by::text,
+           (select count(*) from audit_events ae where ae.support_session_id = ss.id)::text
+             as actions_recorded
+      from support_sessions ss
+     where ss.organisation_id = ${organisationId}::uuid
+     order by ss.granted_at desc
+     limit 50
+  `;
+
+  const actions = await tx<
+    { id: string; occurred_at: string; action: string; actor_name: string | null;
+      reason: string | null; before_state: unknown; after_state: unknown }[]
+  >`
+    select ae.id, ae.occurred_at::text, ae.action,
+           (select full_name from user_profiles up where up.auth_user_id = ae.actor_user_id)
+             as actor_name,
+           ae.reason, ae.before_state, ae.after_state
+      from audit_events ae
+     where ae.organisation_id = ${organisationId}::uuid
+       and ae.action like 'platform.%'
+     order by ae.occurred_at desc
+     limit 50
+  `;
+
+  const now = Date.now();
+  return {
+    organisationId: row.id,
+    name: row.name,
+    slug: row.slug,
+    status: row.status,
+    countryCode: row.country_code,
+    currencyCode: row.currency_code,
+    timeZone: row.time_zone,
+    createdAt: row.created_at,
+    plan,
+    subscriptionStatus: row.subscription_status,
+    billableUnits,
+    activeMembers,
+    activeLeases: Number(row.active_leases),
+    documentBytes,
+    unitsOverAllowance,
+    monthlyChargeMinor: plan
+      ? plan.monthlyPriceMinor + unitsOverAllowance * plan.additionalUnitPriceMinor
+      : null,
+    allowances: [
+      {
+        feature: 'billable_units' as const,
+        label: 'Units',
+        used: billableUnits,
+        limit: plan?.includedUnits ?? null,
+        withinLimit: !plan || billableUnits <= plan.includedUnits,
+      },
+      {
+        feature: 'staff_accounts' as const,
+        label: 'Staff accounts',
+        used: activeMembers,
+        limit: plan?.staffAccounts ?? null,
+        withinLimit: plan?.staffAccounts === null || plan?.staffAccounts === undefined
+          || activeMembers <= plan.staffAccounts,
+      },
+      {
+        feature: 'documents_gb' as const,
+        label: 'Document storage (GB)',
+        used: documentsGb,
+        limit: plan?.documentsGb ?? null,
+        withinLimit: plan?.documentsGb === null || plan?.documentsGb === undefined
+          || documentsGb <= plan.documentsGb,
+      },
+    ],
+    supportSessions: sessions.map((ss) => ({
+      id: ss.id,
+      operatorName: ss.operator_name ?? 'Spike operator',
+      reason: ss.reason,
+      grantedAt: ss.granted_at,
+      expiresAt: ss.expires_at,
+      revokedAt: ss.revoked_at,
+      readOnly: ss.read_only,
+      customerAuthorised: ss.authorised_by !== null,
+      actionsRecorded: Number(ss.actions_recorded),
+      openedByMe: ss.operator_user_id === operator.authUserId,
+      open: ss.revoked_at === null && new Date(ss.expires_at).getTime() > now,
+    })),
+    platformActions: actions.map((a) => ({
+      id: a.id,
+      at: a.occurred_at,
+      action: a.action,
+      actorName: a.actor_name,
+      reason: a.reason,
+      before: (a.before_state as Record<string, unknown> | null) ?? null,
+      after: (a.after_state as Record<string, unknown> | null) ?? null,
+    })),
+  };
 }
 
 export const provisionCustomerSchema = z.object({
@@ -314,9 +568,25 @@ export async function closeSupportSession(
   `;
   if (!session) throw notFound('Support session');
 
-  await tx`
-    update support_sessions set revoked_at = now() where id = ${params.supportSessionId}::uuid
+  // `returning` is the point of this, not decoration. Row-level security
+  // decides whether this UPDATE may touch the row, and a policy that refuses
+  // makes it affect NOTHING rather than raise — so without the check, a
+  // customer administrator who lacked `support.access.manage` would be told
+  // their revoke succeeded while Spike's access continued. Revoking is the one
+  // control the whole support-session design rests on; it may not fail quietly.
+  const affected = await tx<{ id: string }[]>`
+    update support_sessions set revoked_at = now()
+    where id = ${params.supportSessionId}::uuid and revoked_at is null
+    returning id
   `;
+  if (affected.length === 0) {
+    throw new DomainError(
+      'forbidden',
+      'You cannot close this support session. Revoking Spike support access needs an '
+        + 'administrator of the organisation it was opened against, or the operator who opened it.',
+    );
+  }
+
   await recordAudit(tx, {
     organisationId: session.organisation_id,
     actorUserId: authUserId,
@@ -366,76 +636,8 @@ export async function supportAccessHistory(
 
 /* ------------------------------------------------------------- entitlements */
 
-export interface EntitlementCheck {
-  feature: string;
-  limit: number | null;
-  used: number;
-  withinLimit: boolean;
-}
-
-/**
- * Checks a plan entitlement.
- *
- * Entitlements shape what a customer may ADD; they never hide or delete data
- * they already have. Exceeding a limit blocks creating the next unit, it does
- * not make existing units invisible or stop rent being recorded — billing
- * correctness is never collateral damage of a commercial limit.
- */
-export async function checkEntitlement(
-  tx: Sql,
-  organisationId: string,
-  feature: 'billable_units' | 'staff_accounts' | 'documents_gb',
-): Promise<EntitlementCheck> {
-  const [plan] = await tx<{ included_units: number | null; limit_value: number | null }[]>`
-    select p.included_units,
-           (select e.limit_value from plan_entitlements e
-            where e.plan_key = p.key and e.feature = ${feature}) as limit_value
-    from subscriptions s
-    join plans p on p.key = s.plan_key
-    where s.organisation_id = ${organisationId}::uuid
-  `;
-
-  let used = 0;
-  if (feature === 'billable_units') {
-    const [row] = await tx<{ count: string }[]>`
-      select count(*)::text from units
-      where organisation_id = ${organisationId}::uuid and status = 'active'
-    `;
-    used = Number(row?.count ?? 0);
-  } else if (feature === 'staff_accounts') {
-    const [row] = await tx<{ count: string }[]>`
-      select count(*)::text from memberships
-      where organisation_id = ${organisationId}::uuid and status in ('active', 'invited')
-    `;
-    used = Number(row?.count ?? 0);
-  } else {
-    const [row] = await tx<{ bytes: string }[]>`
-      select coalesce(sum(byte_size), 0)::text as bytes from documents
-      where organisation_id = ${organisationId}::uuid and deleted_at is null
-    `;
-    used = Math.ceil(Number(row?.bytes ?? 0) / (1024 * 1024 * 1024));
-  }
-
-  const limit = feature === 'billable_units' ? (plan?.included_units ?? null) : (plan?.limit_value ?? null);
-  return { feature, limit, used, withinLimit: limit === null || used <= limit };
-}
-
-export async function requireEntitlement(
-  tx: Sql,
-  organisationId: string,
-  feature: 'billable_units' | 'staff_accounts' | 'documents_gb',
-): Promise<void> {
-  const check = await checkEntitlement(tx, organisationId, feature);
-  // `used` already counts existing records, so the next one must stay within.
-  if (check.limit !== null && check.used >= check.limit) {
-    throw new DomainError(
-      'forbidden',
-      `Your plan includes ${check.limit} ${check.feature.replace(/_/g, ' ')} and you are using ${check.used}. ` +
-        'Upgrade your plan to add more. Your existing records are unaffected.',
-      { feature: check.feature, limit: check.limit, used: check.used },
-    );
-  }
-}
+/* Entitlements live in ./entitlements, and are re-exported from the package
+ * index beside these. The enforcement points are in customer code. */
 
 /** Platform service health, from the job queue and outbox. Carries no customer data. */
 export async function platformHealth(

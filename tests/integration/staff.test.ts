@@ -32,7 +32,9 @@ describe('Staff', () => {
   let secondAdmin: string;
 
   beforeAll(async () => {
-    org = await createOrganisation('Staff Co');
+    // Portfolio: this suite issues a dozen invitations and the starter plan
+    // includes three seats, counting outstanding invitations.
+    org = await createOrganisation('Staff Co', { planKey: 'portfolio' });
     secondAdmin = await addMember(org.organisationId, 'Second Admin', ['org_admin']);
 
     const house = await as(org.adminUserId, (tx) =>

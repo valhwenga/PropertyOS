@@ -29,6 +29,7 @@ export * from './deposit-statement-pdf';
 export * from './deposits';
 export * from './expenses';
 export * from './reports';
+export * from './entitlements';
 export * from './platform';
 export * from './csv';
 export * from './onboarding';
