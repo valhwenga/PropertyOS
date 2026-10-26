@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { DomainError, notFound, parsed } from './errors';
 import { recordAudit } from './audit';
-import { requirePlatformOperator, provisionCustomer } from './platform';
+import { provisionCustomer, requirePlatformPermission } from './platform';
 
 /**
  * Landlords asking Spike for an account.
@@ -95,7 +95,7 @@ export async function listSignupRequests(
   authUserId: string,
   options: { status?: 'requested' | 'provisioned' | 'declined' } = {},
 ): Promise<SignupRequest[]> {
-  await requirePlatformOperator(tx, authUserId);
+  await requirePlatformPermission(tx, authUserId, 'platform.customers.read');
 
   const status = options.status ?? null;
   const rows = await tx<Array<{
@@ -172,7 +172,7 @@ export async function approveSignupRequest(
     name?: string;
   },
 ): Promise<{ organisationId: string; token: string; expiresAt: Date }> {
-  await requirePlatformOperator(tx, authUserId);
+  await requirePlatformPermission(tx, authUserId, 'platform.customers.provision');
 
   const details = parsed(
     z.object({
@@ -238,7 +238,7 @@ export async function declineSignupRequest(
   authUserId: string,
   input: { requestId: string; reason: string },
 ): Promise<void> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.customers.provision');
   const details = parsed(
     z.object({
       requestId: z.string().uuid(),

@@ -59,6 +59,69 @@ export async function requirePlatformOperator(tx: Sql, authUserId: string): Prom
   return { authUserId, fullName: row.full_name ?? 'Spike operator' };
 }
 
+export type PlatformPermissionKey =
+  | 'platform.customers.read'
+  | 'platform.customers.provision'
+  | 'platform.customers.plan'
+  | 'platform.customers.status'
+  | 'platform.support.request'
+  | 'platform.billing.manage'
+  | 'platform.templates.manage'
+  | 'platform.operators.manage'
+  | 'platform.permissions.manage'
+  | 'platform.config.manage'
+  | 'platform.audit.read';
+
+export interface PlatformOperatorIdentity {
+  authUserId: string;
+  fullName: string;
+  permissions: PlatformPermissionKey[];
+}
+
+/**
+ * The console's authorisation check.
+ *
+ * Asks the database, through the same `app.platform_permission` function the
+ * policies use, so a screen and a row never disagree about what somebody may
+ * do. `requirePlatformOperator` still runs first: it is what reports a missing
+ * second factor as a second factor rather than as a flat refusal.
+ */
+export async function requirePlatformPermission(
+  tx: Sql,
+  authUserId: string,
+  permission: PlatformPermissionKey,
+): Promise<PlatformOperatorIdentity> {
+  const operator = await requirePlatformOperator(tx, authUserId);
+
+  const [row] = await tx<{ allowed: boolean }[]>`
+    select app.platform_permission(${permission}) as allowed
+  `;
+  if (!row?.allowed) {
+    throw new DomainError(
+      'forbidden',
+      'Your platform role does not include this. An administrator can change it under Operators.',
+      { reason: 'platform_permission_missing', permission },
+    );
+  }
+
+  return { ...operator, permissions: await platformPermissionsOf(tx, authUserId) };
+}
+
+/** What this operator may do, for deciding what to offer them. */
+export async function platformPermissionsOf(
+  tx: Sql,
+  authUserId: string,
+): Promise<PlatformPermissionKey[]> {
+  const rows = await tx<{ permission_key: PlatformPermissionKey }[]>`
+    select distinct rp.permission_key
+      from platform_operator_roles r
+      join platform_role_permissions rp on rp.role_key = r.role_key
+     where r.auth_user_id = ${authUserId}::uuid
+     order by rp.permission_key
+  `;
+  return rows.map((r) => r.permission_key);
+}
+
 export interface CustomerSummary {
   organisationId: string;
   name: string;
@@ -90,7 +153,7 @@ export async function listCustomers(
   tx: Sql,
   authUserId: string,
 ): Promise<CustomerSummary[]> {
-  await requirePlatformOperator(tx, authUserId);
+  await requirePlatformPermission(tx, authUserId, 'platform.customers.read');
 
   // Account metadata comes from the organisations/subscriptions tables, which a
   // platform operator can read. USAGE comes from app.platform_customer_usage(),
@@ -272,7 +335,7 @@ export async function customerDetail(
   authUserId: string,
   organisationId: string,
 ): Promise<CustomerDetail> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.customers.read');
 
   const [row] = await tx<
     { id: string; name: string; slug: string; status: string; country_code: string;
@@ -461,7 +524,7 @@ export async function changePlan(
   authUserId: string,
   params: { organisationId: string; planKey: string; reason: string },
 ): Promise<void> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.customers.plan');
   if (params.reason.trim().length < 5) throw invalid('A plan change requires a reason.');
 
   const [plan] = await tx<{ key: string; included_units: number }[]>`
@@ -503,7 +566,7 @@ export async function setAccountStatus(
   authUserId: string,
   params: { organisationId: string; status: 'trial' | 'active' | 'suspended' | 'closed'; reason: string },
 ): Promise<void> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.customers.status');
   if (params.reason.trim().length < 5) throw invalid('An account status change requires a reason.');
 
   const [before] = await tx<{ status: string }[]>`
@@ -571,7 +634,7 @@ export async function openSupportSession(
     hours: number;
   },
 ): Promise<{ supportSessionId: string; expiresAt: Date; approved: boolean }> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.support.request');
   if (params.reason.trim().length < 10) {
     throw invalid('A support session requires a reason of at least 10 characters, including the ticket reference.');
   }
@@ -705,7 +768,7 @@ export async function platformHealth(
   unpublishedOutbox: number; oldestUnpublishedAt: string | null;
   failedNotifications: number; undeliveredNotifications: number;
 }> {
-  await requirePlatformOperator(tx, authUserId);
+  await requirePlatformPermission(tx, authUserId, 'platform.customers.read');
   const [row] = await tx<
     { queued_jobs: number; running_jobs: number; dead_jobs: number; unpublished_outbox: number;
       oldest_unpublished: string | null; failed_notifications: number;
@@ -766,6 +829,7 @@ export async function createSystemLeaseTemplate(
   actorUserId: string,
   input: { name: string; provenance: string; summary: string; body: string },
 ): Promise<{ templateId: string }> {
+  await requirePlatformPermission(tx, actorUserId, 'platform.templates.manage');
   const name = input.name.trim();
   const provenance = input.provenance.trim();
   const body = input.body;
@@ -805,6 +869,7 @@ export async function publishSystemLeaseTemplate(
   actorUserId: string,
   params: { templateId: string },
 ): Promise<{ version: number; notified: { organisations: number; people: number } }> {
+  await requirePlatformPermission(tx, actorUserId, 'platform.templates.manage');
   const [draft] = await tx<{ id: string; version: number }[]>`
     select id, version from system_lease_template_versions
     where template_id = ${params.templateId}::uuid and published_at is null
@@ -864,6 +929,7 @@ export async function addSystemLeaseTemplateVersion(
   actorUserId: string,
   params: { templateId: string; body: string },
 ): Promise<{ version: number }> {
+  await requirePlatformPermission(tx, actorUserId, 'platform.templates.manage');
   if (params.body.trim().length < 200) {
     throw invalid('That body is too short to be a lease. Paste the full wording.');
   }
@@ -926,7 +992,7 @@ export async function provisionCustomer(
   token: string;
   expiresAt: Date;
 }> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.customers.provision');
 
   const details = parsed(
     z.object({
@@ -1043,7 +1109,7 @@ export async function listPendingCustomers(
   expiresAt: string;
   lapsed: boolean;
 }>> {
-  await requirePlatformOperator(tx, authUserId);
+  await requirePlatformPermission(tx, authUserId, 'platform.customers.read');
 
   const rows = await tx<
     { organisation_id: string; name: string; slug: string; full_name: string;

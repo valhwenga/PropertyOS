@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { recordAudit } from './audit';
 import { DomainError, invalid, notFound, parsed } from './errors';
-import { requirePlatformOperator } from './platform';
+import { requirePlatformPermission } from './platform';
 
 /**
  * Spike charging the landlord.
@@ -53,7 +53,7 @@ export async function platformBillingSettings(
   tx: Sql,
   authUserId: string,
 ): Promise<PlatformBiller> {
-  await requirePlatformOperator(tx, authUserId);
+  await requirePlatformPermission(tx, authUserId, 'platform.customers.read');
   const [row] = await tx<
     { legal_name: string | null; address: string | null; email: string | null;
       vat_number: string | null; vat_rate_bp: number; bank_details: string | null;
@@ -97,7 +97,7 @@ export async function saveBillingSettings(
   authUserId: string,
   input: z.input<typeof billingSettingsSchema>,
 ): Promise<void> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.billing.manage');
   const s = parsed(billingSettingsSchema, input);
 
   const [before] = await tx<{ legal_name: string | null; vat_number: string | null }[]>`
@@ -222,7 +222,7 @@ export async function runSubscriptionBilling(
   authUserId: string,
   input: z.input<typeof billingRunSchema>,
 ): Promise<BillingRunOutcome> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.billing.manage');
   const r = parsed(billingRunSchema, input);
 
   const biller = await platformBillingSettings(tx, authUserId);
@@ -416,7 +416,7 @@ export async function recordSubscriptionPayment(
   authUserId: string,
   input: z.input<typeof recordPaymentSchema>,
 ): Promise<{ invoiceNumber: string; settled: boolean; shortMinor: number }> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.billing.manage');
   const p = parsed(recordPaymentSchema, input);
 
   const [invoice] = await tx<
@@ -473,7 +473,7 @@ export async function voidSubscriptionInvoice(
   authUserId: string,
   params: { invoiceId: string; reason: string },
 ): Promise<void> {
-  const operator = await requirePlatformOperator(tx, authUserId);
+  const operator = await requirePlatformPermission(tx, authUserId, 'platform.billing.manage');
   if (params.reason.trim().length < 5) throw invalid('Voiding an invoice requires a reason.');
 
   const [invoice] = await tx<
@@ -599,7 +599,7 @@ export async function listSubscriptionInvoices(
   authUserId: string,
   filter: { organisationId?: string; status?: 'issued' | 'paid' | 'void' } = {},
 ): Promise<SubscriptionInvoice[]> {
-  await requirePlatformOperator(tx, authUserId);
+  await requirePlatformPermission(tx, authUserId, 'platform.customers.read');
   const rows = await tx<Parameters<typeof mapInvoice>[0][]>`
     select ${tx.unsafe(INVOICE_COLUMNS)}
       from subscription_invoices i

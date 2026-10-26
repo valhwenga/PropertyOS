@@ -29,16 +29,39 @@ export async function closeOwner(): Promise<void> {
 
 export async function createAuthUser(
   fullName: string,
-  options: { platformOperator?: boolean } = {},
+  options: {
+    platformOperator?: boolean;
+    email?: string;
+    /**
+     * Which platform roles a Spike operator holds. Defaults to
+     * `platform_admin`, which is what migration 0072 backfilled every operator
+     * that already existed to: an operator made the old way — by flipping the
+     * boolean — could do everything the console offers, so a fixture that
+     * says `platformOperator: true` and nothing else still means that.
+     * Name the roles to build a scoped operator instead.
+     */
+    platformRoles?: string[];
+  } = {},
 ): Promise<string> {
   const id = randomUUID();
-  const email = `${fullName.toLowerCase().replace(/[^a-z]+/g, '.')}.${id.slice(0, 8)}@demo.invalid`;
+  // The derived address keeps fixtures unique; an explicit one exists because
+  // an invitation is issued TO an address and must be accepted by that account.
+  const email = options.email
+    ?? `${fullName.toLowerCase().replace(/[^a-z]+/g, '.')}.${id.slice(0, 8)}@demo.invalid`;
   const sql = ownerSql();
   await sql`insert into auth.users (id, email) values (${id}, ${email})`;
   await sql`
     insert into user_profiles (auth_user_id, full_name, email, is_platform_operator)
     values (${id}, ${fullName}, ${email}, ${options.platformOperator ?? false})
   `;
+  if (options.platformOperator) {
+    for (const role of options.platformRoles ?? ['platform_admin']) {
+      await sql`
+        insert into platform_operator_roles (auth_user_id, role_key)
+        values (${id}, ${role}) on conflict do nothing
+      `;
+    }
+  }
   return id;
 }
 

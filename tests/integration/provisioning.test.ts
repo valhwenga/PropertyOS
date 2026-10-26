@@ -29,6 +29,12 @@ async function createPlatformOperator(name: string): Promise<string> {
     update user_profiles set is_platform_operator = true
      where auth_user_id = ${authUserId}
   `;
+  // An operator made by flipping the boolean holds everything, which is what
+  // migration 0072 backfilled every operator that already existed to.
+  await ownerSql()`
+    insert into platform_operator_roles (auth_user_id, role_key)
+    values (${authUserId}, 'platform_admin') on conflict do nothing
+  `;
   await ownerSql()`
     insert into auth_mfa_factors (auth_user_id, factor_type, secret, verified_at)
     values (${authUserId}, 'totp', 'JBSWY3DPEHPK3PXP', now())

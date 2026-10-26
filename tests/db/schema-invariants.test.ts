@@ -124,7 +124,16 @@ describe('Schema invariants', () => {
           -- disagree. Asserted directly in
           -- tests/integration/subscription-billing.test.ts: an administrator of
           -- one customer reads their own lines and none of another's.
-          'subscription_invoice_lines'
+          'subscription_invoice_lines',
+          -- Spike's own staff and what each of them may do. Platform-level by
+          -- definition: an operator belongs to no organisation, which is the
+          -- whole point of the support-session machinery. Their policies are
+          -- app.platform_permission(...) and are asserted directly in
+          -- tests/integration/platform-operators.test.ts, from both sides.
+          'platform_permissions', 'platform_roles', 'platform_role_permissions',
+          'platform_operator_roles', 'platform_operator_invitations',
+          -- Requests for an account, which exist BEFORE any organisation does.
+          'signup_requests'
         )
         and not exists (
           select 1 from pg_attribute a
