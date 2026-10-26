@@ -84,11 +84,49 @@ screen on which they could assign one, and no meaning to "Spike is assigned to
 reason. The scope is still the limit — this says nothing about *what* may be
 done.
 
+## Reaching the console (added the same week)
+
+The capability above was real and unreachable: `requireOperator` resolved
+organisations from membership, so an operator could hold a live approved write
+session and still be bounced out of the console it applied to.
+
+`getViewer` now also returns organisations reachable through a live approved
+session, carrying the session's id, expiry and scopes; membership wins where
+somebody somehow has both, so a real member is never shown as a visitor on
+their own organisation. `requireOperator` admits those and hands the page a
+`supportSession`.
+
+Three consequences worth stating.
+
+**The banner is rendered by the shell, not by a page.** It has to be on every
+screen an operator can reach, and one shown only on the landing page is one
+nobody sees after the first click. It names whose records these are, what may
+be changed in the customer's own words, when the session ends, and that the
+customer can end it sooner.
+
+**The menu resolves support permissions too.** `resolveMenuPermissions` and
+`hasPermission` ask `app.support_may` alongside `app.has_permission`. Without
+that the console is empty for somebody the customer deliberately let in, which
+reads as a broken product rather than as a boundary.
+
+**Suspension stops the customer, not the visitor.** A landlord suspended for
+non-payment who then asks for help would otherwise be unreachable by the only
+people who could sort it out, so `requireOperator` sends the customer to the
+suspended page and lets a support session through.
+
+Two things the browser found that no unit test would have. The ticket detail
+page returned a 500 under a maintenance session, because it loaded vendor and
+invoice choices for panels it was never going to render and `listVendors`
+enforces `report.read`; those reads are now asked for only by somebody who can
+commit money. And a sweep of out-of-scope pages under a live session found no
+errors — they render empty behind the banner, because row-level security
+filters the rows, and `settings/staff` explains in words that the permission
+belongs to the organisation's administrator.
+
 ## What this does not do
 
 It does not give Spike standing access to anything. With no window open and no
-approval, a session reaches nothing — unchanged. It also does not yet give the
-operator a way to *use* this from the customer's own screens: `requireOperator`
-still resolves organisations from membership, so the landlord console is not
-reachable under a session. That is the next piece, and until it lands this
-capability is reachable through the domain layer only.
+approval, a session reaches nothing — unchanged, and asserted: an operator with
+nothing approved who types the console URL is sent back to their own list, and
+a customer ending a session shuts the door on the operator's next click rather
+than at the next expiry.

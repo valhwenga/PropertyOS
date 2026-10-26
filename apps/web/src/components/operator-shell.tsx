@@ -2,6 +2,7 @@ import type { Branding } from '@propertyos/domain';
 import { AccountLink } from './account-link';
 import { ConsoleSidebar } from './console-sidebar';
 import { Icons } from './icons';
+import { SupportSessionBanner } from './support-session-banner';
 import type { NavGroup } from './operator-nav';
 import { ThemeToggle } from './theme-toggle';
 
@@ -16,12 +17,21 @@ import { ThemeToggle } from './theme-toggle';
  */
 export function OperatorShell({
   slug, organisationName, userName, unreadNotices, groups, awaitingSecondFactor,
-  organisations, branding, children,
+  organisations, branding, supportSession, children,
 }: {
   slug: string; organisationName: string; userName: string;
   unreadNotices: number; groups: NavGroup[]; awaitingSecondFactor: number;
   organisations: Array<{ slug: string; name: string }>;
   branding: Branding;
+  /**
+   * Present when a Spike operator is in a customer's account on a session the
+   * customer approved. The banner belongs HERE rather than on a page for the
+   * same reason the sidebar does: it has to be on every screen, and one shown
+   * only on the landing page is one nobody sees after the first click.
+   */
+  supportSession?: {
+    expiresAt: string; scopeNames: string[]; timeZone: string;
+  };
   children: React.ReactNode;
 }) {
   return (
@@ -68,6 +78,14 @@ export function OperatorShell({
           — stretches this flex item and pushes the whole page sideways. */}
       <div className="min-w-0 flex-1">
         <main id="main" className="mx-auto max-w-[84rem] px-4 py-6 sm:px-6 lg:px-8">
+          {supportSession ? (
+            <SupportSessionBanner
+              organisationName={organisationName}
+              expiresAt={supportSession.expiresAt}
+              scopeNames={supportSession.scopeNames}
+              timeZone={supportSession.timeZone}
+            />
+          ) : null}
           {children}
         </main>
       </div>

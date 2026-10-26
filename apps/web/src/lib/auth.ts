@@ -21,6 +21,13 @@ export interface Viewer {
   organisations: Array<{
     id: string; name: string; slug: string; currencyCode: string;
     timeZone: string; status: string; roles: string[];
+    /**
+     * Set when this organisation is reachable NOT through membership but
+     * through a live support session the customer approved. The console is
+     * the same console; what differs is that it ends, it is theirs to end
+     * sooner, and every screen says so.
+     */
+    supportSession?: { id: string; expiresAt: string; scopes: string[] };
   }>;
   residentLeases: Array<{ leaseId: string; organisationId: string; reference: string }>;
 }
@@ -60,6 +67,28 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
       order by o.name
     `;
 
+    // Organisations reachable through a live, customer-approved support
+    // session rather than through membership. Read on the caller's own
+    // context: `support_sessions_platform_select` shows an operator their own
+    // sessions, and `organisations_platform_select` shows account metadata, so
+    // nothing here is privileged.
+    const supportOrganisations = profile.is_platform_operator
+      ? await tx<
+        { id: string; name: string; slug: string; currency_code: string; time_zone: string;
+          status: string; session_id: string; expires_at: string; scopes: string[] }[]
+      >`
+        select o.id, o.name, o.slug, o.currency_code, o.time_zone, o.status::text,
+               s.id as session_id, s.expires_at::text, s.scopes
+          from support_sessions s
+          join organisations o on o.id = s.organisation_id
+         where s.operator_user_id = ${authUserId}::uuid
+           and s.approved_at is not null
+           and s.revoked_at is null
+           and s.expires_at > now()
+         order by o.name
+      `
+      : [];
+
     const residentLeases = await tx<
       { lease_id: string; organisation_id: string; reference: string }[]
     >`
@@ -77,10 +106,21 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
       fullName: profile.full_name,
       email: profile.email,
       isPlatformOperator: profile.is_platform_operator,
-      organisations: organisations.map((o) => ({
-        id: o.id, name: o.name, slug: o.slug, currencyCode: o.currency_code,
-        timeZone: o.time_zone, status: o.status, roles: o.roles,
-      })),
+      organisations: [
+        ...organisations.map((o) => ({
+          id: o.id, name: o.name, slug: o.slug, currencyCode: o.currency_code,
+          timeZone: o.time_zone, status: o.status, roles: o.roles,
+        })),
+        // Membership wins where somebody has both, so a real member is never
+        // shown as a visitor on their own organisation.
+        ...supportOrganisations
+          .filter((s) => !organisations.some((o) => o.id === s.id))
+          .map((s) => ({
+            id: s.id, name: s.name, slug: s.slug, currencyCode: s.currency_code,
+            timeZone: s.time_zone, status: s.status, roles: [] as string[],
+            supportSession: { id: s.session_id, expiresAt: s.expires_at, scopes: s.scopes },
+          })),
+      ],
       residentLeases: residentLeases.map((r) => ({
         leaseId: r.lease_id, organisationId: r.organisation_id, reference: r.reference,
       })),
@@ -101,6 +141,12 @@ export interface OperatorContext {
   currencyCode: string;
   timeZone: string;
   roles: string[];
+  /**
+   * Set when the caller is here on a support session rather than as a member.
+   * Every console screen renders a banner from it: who they are, whose records
+   * these are, what they may change, and when it ends.
+   */
+  supportSession?: { id: string; expiresAt: string; scopes: string[] };
 }
 
 /**
@@ -128,7 +174,14 @@ export async function requireOperator(slug: string): Promise<OperatorContext> {
   const organisation = viewer.organisations.find((o) => o.slug === slug);
   if (!organisation) redirect('/app');
   if (organisation.status === 'suspended' || organisation.status === 'closed') {
-    redirect(`/account-suspended/${organisation.slug}`);
+    // Suspension is Spike's lever against the CUSTOMER, so it stops the
+    // customer and not the support operator the customer let in: a landlord
+    // suspended for non-payment who then asks for help would otherwise be
+    // unreachable by the only people who could sort it out. The banner still
+    // says whose records these are, and the session still ends on its own.
+    if (!organisation.supportSession) {
+      redirect(`/account-suspended/${organisation.slug}`);
+    }
   }
   return {
     viewer,
@@ -137,6 +190,7 @@ export async function requireOperator(slug: string): Promise<OperatorContext> {
     currencyCode: organisation.currencyCode,
     timeZone: organisation.timeZone,
     roles: organisation.roles,
+    ...(organisation.supportSession ? { supportSession: organisation.supportSession } : {}),
   };
 }
 

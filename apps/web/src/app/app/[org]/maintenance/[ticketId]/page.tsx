@@ -31,16 +31,26 @@ export default async function TicketPage({
   const data = await readAs(context.viewer, async (tx) => {
     const detail = await loadTicketDetail(tx, context.organisationId, ticketId);
     if (!detail) return null;
+    // The spend panels and the lists behind them belong to somebody who can
+    // commit money, and `listVendors` enforces that with `report.read`. Asked
+    // first rather than caught afterwards: whoever may not approve spending
+    // is not shown the forms, so loading their options would fail the WHOLE
+    // page over a panel that was never going to render. A Spike operator in
+    // here on a maintenance support session is exactly that person, and the
+    // first version of this returned a 500 to them.
+    const canApproveSpend = await hasPermission(
+      tx, context.organisationId, 'maintenance.quote.approve',
+    );
+    const canRecordExpense = await hasPermission(tx, context.organisationId, 'expense.record');
+    const spending = canApproveSpend || canRecordExpense;
     return {
       ...detail,
-      vendors: await listVendors(tx, context.organisationId),
-      quotations: await loadQuotationChoices(tx, context.organisationId),
-      invoices: await loadInvoiceChoices(tx, context.organisationId),
+      vendors: spending ? await listVendors(tx, context.organisationId) : [],
+      quotations: spending ? await loadQuotationChoices(tx, context.organisationId) : [],
+      invoices: spending ? await loadInvoiceChoices(tx, context.organisationId) : [],
       canManage: await hasPermission(tx, context.organisationId, 'maintenance.manage'),
-      canApproveSpend: await hasPermission(
-        tx, context.organisationId, 'maintenance.quote.approve',
-      ),
-      canRecordExpense: await hasPermission(tx, context.organisationId, 'expense.record'),
+      canApproveSpend,
+      canRecordExpense,
     };
   });
   if (!data) notFound();

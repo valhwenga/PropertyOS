@@ -121,8 +121,12 @@ export async function hasPermission(
   organisationId: string,
   permission: PermissionKey,
 ): Promise<boolean> {
+  // Both ways of holding it, for the same reason `requirePermission` asks
+  // both: a screen that offers less than the command would accept sends
+  // somebody looking for a button that is not there.
   const [row] = await tx<{ allowed: boolean }[]>`
-    select app.has_permission(${organisationId}::uuid, ${permission}) as allowed
+    select app.has_permission(${organisationId}::uuid, ${permission})
+        or app.support_may(${organisationId}::uuid, ${permission}) as allowed
   `;
   return Boolean(row?.allowed);
 }
@@ -145,9 +149,14 @@ export async function resolveMenuPermissions<K extends PermissionKey>(
   permissions: readonly K[],
 ): Promise<{ held: K[]; withheldForSecondFactor: K[] }> {
   if (permissions.length === 0) return { held: [], withheldForSecondFactor: [] };
+  // A support session holds permissions the same way a role does, so the menu
+  // offers exactly what the session allows and nothing else. Without this the
+  // console is empty for an operator the customer deliberately let in, which
+  // reads as a broken product rather than as a boundary.
   const rows = await tx<{ key: string; held: boolean; needs_mfa: boolean }[]>`
     select k as key,
-           app.has_permission(${organisationId}::uuid, k) as held,
+           (app.has_permission(${organisationId}::uuid, k)
+            or app.support_may(${organisationId}::uuid, k)) as held,
            app.permission_needs_mfa(${organisationId}::uuid, k) as needs_mfa
     from unnest(${permissions as unknown as string[]}::text[]) as k
   `;

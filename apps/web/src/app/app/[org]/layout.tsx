@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { OperatorShell } from '@/components/operator-shell';
-import { countUnreadNotifications, getBranding, resolveMenuPermissions } from '@propertyos/domain';
+import {
+  countUnreadNotifications, getBranding, resolveMenuPermissions, supportScopes,
+} from '@propertyos/domain';
 import {
   SECTION_PERMISSIONS, sectionsAwaitingSecondFactor, visibleGroups,
 } from '@/components/operator-sections';
@@ -56,12 +58,15 @@ export default async function OrgLayout({
   const context = await requireOperator(org);
   // One transaction for both: the sidebar is rendered on every page in the
   // console, so what it costs is paid on every page in the console.
-  const { unreadNotices, menu, branding } = await readAs(context.viewer, async (tx) => ({
+  const { unreadNotices, menu, branding, scopes } = await readAs(context.viewer, async (tx) => ({
     unreadNotices: await countUnreadNotifications(tx, context.viewer.authUserId),
     menu: await resolveMenuPermissions(tx, context.organisationId, SECTION_PERMISSIONS),
     // How this organisation chose to look. One small row, read on every page
     // for the same reason the sidebar is: it is on every page.
     branding: await getBranding(tx, context.organisationId),
+    // Only when somebody is here on a session, so an ordinary member's page
+    // load does not pay for a read that would tell them nothing.
+    scopes: context.supportSession ? await supportScopes(tx) : [],
   }));
   return (
     <OperatorShell
@@ -77,6 +82,18 @@ export default async function OrgLayout({
       awaitingSecondFactor={
         sectionsAwaitingSecondFactor(menu.held, menu.withheldForSecondFactor)
       }
+      {...(context.supportSession
+        ? {
+          supportSession: {
+            expiresAt: context.supportSession.expiresAt,
+            // The customer's own words for what they allowed, not the keys.
+            scopeNames: context.supportSession.scopes.map(
+              (key) => scopes.find((scope) => scope.key === key)?.name ?? key,
+            ),
+            timeZone: context.timeZone,
+          },
+        }
+        : {})}
     >
       {children}
     </OperatorShell>

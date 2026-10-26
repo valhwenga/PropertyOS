@@ -264,9 +264,23 @@ export default async function PlatformCustomerPage({
                   ) : null}
                 </Td>
                 <Td>
-                  {(s.open || s.waiting) && s.openedByMe
-                    ? <CloseSessionButton supportSessionId={s.id} slug={detail.slug} />
-                    : null}
+                  <div className="flex items-center gap-2">
+                    {s.open && s.openedByMe ? (
+                      // The way in. The console refuses anybody without a live
+                      // approved session of their own, so this link is the only
+                      // thing that was missing — and it is offered only on a
+                      // session that is actually open, and yours.
+                      <a
+                        href={`/app/${detail.slug}`}
+                        className="rounded-lg border border-ink-200 px-2.5 py-1.5 text-sm font-medium text-ink-700 hover:bg-ink-50"
+                      >
+                        Open their console →
+                      </a>
+                    ) : null}
+                    {(s.open || s.waiting) && s.openedByMe
+                      ? <CloseSessionButton supportSessionId={s.id} slug={detail.slug} />
+                      : null}
+                  </div>
                 </Td>
               </tr>
             ))}
