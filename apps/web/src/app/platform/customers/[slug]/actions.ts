@@ -2,12 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  changePlan, closeSupportSession, openSupportSession, setAccountStatus,
+  changePlan, closeSupportSession, grantRolePermission, openSupportSession,
+  revokeRolePermission, setAccountStatus,
 } from '@propertyos/domain';
 import { command } from '@/lib/actions';
 
 /**
- * The four things a Spike operator can do to a customer account.
+ * The things a Spike operator can do to a customer account.
  *
  * All four existed in `packages/domain/src/platform.ts` with no screen anywhere
  * in this application, which meant the commercial side of the product — moving
@@ -97,5 +98,42 @@ export async function closeSupportSessionAction(_previous: unknown, formData: Fo
     revalidatePath(`/platform/customers/${slug}`);
     revalidatePath('/platform');
   }
+  return result;
+}
+
+/**
+ * Giving one customer's role one extra permission, and taking it back.
+ *
+ * Not privileged either: `organisation_role_permissions` is written under a
+ * policy keyed on `platform.permissions.manage`, so the operator's own RLS
+ * context is enough and the permission is resolved in SQL. Grants only — the
+ * domain has no way to remove a permission a role carries in the catalogue, so
+ * nothing here can narrow what a customer's staff may do.
+ */
+export async function grantRolePermissionAction(_previous: unknown, formData: FormData) {
+  const slug = str(formData, 'slug');
+  const result = await command(({ tx, viewer }) =>
+    grantRolePermission(tx, viewer.authUserId, {
+      organisationId: str(formData, 'organisationId'),
+      roleKey: str(formData, 'roleKey'),
+      permissionKey: str(formData, 'permissionKey'),
+      reason: str(formData, 'reason'),
+    }).then(() => ({})),
+  );
+  if (result.ok) revalidatePath(`/platform/customers/${slug}`);
+  return result;
+}
+
+export async function revokeRolePermissionAction(_previous: unknown, formData: FormData) {
+  const slug = str(formData, 'slug');
+  const result = await command(({ tx, viewer }) =>
+    revokeRolePermission(tx, viewer.authUserId, {
+      organisationId: str(formData, 'organisationId'),
+      roleKey: str(formData, 'roleKey'),
+      permissionKey: str(formData, 'permissionKey'),
+      reason: str(formData, 'reason'),
+    }).then(() => ({})),
+  );
+  if (result.ok) revalidatePath(`/platform/customers/${slug}`);
   return result;
 }

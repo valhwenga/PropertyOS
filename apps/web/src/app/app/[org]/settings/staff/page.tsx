@@ -3,6 +3,7 @@ import { BackLink } from '@/components/back-link';
 import { Card, EmptyState, PageHeader, StatusBadge } from '@propertyos/ui';
 import {
   assignableRoles, hasPermission, listStaff, listStaffInvitations,
+  organisationPermissionOverrides, type RolePermissionOverride,
 } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
@@ -34,16 +35,25 @@ export default async function StaffPage({
 
   const data = await readAs(context.viewer, async (tx) => {
     const canManage = await hasPermission(tx, context.organisationId, 'membership.manage');
-    if (!canManage) return { canManage, members: [], invitations: [], roles: [], properties: [] };
+    // Read for everybody who can open this page, including somebody without
+    // the membership permission: Spike widening what your colleagues may do is
+    // something you are entitled to see whether or not you administer them.
+    const granted = await organisationPermissionOverrides(tx, context.organisationId);
+    if (!canManage) {
+      return {
+        canManage, granted, members: [], invitations: [], roles: [], properties: [],
+      };
+    }
     return {
       canManage,
+      granted,
       members: await listStaff(tx, context.organisationId, context.viewer.authUserId),
       invitations: await listStaffInvitations(tx, context.organisationId),
       roles: await assignableRoles(tx),
       properties: await loadPropertyChoices(tx, context.organisationId),
     };
   });
-  const { canManage, members, invitations, roles, properties } = data;
+  const { canManage, granted, members, invitations, roles, properties } = data;
 
   const baseUrl = process.env.APP_BASE_URL ?? '';
   const propertyChoices = properties.map((p) => ({ id: p.id, label: `${p.name} (${p.code})` }));
@@ -73,6 +83,31 @@ export default async function StaffPage({
             </p>
           ) : null}
         </Card>
+
+      {granted.length > 0 ? (
+        <Card className="border-caution-700/25 bg-caution-50 p-4">
+          <p className="text-sm font-semibold text-caution-700">
+            Spike has given {granted.length === 1 ? 'one of your roles' : 'some of your roles'}{' '}
+            an extra permission
+          </p>
+          <p className="mt-1 text-sm text-ink-700">
+            At your request, on this account only. Each one needs the colleague to have an
+            authenticator set up, even where the role itself does not. Ask Spike support to
+            remove any of these and they go.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {granted.map((extra: RolePermissionOverride) => (
+              <li key={`${extra.roleKey}:${extra.permissionKey}`} className="text-sm text-ink-700">
+                <strong>{extra.roleName}</strong> can also {extra.permissionDescription.toLowerCase()}
+                <span className="block text-xs text-ink-500">
+                  {extra.reason}
+                  {extra.grantedByName ? ` · granted by ${extra.grantedByName} at Spike` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
       </div>
     );
   }
@@ -85,6 +120,32 @@ export default async function StaffPage({
         title="Colleagues"
         description="Who can use this organisation, what they can do, and which properties they can reach."
       />
+
+
+      {granted.length > 0 ? (
+        <Card className="border-caution-700/25 bg-caution-50 p-4">
+          <p className="text-sm font-semibold text-caution-700">
+            Spike has given {granted.length === 1 ? 'one of your roles' : 'some of your roles'}{' '}
+            an extra permission
+          </p>
+          <p className="mt-1 text-sm text-ink-700">
+            At your request, on this account only. Each one needs the colleague to have an
+            authenticator set up, even where the role itself does not. Ask Spike support to
+            remove any of these and they go.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {granted.map((extra: RolePermissionOverride) => (
+              <li key={`${extra.roleKey}:${extra.permissionKey}`} className="text-sm text-ink-700">
+                <strong>{extra.roleName}</strong> can also {extra.permissionDescription.toLowerCase()}
+                <span className="block text-xs text-ink-500">
+                  {extra.reason}
+                  {extra.grantedByName ? ` · granted by ${extra.grantedByName} at Spike` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <InviteStaffForm
         org={org} roles={roles} properties={propertyChoices} baseUrl={baseUrl}

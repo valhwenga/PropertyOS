@@ -3,13 +3,17 @@ import {
   Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th,
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
-import { customerDetail, formatMoney, listCustomers, listPlans } from '@propertyos/domain';
+import {
+  customerDetail, formatMoney, listCustomers, listPlans, organisationPermissionOverrides,
+  permissionCatalogue, platformPermissionsOf,
+} from '@propertyos/domain';
 import { BackLink } from '@/components/back-link';
 import { readAs, requireViewer } from '@/lib/auth';
 import { formatDate, formatDateTime } from '@/lib/format';
 import {
   AccountStatusForm, CloseSessionButton, PlanForm, SupportSessionForm,
 } from './customer-forms';
+import { PermissionOverrides } from './permission-forms';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,9 +61,14 @@ export default async function PlatformCustomerPage({
   const match = customers.find((c) => c.slug === slug);
   if (!match) notFound();
 
-  const [detail, plans] = await readAs(viewer, async (tx) => [
+  const [detail, plans, catalogue, overrides, mine] = await readAs(viewer, async (tx) => [
     await customerDetail(tx, viewer.authUserId, match.organisationId),
     await listPlans(tx),
+    // What every role can do, so the form can offer only what this role does
+    // not already carry — the database refuses the rest anyway.
+    await permissionCatalogue(tx, viewer.authUserId),
+    await organisationPermissionOverrides(tx, match.organisationId),
+    await platformPermissionsOf(tx, viewer.authUserId),
   ] as const);
 
   const status = ACCOUNT_STATUS[detail.status] ?? ACCOUNT_STATUS.trial!;
@@ -184,6 +193,20 @@ export default async function PlatformCustomerPage({
             organisationId={detail.organisationId}
             slug={detail.slug}
             openWindow={detail.openWindow}
+          />
+          <PermissionOverrides
+            organisationId={detail.organisationId}
+            slug={detail.slug}
+            customerName={detail.name}
+            roles={catalogue.roles.map((r) => ({
+              key: r.key, name: r.name, assignableToStaff: r.assignableToStaff,
+              permissions: r.permissions,
+            }))}
+            permissions={catalogue.permissions.map((p) => ({
+              key: p.key, description: p.description,
+            }))}
+            overrides={overrides}
+            canManage={mine.includes('platform.permissions.manage')}
           />
         </div>
       </section>

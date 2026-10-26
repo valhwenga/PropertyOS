@@ -114,3 +114,25 @@ export async function clearInspectionResponses(slug: string): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/**
+ * No extra permissions on any of this customer's roles.
+ *
+ * The grant spec asserts both the presence and the absence of the customer's
+ * notice, so a leftover grant from an interrupted run would make the "nothing
+ * extra" assertion fail for a reason that has nothing to do with the test.
+ */
+export async function clearPermissionOverrides(slug: string): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [org] = await sql<{ id: string }[]>`
+      select id from organisations where slug = ${slug}
+    `;
+    if (!org) throw new Error(`no organisation with slug ${slug} in the preview database`);
+    await sql`
+      delete from organisation_role_permissions where organisation_id = ${org.id}
+    `;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
