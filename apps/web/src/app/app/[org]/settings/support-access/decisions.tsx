@@ -21,6 +21,53 @@ interface Outcome { ok?: boolean; message?: string; correlationId?: string }
 
 const FIELD = 'w-full rounded-lg border border-ink-200 px-3 py-2 text-sm';
 
+export interface ScopeChoice { key: string; name: string; description: string }
+
+/**
+ * What the customer is agreeing to let Spike change.
+ *
+ * Unticked is the default and is the behaviour support access has always had:
+ * look, change nothing. The words come from the database, from the same rows
+ * that decide what a scope actually permits, so this list cannot drift from
+ * what will really be allowed.
+ */
+function ScopeChoices({
+  scopes, idPrefix, legend,
+}: { scopes: ScopeChoice[]; idPrefix: string; legend: string }) {
+  if (scopes.length === 0) return null;
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="text-sm font-medium text-ink-700">{legend}</legend>
+      <p className="text-xs text-ink-500">
+        Leave these unticked and support can look and change nothing, which is how
+        support access has always worked.
+      </p>
+      {scopes.map((scope) => (
+        <label
+          key={scope.key}
+          htmlFor={`${idPrefix}-${scope.key}`}
+          className="flex gap-2.5 rounded-lg border border-ink-100 p-2.5"
+        >
+          <input
+            id={`${idPrefix}-${scope.key}`} type="checkbox" name="scopes" value={scope.key}
+            className="mt-0.5 h-4 w-4 rounded border-ink-300"
+          />
+          <span>
+            <span className="block text-sm font-medium text-ink-900">{scope.name}</span>
+            <span className="block text-xs text-ink-600">{scope.description}</span>
+          </span>
+        </label>
+      ))}
+      <p className="text-xs text-ink-500">
+        Whatever you tick, support can never move money, change your bank details, add
+        anybody to your organisation, extend its own access, or open identity documents.
+        Everything it does is recorded against the session and you can end it at any
+        moment.
+      </p>
+    </fieldset>
+  );
+}
+
 function Failure({ state }: { state: Outcome | null }) {
   if (!state || state.ok) return null;
   return (
@@ -31,15 +78,20 @@ function Failure({ state }: { state: Outcome | null }) {
 }
 
 export function ApproveSessionButton({
-  supportSessionId, org, operatorName,
+  supportSessionId, org, operatorName, scopes,
 }: {
-  supportSessionId: string; org: string; operatorName: string;
+  supportSessionId: string; org: string; operatorName: string; scopes: ScopeChoice[];
 }) {
   const [state, action, pending] = useActionState(approveSupportSessionAction, null);
   return (
-    <form action={action}>
+    <form action={action} className="space-y-3">
       <input type="hidden" name="supportSessionId" value={supportSessionId} />
       <input type="hidden" name="org" value={org} />
+      <ScopeChoices
+        scopes={scopes}
+        idPrefix={`approve-${supportSessionId}`}
+        legend={`May ${operatorName} change anything?`}
+      />
       <Button
         type="submit"
         variant="primary"
@@ -80,7 +132,7 @@ export function EndSessionButton({
   );
 }
 
-export function OpenWindowForm({ org }: { org: string }) {
+export function OpenWindowForm({ org, scopes }: { org: string; scopes: ScopeChoice[] }) {
   const [state, action, pending] = useActionState(openSupportWindowAction, null);
   return (
     <Card className="p-5">
@@ -89,7 +141,8 @@ export function OpenWindowForm({ org }: { org: string }) {
         For when you are about to raise a query and would rather support could look
         straight away than wait for you to approve each request. Any session opened
         inside the window is approved as it arrives, cannot outlast the window, and is
-        still read-only and still recorded against your name.
+        recorded against your name. It can change only what you tick below — nothing,
+        unless you say otherwise.
       </p>
       <form action={action} className="mt-3 space-y-3">
         <input type="hidden" name="org" value={org} />
@@ -102,6 +155,11 @@ export function OpenWindowForm({ org }: { org: string }) {
             placeholder="Raising a query about the March statement"
           />
         </div>
+        <ScopeChoices
+          scopes={scopes}
+          idPrefix="window"
+          legend="What support may change while the window is open"
+        />
         <div className="space-y-1.5">
           <label htmlFor="hours" className="block text-sm font-medium text-ink-700">
             For how long

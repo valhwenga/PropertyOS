@@ -1,5 +1,5 @@
 import { Card, DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
-import { supportAccessState } from '@propertyos/domain';
+import { supportAccessState, supportScopes } from '@propertyos/domain';
 import { BackLink } from '@/components/back-link';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format';
@@ -26,9 +26,12 @@ export default async function SupportAccessPage({
 }) {
   const { org } = await params;
   const context = await requireOperator(org);
-  const state = await readAs(context.viewer, (tx) =>
-    supportAccessState(tx, context.organisationId),
-  );
+  const { state, scopes } = await readAs(context.viewer, async (tx) => ({
+    state: await supportAccessState(tx, context.organisationId),
+    // Read from the database rather than written into this page: the same rows
+    // decide what a scope actually permits.
+    scopes: await supportScopes(tx),
+  }));
 
   const canDecide = context.roles.includes('org_admin');
 
@@ -55,9 +58,13 @@ export default async function SupportAccessPage({
                   </p>
                   <p className="mt-0.5 text-sm text-ink-700">{s.reason}</p>
                   <p className="mt-1 text-xs text-ink-500">
-                    Asked {formatDateTime(s.grantedAt, context.timeZone)} · read-only · would end{' '}
+                    Asked {formatDateTime(s.grantedAt, context.timeZone)} · would end{' '}
                     {formatDateTime(s.expiresAt, context.timeZone)} ·{' '}
                     <strong>reaches nothing until you approve it</strong>
+                  </p>
+                  <p className="mt-1 text-xs text-ink-500">
+                    What they wrote above is what they say they need. You decide what they
+                    get.
                   </p>
                 </div>
                 {canDecide ? (
@@ -66,6 +73,7 @@ export default async function SupportAccessPage({
                       supportSessionId={s.id}
                       org={org}
                       operatorName={s.operatorName}
+                      scopes={scopes}
                     />
                     <EndSessionButton
                       supportSessionId={s.id}
@@ -89,10 +97,27 @@ export default async function SupportAccessPage({
             {state.live.length} support session{state.live.length === 1 ? ' is' : 's are'} open
           </p>
           <p className="mt-1 text-sm text-ink-700">
-            Spike support can currently read your records. Sessions are read-only — support
-            cannot change your data — and expire on their own. End one now with the button
-            beside it; Spike then has to ask again.
+            Spike support can currently read your records. Each session expires on its own;
+            end one now with the button beside it and Spike has to ask again.
           </p>
+          <ul className="mt-2 space-y-1 text-sm text-ink-700">
+            {state.live.map((s) => (
+              <li key={s.id}>
+                <strong>{s.operatorName}</strong>{' '}
+                {s.scopes.length === 0 ? (
+                  <>can read your records and change nothing.</>
+                ) : (
+                  <>
+                    can also change:{' '}
+                    {s.scopes
+                      .map((key) => scopes.find((sc) => sc.key === key)?.name ?? key)
+                      .join(', ')}
+                    . You allowed this when you approved the session.
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
         </Card>
       ) : state.waiting.length === 0 ? (
         <Card className="border-positive-600/25 bg-positive-50 p-4">
@@ -130,7 +155,7 @@ export default async function SupportAccessPage({
               <CloseWindowButton grantId={state.openWindow.id} org={org} />
             </Card>
           ) : (
-            <OpenWindowForm org={org} />
+            <OpenWindowForm org={org} scopes={scopes} />
           )}
         </section>
       ) : null}
@@ -196,6 +221,13 @@ export default async function SupportAccessPage({
                         : <StatusBadge tone="neutral" glyph="○">Expired</StatusBadge>}
                   {h.readOnly ? (
                     <span className="mt-0.5 block text-xs text-ink-400">read-only</span>
+                  ) : h.scopes.length > 0 ? (
+                    <span className="mt-0.5 block text-xs text-caution-700">
+                      could change:{' '}
+                      {h.scopes
+                        .map((key) => scopes.find((sc) => sc.key === key)?.name ?? key)
+                        .join(', ')}
+                    </span>
                   ) : null}
                 </Td>
                 <Td>

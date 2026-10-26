@@ -146,7 +146,7 @@ export function SupportSessionForm({
   organisationId, slug, openWindow,
 }: {
   organisationId: string; slug: string;
-  openWindow: { expiresAt: string; authorisedByName: string | null } | null;
+  openWindow: { expiresAt: string; authorisedByName: string | null; scopes: string[] } | null;
 }) {
   const [state, action, pending] = useActionState(openSupportSessionAction, null);
   const opened = state?.ok
@@ -157,14 +157,17 @@ export function SupportSessionForm({
     <Card className="p-5">
       <h2 className="text-sm font-semibold text-ink-900">Ask for a support session</h2>
       <p className="mt-1 text-sm text-ink-700">
-        Read-only, time limited, and shown to the customer in their own settings with your
-        name and this reason. Every record you open under it is recorded against it.
+        Time limited, and shown to the customer in their own settings with your name and this
+        reason. Every record you open and every change you make is recorded against it.
       </p>
       {openWindow ? (
         <p className="mt-2 rounded-lg border border-positive-600/25 bg-positive-50 p-3 text-sm text-ink-700">
           <strong>They have let support in until {openWindow.expiresAt.slice(0, 16).replace('T', ' ')}</strong>
           {openWindow.authorisedByName ? ` — ${openWindow.authorisedByName} opened the window` : ''}.
           A session you open now is approved on arrival, and cannot outlast that window.
+          {openWindow.scopes.length > 0
+            ? ` They allowed changes to: ${openWindow.scopes.join(', ')}.`
+            : ' They allowed reading only, so a session opened now can change nothing.'}
         </p>
       ) : (
         <p className="mt-2 rounded-lg border border-info-700/25 bg-info-50 p-3 text-sm text-ink-700">
@@ -189,6 +192,30 @@ export function SupportSessionForm({
             and what you need to look at.
           </p>
         </div>
+        {openWindow && openWindow.scopes.length > 0 ? (
+          <fieldset className="space-y-1.5">
+            <legend className="text-sm font-medium text-ink-700">
+              What you need to be able to change
+            </legend>
+            <p className="text-xs text-ink-500">
+              Only what they have already allowed is listed. Asking for nothing is reading
+              only, which is the right choice unless a change is the point of the call.
+            </p>
+            {openWindow.scopes.map((scope: string) => (
+              <label
+                key={scope}
+                htmlFor={`scope-${scope}`}
+                className="flex items-center gap-2 text-sm text-ink-700"
+              >
+                <input
+                  id={`scope-${scope}`} type="checkbox" name="scopes" value={scope}
+                  className="h-4 w-4 rounded border-ink-300"
+                />
+                {scope}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
         <div className="space-y-1.5">
           <label htmlFor="hours" className="block text-sm font-medium text-ink-700">
             For how long

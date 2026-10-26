@@ -133,7 +133,12 @@ describe('Schema invariants', () => {
           'platform_permissions', 'platform_roles', 'platform_role_permissions',
           'platform_operator_roles', 'platform_operator_invitations',
           -- Requests for an account, which exist BEFORE any organisation does.
-          'signup_requests'
+          'signup_requests',
+          -- What a customer can let Spike do, and which permissions each of
+          -- those choices carries. Reference data, readable by everybody and
+          -- writable by nobody: the same rows the customer's tickboxes are
+          -- drawn from and the policies read.
+          'support_scopes', 'support_scope_permissions'
         )
         and not exists (
           select 1 from pg_attribute a

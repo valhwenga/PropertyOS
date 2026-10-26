@@ -35,6 +35,31 @@ export interface SupportSessionRow {
   waiting: boolean;
   /** Approved, unexpired and not revoked: Spike can read the records now. */
   live: boolean;
+  /**
+   * What this session may change, if anything. Empty is read-only, which is
+   * what every session was before scopes existed.
+   */
+  scopes: string[];
+}
+
+export interface SupportScopeRow {
+  key: string;
+  name: string;
+  description: string;
+}
+
+/**
+ * The scopes a customer can choose from, with the words they will read.
+ *
+ * Reference data rather than a constant in the application: the same rows
+ * decide what a scope ALLOWS, through `support_scope_permissions`, so a screen
+ * cannot drift from what the database will actually permit.
+ */
+export async function supportScopes(tx: Sql): Promise<SupportScopeRow[]> {
+  const rows = await tx<{ key: string; name: string; description: string }[]>`
+    select key, name, description from support_scopes order by sort, key
+  `;
+  return rows;
 }
 
 /** The access log a CUSTOMER sees: who at Spike looked at their data, and why. */
@@ -46,10 +71,10 @@ export async function supportAccessHistory(
     { id: string; operator_name: string; reason: string; granted_at: string; expires_at: string;
       approved_at: string | null; revoked_at: string | null; read_only: boolean;
       authorised_by_name: string | null; approved_via_grant_id: string | null;
-      actions_recorded: string }[]
+      actions_recorded: string; scopes: string[] }[]
   >`
     select s.id, s.reason, s.granted_at::text, s.expires_at::text,
-           s.approved_at::text, s.revoked_at::text, s.read_only,
+           s.approved_at::text, s.revoked_at::text, s.read_only, s.scopes,
            s.approved_via_grant_id::text,
            op.full_name as operator_name,
            auth_by.full_name as authorised_by_name,
@@ -77,6 +102,7 @@ export async function supportAccessHistory(
       actionsRecorded: Number(r.actions_recorded),
       waiting: r.approved_at === null && r.revoked_at === null && unexpired,
       live: r.approved_at !== null && r.revoked_at === null && unexpired,
+      scopes: r.scopes,
     };
   });
 }
@@ -90,6 +116,8 @@ export interface SupportAccessGrantRow {
   revokedAt: string | null;
   live: boolean;
   sessionsOpened: number;
+  /** Empty means look and change nothing, which is the default. */
+  scopes: string[];
 }
 
 /** Windows the customer has opened, newest first. */
@@ -99,9 +127,11 @@ export async function supportAccessGrants(
 ): Promise<SupportAccessGrantRow[]> {
   const rows = await tx<
     { id: string; authorised_by_name: string | null; reason: string; granted_at: string;
-      expires_at: string; revoked_at: string | null; sessions_opened: string }[]
+      expires_at: string; revoked_at: string | null; sessions_opened: string;
+      scopes: string[] }[]
   >`
     select g.id, g.reason, g.granted_at::text, g.expires_at::text, g.revoked_at::text,
+           g.scopes,
            by.full_name as authorised_by_name,
            (select count(*) from support_sessions s
              where s.approved_via_grant_id = g.id)::text as sessions_opened
@@ -121,6 +151,7 @@ export async function supportAccessGrants(
     revokedAt: r.revoked_at,
     live: r.revoked_at === null && new Date(r.expires_at).getTime() > now,
     sessionsOpened: Number(r.sessions_opened),
+    scopes: r.scopes,
   }));
 }
 
@@ -136,7 +167,18 @@ export async function supportAccessGrants(
 export async function approveSupportSession(
   tx: Sql,
   authUserId: string,
-  params: { supportSessionId: string },
+  params: {
+    supportSessionId: string;
+    /**
+     * What this session may do, chosen HERE and nowhere else.
+     *
+     * The operator's request is a sentence in `reason`, not an entitlement:
+     * the person approving reads it and decides. The database agrees — the
+     * approval guard from 0066 lets `scopes` move only in this same
+     * transition, and never afterwards.
+     */
+    scopes?: string[];
+  },
 ): Promise<void> {
   const [session] = await tx<
     { id: string; organisation_id: string; approved_at: string | null;
@@ -161,9 +203,11 @@ export async function approveSupportSession(
   // than as an unexpected database error with the reason swallowed.
   let approved: { id: string }[];
   try {
+    const scopes = params.scopes ?? [];
     approved = await tx<{ id: string }[]>`
       update support_sessions
-         set approved_at = now(), authorised_by = ${authUserId}::uuid
+         set approved_at = now(), authorised_by = ${authUserId}::uuid,
+             scopes = ${scopes}, read_only = ${scopes.length === 0}
        where id = ${params.supportSessionId}::uuid
          and approved_at is null
          and revoked_at is null
@@ -186,7 +230,7 @@ export async function approveSupportSession(
     resourceType: 'support_session',
     resourceId: session.id,
     supportSessionId: session.id,
-    after: { approvedBy: authUserId },
+    after: { approvedBy: authUserId, scopes: params.scopes ?? [] },
   });
   await emitEvent(tx, {
     organisationId: session.organisation_id,
@@ -200,6 +244,11 @@ export async function approveSupportSession(
 export const grantSupportAccessSchema = z.object({
   hours: z.coerce.number().int().min(1).max(72),
   reason: z.string().trim().min(5, 'Say what this is for, so the record means something.').max(500),
+  /**
+   * What Spike may DO in this window, beyond reading. Empty is the default and
+   * the old behaviour: look, change nothing.
+   */
+  scopes: z.array(z.string().trim().min(2).max(40)).max(8).default([]),
 });
 
 /**
@@ -222,8 +271,12 @@ export async function grantSupportAccess(
 
   const expiresAt = new Date(Date.now() + g.hours * 3_600_000);
   const [row] = await tx<{ id: string }[]>`
-    insert into support_access_grants (organisation_id, authorised_by, reason, expires_at)
-    values (${organisationId}, ${authUserId}, ${g.reason}, ${expiresAt.toISOString()})
+    insert into support_access_grants (
+      organisation_id, authorised_by, reason, expires_at, scopes
+    )
+    values (
+      ${organisationId}, ${authUserId}, ${g.reason}, ${expiresAt.toISOString()}, ${g.scopes}
+    )
     returning id
   `;
   if (!row) throw new DomainError('internal', 'Support access grant insert returned no row.');
@@ -235,7 +288,7 @@ export async function grantSupportAccess(
     resourceType: 'support_access_grant',
     resourceId: row.id,
     reason: g.reason,
-    after: { expiresAt: expiresAt.toISOString(), hours: g.hours },
+    after: { expiresAt: expiresAt.toISOString(), hours: g.hours, scopes: g.scopes },
   });
   return { grantId: row.id, expiresAt };
 }

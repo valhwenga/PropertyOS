@@ -20,6 +20,7 @@ import { requireOperator } from '@/lib/auth';
  */
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? '');
+const scopes = (f: FormData) => f.getAll('scopes').map((s) => String(s));
 const path = (org: string) => `/app/${org}/settings/support-access`;
 
 export async function approveSupportSessionAction(_previous: unknown, formData: FormData) {
@@ -27,6 +28,9 @@ export async function approveSupportSessionAction(_previous: unknown, formData: 
   const result = await command(({ tx, viewer }) =>
     approveSupportSession(tx, viewer.authUserId, {
       supportSessionId: str(formData, 'supportSessionId'),
+      // What they may CHANGE, if anything. Nothing ticked is the old
+      // behaviour and still the default: they look, and alter nothing.
+      scopes: scopes(formData),
     }).then(() => ({})),
   );
   if (result.ok) revalidatePath(path(org));
@@ -54,6 +58,7 @@ export async function openSupportWindowAction(_previous: unknown, formData: Form
     const grant = await grantSupportAccess(tx, context.organisationId, viewer.authUserId, {
       hours: str(formData, 'hours'),
       reason: str(formData, 'reason'),
+      scopes: scopes(formData),
     });
     return { expiresAt: grant.expiresAt.toISOString() };
   });

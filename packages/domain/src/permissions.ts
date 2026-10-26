@@ -24,18 +24,49 @@ export type PermissionKey =
  * Resolved against CURRENT membership and role grants on every call, not against
  * claims baked into a token, so revoking a role takes effect immediately.
  * Hiding a menu item is not an access control; this is.
+ *
+ * There is a second way to hold a permission here, and only one: a live
+ * support session the customer approved, carrying a scope that includes this
+ * permission. That is what lets a landlord say "please fix it" and have Spike
+ * able to. `app.support_may` applies the allowlist itself, so the permissions
+ * no scope may ever carry — anything touching money, memberships, support
+ * access, period locks, the bulk export or identity documents — are refused
+ * here even if a scope somehow carried them, and the tables behind them have
+ * no support write policy at all.
+ *
+ * Asked in this order because membership is the overwhelmingly common case and
+ * because the message should name the permission rather than the session.
  */
 export async function requirePermission(
   tx: Sql,
   organisationId: string,
   permission: PermissionKey,
 ): Promise<void> {
-  const [row] = await tx<{ allowed: boolean }[]>`
-    select app.has_permission(${organisationId}::uuid, ${permission}) as allowed
+  const [row] = await tx<{ allowed: boolean; via_support: boolean }[]>`
+    select app.has_permission(${organisationId}::uuid, ${permission}) as allowed,
+           app.support_may(${organisationId}::uuid, ${permission}) as via_support
   `;
-  if (!row?.allowed) {
+  if (!row?.allowed && !row?.via_support) {
     throw forbidden(`This action requires the "${permission}" permission.`);
   }
+}
+
+/**
+ * The live support session this caller is acting under, if any.
+ *
+ * For the handful of places that need to SAY so — a banner on the customer's
+ * own screens, a reason line on a record. Audit attribution does not use it:
+ * that is a trigger on `audit_events`, because "which session did this" must
+ * not depend on a command remembering to pass it.
+ */
+export async function currentSupportSession(
+  tx: Sql,
+  organisationId: string,
+): Promise<string | null> {
+  const [row] = await tx<{ session_id: string | null }[]>`
+    select app.current_support_session(${organisationId}::uuid) as session_id
+  `;
+  return row?.session_id ?? null;
 }
 
 /**
@@ -131,16 +162,25 @@ export async function resolveMenuPermissions<K extends PermissionKey>(
  *
  * Membership is necessary but never sufficient: an unassigned property is denied
  * even inside the caller's own organisation.
+ *
+ * A support session is the exception, and deliberately so: what the customer
+ * authorises is access to their ORGANISATION for a few hours, not to a list of
+ * properties — there is no screen on which they could assign one, and no
+ * meaning to "Spike is assigned to 12B". The support write policies omit the
+ * property condition for the same reason. The scope itself is still the limit:
+ * this says nothing about WHAT may be done, which `requirePermission` has
+ * already decided.
  */
 export async function requirePropertyScope(
   tx: Sql,
   organisationId: string,
   propertyId: string,
 ): Promise<void> {
-  const [row] = await tx<{ allowed: boolean }[]>`
-    select app.can_access_property(${organisationId}::uuid, ${propertyId}::uuid) as allowed
+  const [row] = await tx<{ allowed: boolean; under_session: boolean }[]>`
+    select app.can_access_property(${organisationId}::uuid, ${propertyId}::uuid) as allowed,
+           app.current_support_session(${organisationId}::uuid) is not null as under_session
   `;
-  if (!row?.allowed) {
+  if (!row?.allowed && !row?.under_session) {
     throw forbidden('This property is not in your assigned scope.');
   }
 }

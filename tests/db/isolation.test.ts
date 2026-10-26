@@ -461,16 +461,42 @@ describe('Cross-organisation and scope isolation', () => {
     });
   });
 
-  it('refuses a Spike operator a writable support session', async () => {
+  it('refuses a Spike operator a writable support session they were not given', async () => {
     const operator = await createAuthUser('Spike Write Attempt', { platformOperator: true });
-    // The policy requires read_only = true, so a writable session cannot exist.
+
+    // Sessions can now carry scopes — what changed in migration 0074 — so the
+    // thing to prove is no longer "a writing session cannot exist" but "an
+    // operator cannot write themselves one". Two refusals, from two places,
+    // and the test says which is which because a passing test that has
+    // forgotten its own mechanism is how the first version of 0073 nearly
+    // shipped a hole.
+
+    // 1. The realistic attempt: scopes, self-approved, with nothing the
+    //    customer opened. The INSERT policy requires a live window of theirs
+    //    that already carries every scope asked for.
+    await expect(
+      as(operator, (tx) => tx`
+        insert into support_sessions (
+          organisation_id, operator_user_id, reason, expires_at, read_only, scopes,
+          approved_at, authorised_by
+        ) values (
+          ${orgA.organisationId}, ${operator},
+          'Attempting to grant myself write access', now() + interval '1 hour',
+          false, array['records'], now(), ${operator}
+        )
+      `),
+    ).rejects.toThrow(/row-level security/);
+
+    // 2. And an incoherent row — claiming to write while carrying no scope —
+    //    is refused by the constraint that keeps `read_only` honest, before
+    //    any policy is consulted.
     await expect(
       as(operator, (tx) => tx`
         insert into support_sessions (organisation_id, operator_user_id, reason, expires_at, read_only)
         values (${orgA.organisationId}, ${operator},
                 'Attempting to grant myself write access', now() + interval '1 hour', false)
       `),
-    ).rejects.toThrow(/row-level security/);
+    ).rejects.toThrow(/read_only_matches_scopes/);
   });
 
   it('refuses a Spike operator a support session in someone else name', async () => {

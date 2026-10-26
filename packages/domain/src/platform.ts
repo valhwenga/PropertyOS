@@ -305,7 +305,11 @@ export interface CustomerDetail {
    * without it they cannot tell whether opening a session will reach anything
    * or sit waiting on somebody.
    */
-  openWindow: { expiresAt: string; authorisedByName: string | null; reason: string } | null;
+  openWindow: {
+    expiresAt: string; authorisedByName: string | null; reason: string;
+    /** What the customer allowed changing in this window. Empty means reading only. */
+    scopes: string[];
+  } | null;
   platformActions: Array<{
     id: string;
     at: string;
@@ -410,9 +414,10 @@ export async function customerDetail(
   `;
 
   const [openWindow] = await tx<
-    { expires_at: string; authorised_by_name: string | null; reason: string }[]
+    { expires_at: string; authorised_by_name: string | null; reason: string;
+      scopes: string[] }[]
   >`
-    select g.expires_at::text, g.reason,
+    select g.expires_at::text, g.reason, g.scopes,
            (select full_name from user_profiles up where up.auth_user_id = g.authorised_by)
              as authorised_by_name
       from support_access_grants g
@@ -490,6 +495,7 @@ export async function customerDetail(
         expiresAt: openWindow.expires_at,
         authorisedByName: openWindow.authorised_by_name,
         reason: openWindow.reason,
+        scopes: openWindow.scopes,
       }
       : null,
     platformActions: actions.map((a) => ({
@@ -632,8 +638,21 @@ export async function openSupportSession(
     organisationId: string;
     reason: string;
     hours: number;
+    /**
+     * What the operator needs to be able to DO, if anything.
+     *
+     * Honoured only against a window the customer already opened carrying
+     * those scopes, and narrowed to that window's own — asking for more than
+     * was given yields a session that can read and nothing else. Without a
+     * window the session is read-only whatever is asked for here, and the
+     * customer chooses the scopes when they approve it: a request is not a
+     * negotiation the operator can win.
+     */
+    scopes?: string[];
   },
-): Promise<{ supportSessionId: string; expiresAt: Date; approved: boolean }> {
+): Promise<{
+  supportSessionId: string; expiresAt: Date; approved: boolean; scopes: string[];
+}> {
   const operator = await requirePlatformPermission(tx, authUserId, 'platform.support.request');
   if (params.reason.trim().length < 10) {
     throw invalid('A support session requires a reason of at least 10 characters, including the ticket reference.');
@@ -647,8 +666,8 @@ export async function openSupportSession(
   // A window the customer opened in advance approves this session as it is
   // created. The narrowest live one is used — not the longest — so a session
   // can never outlast the permission that admitted it.
-  const [openWindow] = await tx<{ id: string; authorised_by: string }[]>`
-    select id, authorised_by::text from support_access_grants
+  const [openWindow] = await tx<{ id: string; authorised_by: string; scopes: string[] }[]>`
+    select id, authorised_by::text, scopes from support_access_grants
      where organisation_id = ${params.organisationId}::uuid
        and revoked_at is null
        and expires_at > now()
@@ -664,15 +683,22 @@ export async function openSupportSession(
     ))
     : expiresAt;
 
+  // The intersection, never the request: a window carrying 'maintenance'
+  // answers an operator asking for 'records' with read access only.
+  const scopes = approvedWindow
+    ? (params.scopes ?? []).filter((scope) => approvedWindow.scopes.includes(scope))
+    : [];
+
   const [session] = await tx<{ id: string }[]>`
     insert into support_sessions (
       organisation_id, operator_user_id, reason, authorised_by, expires_at, read_only,
-      approved_at, approved_via_grant_id
+      approved_at, approved_via_grant_id, scopes
     ) values (
       ${params.organisationId}, ${operator.authUserId}, ${params.reason},
       ${approvedWindow?.authorised_by ?? null},
-      ${effectiveExpiry.toISOString()}, true,
-      ${approvedWindow ? new Date().toISOString() : null}, ${approvedWindow?.id ?? null}
+      ${effectiveExpiry.toISOString()}, ${scopes.length === 0},
+      ${approvedWindow ? new Date().toISOString() : null}, ${approvedWindow?.id ?? null},
+      ${scopes}
     )
     returning id
   `;
@@ -688,7 +714,8 @@ export async function openSupportSession(
     supportSessionId: session.id,
     after: {
       expiresAt: effectiveExpiry.toISOString(),
-      readOnly: true,
+      readOnly: scopes.length === 0,
+      scopes,
       approved: approvedWindow !== null,
       approvedViaWindow: approvedWindow?.id ?? null,
     },
@@ -704,7 +731,8 @@ export async function openSupportSession(
     resourceId: session.id,
     payload: {
       expiresAt: effectiveExpiry.toISOString(),
-      readOnly: true,
+      readOnly: scopes.length === 0,
+      scopes,
       approved: approvedWindow !== null,
     },
   });
@@ -713,6 +741,7 @@ export async function openSupportSession(
     supportSessionId: session.id,
     expiresAt: effectiveExpiry,
     approved: approvedWindow !== null,
+    scopes,
   };
 }
 

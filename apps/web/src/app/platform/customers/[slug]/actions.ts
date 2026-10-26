@@ -69,6 +69,10 @@ export async function openSupportSessionAction(_previous: unknown, formData: For
   const slug = str(formData, 'slug');
   const result = await command(async ({ tx, viewer }) => {
     const session = await openSupportSession(tx, viewer.authUserId, {
+      // What the operator says they need. Honoured only against a window the
+      // customer already opened carrying it, and narrowed to that window —
+      // otherwise the session reads and nothing more until they approve it.
+      scopes: formData.getAll('scopes').map((scope) => String(scope)),
       organisationId: str(formData, 'organisationId'),
       reason: str(formData, 'reason'),
       hours: Number(str(formData, 'hours') || '1'),
