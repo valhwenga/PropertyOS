@@ -63,3 +63,4 @@ export * from './branding';
 export * from './preferences';
 export * from './approvals';
 export * from './invoice-delivery';
+export * from './offboarding';

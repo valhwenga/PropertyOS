@@ -96,8 +96,8 @@ const STATUS_CONSEQUENCE: Record<string, string> = {
     'Their staff cannot open the console. Records, contracts and financial history are '
     + 'untouched, billing keeps running, and residents keep their portal.',
   closed:
-    'Their staff cannot open the console. Nothing is deleted — closing an account is not '
-    + 'a deletion request, and there is no path here that deletes a customer.',
+    'Their staff cannot open the console. Their records are kept until the retention date '
+    + 'on the closure below, and can be destroyed after it.',
 };
 
 export function AccountStatusForm({
@@ -120,7 +120,6 @@ export function AccountStatusForm({
             <option value="trial">Trial</option>
             <option value="active">Active</option>
             <option value="suspended">Suspended</option>
-            <option value="closed">Closed</option>
           </select>
           <p className="text-xs text-ink-500">{STATUS_CONSEQUENCE[status]}</p>
         </div>

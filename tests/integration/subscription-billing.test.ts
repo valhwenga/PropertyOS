@@ -2,7 +2,8 @@ import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import {
   changePlan, createProperty, createUnit, customerSubscriptionInvoices,
   listSubscriptionInvoices, platformBillingSettings, recordSubscriptionPayment,
-  runSubscriptionBilling, saveBillingSettings, setAccountStatus, voidSubscriptionInvoice,
+  closeCustomer, runSubscriptionBilling, saveBillingSettings, setAccountStatus,
+  voidSubscriptionInvoice,
 } from '@propertyos/domain';
 import {
   addMember, as, closeOwner, createAuthUser, createOrganisation, ownerSql,
@@ -71,9 +72,11 @@ describe('Subscription billing', () => {
       }),
     );
 
+    // Through `closeCustomer`, because closing carries a retention date and
+    // `setAccountStatus` refuses that status for exactly that reason (ADR 0028).
     await as(operator, (tx) =>
-      setAccountStatus(tx, operator, {
-        organisationId: closed.organisationId, status: 'closed',
+      closeCustomer(tx, operator, {
+        organisationId: closed.organisationId,
         reason: 'Customer left at the end of March',
       }),
     );

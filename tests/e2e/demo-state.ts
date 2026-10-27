@@ -220,3 +220,25 @@ export async function clearTestJobs(): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/**
+ * A closed demo customer put back exactly as it was.
+ *
+ * Offboarding is the one area whose leftovers are not cosmetic: a demo
+ * organisation left `closed` sends every later spec that signs its staff in to
+ * the closed page instead of the console, and the failures read as a broken
+ * console rather than as a test that did not tidy up.
+ */
+export async function reopenAccount(slug: string, status = 'active'): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [org] = await sql<{ id: string }[]>`
+      select id from organisations where slug = ${slug}
+    `;
+    if (!org) throw new Error(`no organisation with slug ${slug} in the preview database`);
+    await sql`delete from organisation_closures where organisation_id = ${org.id}`;
+    await sql`update organisations set status = ${status} where id = ${org.id}`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}

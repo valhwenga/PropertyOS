@@ -64,6 +64,7 @@ export type PlatformPermissionKey =
   | 'platform.customers.provision'
   | 'platform.customers.plan'
   | 'platform.customers.status'
+  | 'platform.customers.destroy'
   | 'platform.support.request'
   | 'platform.billing.manage'
   | 'platform.templates.manage'
@@ -576,6 +577,16 @@ export async function changePlan(
  * Suspension stops access. It deliberately does NOT delete properties, contracts
  * or financial records: "do not treat account suspension as deletion of
  * properties, contracts or financial records."
+ *
+ * Closing goes through `closeCustomer` instead, because a closure needs a
+ * retention date and this function has nowhere to put one. An account closed
+ * from here would be one nobody could either destroy or honestly answer about
+ * when the customer asks how long their records are kept.
+ *
+ * Reopening is still this function, and it removes the closure record: the
+ * clock stops because the customer stayed. What it will not do is reopen an
+ * account whose records have been destroyed — the console would open onto
+ * nothing and read as data loss rather than as the thing somebody asked for.
  */
 export async function setAccountStatus(
   tx: Sql,
@@ -585,15 +596,42 @@ export async function setAccountStatus(
   const operator = await requirePlatformPermission(tx, authUserId, 'platform.customers.status');
   if (params.reason.trim().length < 5) throw invalid('An account status change requires a reason.');
 
+  if (params.status === 'closed') {
+    throw invalid(
+      'Closing an account goes through the closure form, which records how long '
+      + 'the records are kept.',
+    );
+  }
+
   const [before] = await tx<{ status: string }[]>`
     select status::text from organisations where id = ${params.organisationId}::uuid
   `;
   if (!before) throw notFound('Organisation');
 
+  const [closure] = await tx<{ destroyed_at: string | null }[]>`
+    select destroyed_at::text from organisation_closures
+    where organisation_id = ${params.organisationId}::uuid
+  `;
+  if (closure?.destroyed_at) {
+    throw invalid(
+      `This account's records were destroyed on ${closure.destroyed_at.slice(0, 10)}. `
+      + 'Reopening it would open an empty console. Provision a new account instead.',
+    );
+  }
+
   await tx`
     update organisations set status = ${params.status}, updated_at = now()
     where id = ${params.organisationId}::uuid
   `;
+
+  // Leaving the closure row behind would leave a retention clock running
+  // against a customer who is still here, and a date on their own screen
+  // telling them their records are about to go.
+  if (before.status === 'closed') {
+    await tx`
+      delete from organisation_closures where organisation_id = ${params.organisationId}::uuid
+    `;
+  }
 
   await recordAudit(tx, {
     organisationId: params.organisationId,

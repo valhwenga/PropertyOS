@@ -4,8 +4,9 @@ import {
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
 import {
-  customerDetail, formatMoney, listCustomers, listPlans, organisationPermissionOverrides,
-  organisationSettings, permissionCatalogue, platformPermissionsOf,
+  customerClosure, customerDetail, formatMoney, listCustomers, listPlans,
+  organisationPermissionOverrides, organisationSettings, permissionCatalogue,
+  platformPermissionsOf, retentionMonthsDefault,
 } from '@propertyos/domain';
 import { BackLink } from '@/components/back-link';
 import { readAs, requireViewer } from '@/lib/auth';
@@ -13,6 +14,7 @@ import { formatDate, formatDateTime } from '@/lib/format';
 import {
   AccountStatusForm, CloseSessionButton, PlanForm, SupportSessionForm,
 } from './customer-forms';
+import { ClosurePanel } from './offboarding-forms';
 import { PermissionOverrides } from './permission-forms';
 import { CustomerSettings } from '../../settings/setting-forms';
 
@@ -32,6 +34,9 @@ const ACTION_LABEL: Record<string, string> = {
   'platform.account.status_changed': 'Account status changed',
   'platform.support_session.opened': 'Support session opened',
   'platform.support_session.closed': 'Support session closed',
+  'platform.account.closed': 'Account closed',
+  'platform.account.retention_changed': 'Retention date moved',
+  'platform.account.data_destroyed': 'Records destroyed',
 };
 
 function change(before: Record<string, unknown> | null, after: Record<string, unknown> | null) {
@@ -62,7 +67,9 @@ export default async function PlatformCustomerPage({
   const match = customers.find((c) => c.slug === slug);
   if (!match) notFound();
 
-  const [detail, plans, catalogue, overrides, mine, settings] = await readAs(viewer, async (tx) => [
+  const [
+    detail, plans, catalogue, overrides, mine, settings, closure, retentionMonths,
+  ] = await readAs(viewer, async (tx) => [
     await customerDetail(tx, viewer.authUserId, match.organisationId),
     await listPlans(tx),
     // What every role can do, so the form can offer only what this role does
@@ -71,6 +78,8 @@ export default async function PlatformCustomerPage({
     await organisationPermissionOverrides(tx, match.organisationId),
     await platformPermissionsOf(tx, viewer.authUserId),
     await organisationSettings(tx, match.organisationId),
+    await customerClosure(tx, match.organisationId),
+    await retentionMonthsDefault(tx),
   ] as const);
 
   const status = ACCOUNT_STATUS[detail.status] ?? ACCOUNT_STATUS.trial!;
@@ -202,6 +211,15 @@ export default async function PlatformCustomerPage({
             customerName={detail.name}
             settings={settings}
             canManage={mine.includes('platform.config.manage')}
+          />
+          <ClosurePanel
+            organisationId={detail.organisationId}
+            slug={detail.slug}
+            customerName={detail.name}
+            closure={closure}
+            canClose={mine.includes('platform.customers.status')}
+            canDestroy={mine.includes('platform.customers.destroy')}
+            defaultRetentionMonths={retentionMonths}
           />
           <PermissionOverrides
             organisationId={detail.organisationId}

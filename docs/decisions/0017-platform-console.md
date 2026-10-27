@@ -68,6 +68,11 @@ What suspension deliberately does **not** touch:
 * **the records.** Nothing is deleted, hidden or archived. The blueprint says
   not to treat suspension as deletion of properties, contracts or financial
   records, and the page says so to the person reading it.
+
+  Still true of suspension, and **no longer true of closing**: ADR 0028 gave a
+  closure a retention date and, after it, a deliberate destruction an
+  administrator can carry out. The page no longer claims that no path in this
+  product deletes a customer's records, because there is one.
 * **the resident portal.** It is reached through a lease, not through
   `requireOperator`. A landlord's dispute with Spike is not a reason to take a
   tenant's statements away from them.

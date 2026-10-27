@@ -2,9 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import {
-  changePlan, closeSupportSession, grantRolePermission, openSupportSession,
-  revokeRolePermission, setAccountStatus,
+  changePlan, closeCustomer, closeSupportSession, destroyCustomerData,
+  grantRolePermission, openSupportSession, recordDestroyedObjects, revokeRolePermission,
+  setAccountStatus, setRetention,
 } from '@propertyos/domain';
+import { resolveStorageAdapter } from '@propertyos/integrations';
+import { log } from '@/lib/logger';
 import { command } from '@/lib/actions';
 
 /**
@@ -26,7 +29,10 @@ import { command } from '@/lib/actions';
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? '');
 
-const ACCOUNT_STATUSES = new Set(['trial', 'active', 'suspended', 'closed']);
+// Without 'closed': closing needs a retention date, which the status form has
+// nowhere to put, and `setAccountStatus` refuses it for that reason. Closing
+// goes through `closeCustomerAction` below.
+const ACCOUNT_STATUSES = new Set(['trial', 'active', 'suspended']);
 
 export async function changePlanAction(_previous: unknown, formData: FormData) {
   const slug = str(formData, 'slug');
@@ -135,5 +141,103 @@ export async function revokeRolePermissionAction(_previous: unknown, formData: F
     }).then(() => ({})),
   );
   if (result.ok) revalidatePath(`/platform/customers/${slug}`);
+  return result;
+}
+
+/**
+ * Closing an account, and what follows from it.
+ *
+ * Three actions in a deliberate order: close with a date, move the date if the
+ * customer asks for their records sooner, destroy once the date has passed.
+ * Only the first is available to anybody but an administrator.
+ */
+export async function closeCustomerAction(_previous: unknown, formData: FormData) {
+  const slug = str(formData, 'slug');
+  const months = Number(str(formData, 'retainMonths'));
+  const result = await command(async ({ tx, viewer }) => {
+    const { retainUntil } = await closeCustomer(tx, viewer.authUserId, {
+      organisationId: str(formData, 'organisationId'),
+      reason: str(formData, 'reason'),
+      ...(Number.isFinite(months) && str(formData, 'retainMonths') !== ''
+        ? { retainMonths: months }
+        : {}),
+    });
+    return { retainUntil };
+  });
+  if (result.ok) revalidatePath(`/platform/customers/${slug}`);
+  return result;
+}
+
+export async function setRetentionAction(_previous: unknown, formData: FormData) {
+  const slug = str(formData, 'slug');
+  const result = await command(({ tx, viewer }) =>
+    setRetention(tx, viewer.authUserId, {
+      organisationId: str(formData, 'organisationId'),
+      retainUntil: str(formData, 'retainUntil'),
+      reason: str(formData, 'reason'),
+    }).then(() => ({})));
+  if (result.ok) revalidatePath(`/platform/customers/${slug}`);
+  return result;
+}
+
+/**
+ * The one irreversible action in this console.
+ *
+ * The typed identifier is not security — the caller already holds
+ * `platform.customers.destroy` — it is there so that destroying the wrong
+ * customer's records takes more than clicking a button on the wrong row.
+ *
+ * Two steps, and the order is the whole point. The rows go first and commit;
+ * only then are the stored files removed, because a bucket has no rollback and
+ * a transaction that failed after deleting objects would leave rows pointing at
+ * files that are not there. The domain function hands back the keys it read
+ * before the purge, since deleting `documents` deletes the only record of where
+ * those files are.
+ *
+ * A file that will not delete does not fail the destruction — the records are
+ * already gone, and failing here would only hide that. Its key is written to
+ * the closure instead, so somebody can finish the job rather than leaving a
+ * document in a bucket with nothing left to find it by.
+ */
+export async function destroyCustomerDataAction(_previous: unknown, formData: FormData) {
+  const slug = str(formData, 'slug');
+  const organisationId = str(formData, 'organisationId');
+
+  const result = await command(async ({ tx, viewer }) => {
+    const { rowsDestroyed, objects } = await destroyCustomerData(tx, viewer.authUserId, {
+      organisationId,
+      confirmSlug: str(formData, 'confirmSlug'),
+      reason: str(formData, 'reason'),
+    });
+    return { rowsDestroyed, objects };
+  });
+
+  if (!result.ok) return result;
+
+  const objects = (result as { objects?: Array<{ key: string }> }).objects ?? [];
+  const storage = resolveStorageAdapter();
+  const left: string[] = [];
+  let removed = 0;
+  for (const object of objects) {
+    try {
+      await storage.remove(object.key);
+      removed += 1;
+    } catch (error) {
+      left.push(object.key);
+      log('error', 'destroyed customer file could not be removed', {
+        organisationId,
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+    }
+  }
+
+  const recorded = await command(({ tx, viewer }) =>
+    recordDestroyedObjects(tx, viewer.authUserId, { organisationId, removed, left })
+      .then(() => ({})));
+  if (!recorded.ok) {
+    log('error', 'destroyed customer files could not be recorded', { organisationId, removed });
+  }
+
+  revalidatePath(`/platform/customers/${slug}`);
   return result;
 }
