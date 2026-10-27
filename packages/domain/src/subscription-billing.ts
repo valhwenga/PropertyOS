@@ -246,15 +246,15 @@ export async function runSubscriptionBilling(
 
   const customers = await tx<
     { id: string; name: string; status: string; currency_code: string;
-      plan_key: string; plan_name: string; included_units: number;
-      monthly_price_minor: string; additional_unit_price_minor: string;
+      plan_key: string; plan_name: string; included_units: number | null;
+      monthly_price_minor: string | null; additional_unit_price_minor: string | null;
       billable_units: number; already: string | null;
       recipient_name: string | null; recipient_address: string | null;
       recipient_vat_number: string | null }[]
   >`
     select o.id, o.name, o.status::text, o.currency_code,
-           p.key as plan_key, p.name as plan_name, p.included_units,
-           p.monthly_price_minor::text, p.additional_unit_price_minor::text,
+           p.key as plan_key, p.name as plan_name, price.included_units,
+           price.monthly_price_minor::text, price.additional_unit_price_minor::text,
            coalesce(u.billable_units, 0) as billable_units,
            (select i.invoice_number from subscription_invoices i
              where i.organisation_id = o.id and i.period_start = ${periodStart}::date)
@@ -269,6 +269,15 @@ export async function runSubscriptionBilling(
       from organisations o
       join subscriptions s on s.organisation_id = o.id
       join plans p on p.key = s.plan_key
+      -- The price in force on the first day of the period being billed, not
+      -- the price today. Billing March in April, after a rise on 1 April,
+      -- charged March at April's price before this join existed — and nobody
+      -- would have noticed until a customer did.
+      -- LEFT, and the skip below says so. An inner join drops a customer
+      -- whose plan had no price in force for the period — a plan created this
+      -- month, billed for last — and a customer who silently vanishes from a
+      -- billing run is the worst available outcome.
+      left join lateral app.plan_price_at(p.key, ${periodStart}::date) price on true
       left join app.platform_customer_usage() u on u.organisation_id = o.id
       left join lateral app.platform_customer_billing_identity(o.id) b on true
      order by o.name
@@ -286,6 +295,13 @@ export async function runSubscriptionBilling(
       });
       continue;
     }
+    if (c.monthly_price_minor === null) {
+      outcome.skipped.push({
+        organisationName: c.name,
+        reason: `the ${c.plan_name} plan had no price in force on ${periodStart}`,
+      });
+      continue;
+    }
     if (c.status === 'trial') {
       outcome.skipped.push({ organisationName: c.name, reason: 'on trial — nothing is charged' });
       continue;
@@ -298,12 +314,13 @@ export async function runSubscriptionBilling(
     const planPrice = Number(c.monthly_price_minor);
     const overagePrice = Number(c.additional_unit_price_minor);
     const billable = Number(c.billable_units);
-    const unitsOver = Math.max(0, billable - c.included_units);
+    const includedUnits = c.included_units ?? 0;
+    const unitsOver = Math.max(0, billable - includedUnits);
 
     const lines: SubscriptionInvoiceLine[] = [{
       lineNo: 1,
       kind: 'plan',
-      description: `${c.plan_name} plan — ${periodStart} to ${periodEnd}, ${c.included_units} units included`,
+      description: `${c.plan_name} plan — ${periodStart} to ${periodEnd}, ${includedUnits} units included`,
       quantity: 1,
       unitPriceMinor: planPrice,
       amountMinor: planPrice,
@@ -349,7 +366,7 @@ export async function runSubscriptionBilling(
       ) values (
         ${c.id}, ${invoiceNumber}, ${periodStart}, ${periodEnd}, ${r.issueDate},
         (${r.issueDate}::date + ${biller.paymentTermsDays} * interval '1 day')::date,
-        ${c.currency_code}, ${c.plan_key}, ${c.plan_name}, ${c.included_units},
+        ${c.currency_code}, ${c.plan_key}, ${c.plan_name}, ${includedUnits},
         ${billable}, ${unitsOver},
         ${subtotal}, ${biller.chargesVat ? biller.vatRateBp : 0}, ${vat}, ${total},
         ${biller.vatNumber}, ${operator.authUserId}::uuid,

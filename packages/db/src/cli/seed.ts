@@ -104,6 +104,21 @@ async function main(): Promise<void> {
         insert into user_profiles (auth_user_id, full_name, email, is_platform_operator)
         values (${id}, ${name}, ${email}, ${operator})
       `;
+      if (operator) {
+        // Being a platform operator is the door into the console; a platform
+        // ROLE is what you may do once inside, and without one the console
+        // opens and offers nothing.
+        //
+        // Migration 0072 backfilled every operator that existed when it ran,
+        // which covers an upgraded database and not a freshly seeded one — so
+        // after a reset the demo operator had console access and no roles, and
+        // every screen told them their role did not include it. A browser test
+        // found it, which is the only way it could have been found.
+        await tx`
+          insert into platform_operator_roles (auth_user_id, role_key)
+          values (${id}, 'platform_admin')
+        `;
+      }
       return id;
     };
 

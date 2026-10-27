@@ -32,8 +32,12 @@ export async function checkEntitlement(
   organisationId: string,
   feature: 'billable_units' | 'staff_accounts' | 'documents_gb',
 ): Promise<EntitlementCheck> {
+  // The allowance in force TODAY, which is a different question from the one
+  // the billing run asks: it reads the price for the period it is billing.
+  // What somebody may do now follows the price list now.
   const [plan] = await tx<{ included_units: number | null; limit_value: number | null }[]>`
-    select p.included_units,
+    select (select price.included_units
+              from app.plan_price_at(p.key, current_date) price) as included_units,
            (select e.limit_value from plan_entitlements e
             where e.plan_key = p.key and e.feature = ${feature}) as limit_value
     from subscriptions s

@@ -36,6 +36,7 @@ export * from './platform-operators';
 export * from './platform-audit';
 export * from './permission-catalogue';
 export * from './platform-settings';
+export * from './plans';
 export * from './signups';
 export * from './subscription-billing';
 export * from './subscription-invoice-pdf';

@@ -168,7 +168,9 @@ export async function listCustomers(
   >`
     select o.id, o.name, o.slug, o.status::text, o.country_code, o.currency_code,
            o.time_zone, o.created_at::text,
-           s.plan_key, s.status as subscription_status, pl.included_units,
+           s.plan_key, s.status as subscription_status,
+           (select price.included_units
+              from app.plan_price_at(pl.key, current_date) price) as included_units,
            coalesce(usage.billable_units, 0) as billable_units,
            coalesce(usage.member_count, 0) as member_count,
            coalesce(usage.active_leases, 0) as active_leases,
@@ -227,15 +229,19 @@ export async function listPlans(tx: Sql): Promise<PlanRow[]> {
       additional_unit_price_minor: string; currency_code: string;
       staff_accounts: number | null; documents_gb: number | null }[]
   >`
-    select p.key, p.name, p.included_units, p.monthly_price_minor::text,
-           p.additional_unit_price_minor::text, p.currency_code,
+    select p.key, p.name, price.included_units, price.monthly_price_minor::text,
+           price.additional_unit_price_minor::text, p.currency_code,
            (select limit_value from plan_entitlements
              where plan_key = p.key and feature = 'staff_accounts') as staff_accounts,
            (select limit_value from plan_entitlements
              where plan_key = p.key and feature = 'documents_gb') as documents_gb
       from plans p
+      -- Today's price: this is the list somebody is put on when they are
+      -- provisioned or moved, which happens now. A price scheduled for next
+      -- month is not what they would be charged for this one.
+      cross join lateral app.plan_price_at(p.key, current_date) price
      where p.is_active
-     order by p.included_units
+     order by price.included_units
   `;
   return rows.map((r) => ({
     key: r.key,
@@ -534,7 +540,10 @@ export async function changePlan(
   if (params.reason.trim().length < 5) throw invalid('A plan change requires a reason.');
 
   const [plan] = await tx<{ key: string; included_units: number }[]>`
-    select key, included_units from plans where key = ${params.planKey} and is_active
+    select p.key, price.included_units
+      from plans p
+      cross join lateral app.plan_price_at(p.key, current_date) price
+     where p.key = ${params.planKey} and p.is_active
   `;
   if (!plan) throw notFound('Plan');
 

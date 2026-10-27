@@ -92,7 +92,8 @@ describe('Schema invariants', () => {
       where n.nspname = 'public' and c.relkind = 'r'
         and c.relname not in (
           -- Platform-level or reference tables, by design.
-          'organisations', 'plans', 'plan_entitlements', 'roles', 'permissions',
+          'organisations', 'plans', 'plan_entitlements', 'plan_prices',
+          'roles', 'permissions',
           'role_permissions', 'user_profiles', 'memberships', 'membership_roles',
           'support_sessions', 'subscriptions', 'notification_templates',
           'schema_migrations', 'webhook_events', 'job_attempts',

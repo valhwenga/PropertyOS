@@ -22,7 +22,11 @@ export default async function NewCustomerPage() {
     // gets a page that says so rather than a form that fails on submit.
     await requirePlatformOperator(tx, viewer.authUserId);
     return tx<{ key: string; name: string; included_units: number }[]>`
-      select key, name, included_units from plans where is_active order by included_units
+      select p.key, p.name, price.included_units
+        from plans p
+        cross join lateral app.plan_price_at(p.key, current_date) price
+       where p.is_active
+       order by price.included_units
     `;
   });
 

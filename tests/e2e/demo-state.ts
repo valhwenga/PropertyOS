@@ -153,3 +153,20 @@ export async function clearSettings(): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/**
+ * No price scheduled ahead of today on any plan.
+ *
+ * The pricing spec asserts how many prices are in force and that a scheduled
+ * one appears; a leftover from an interrupted run makes both read wrongly. It
+ * deliberately touches only FUTURE prices: a price that has started is what
+ * invoices were issued against.
+ */
+export async function clearScheduledPrices(): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`delete from plan_prices where effective_from > current_date`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
