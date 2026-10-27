@@ -68,6 +68,17 @@ export async function createTicket(
 
   if (options.asResident) {
     if (!t.leaseId) throw invalid('A resident request must be against one of your leases.');
+    const [allowedToRaise] = await tx<{ on: boolean }[]>`
+      select app.setting_enabled(${organisationId}::uuid, 'resident.maintenance_requests') as on
+    `;
+    if (!allowedToRaise?.on) {
+      // Said as the landlord's arrangement rather than as a fault, because the
+      // resident did nothing wrong and the remedy is to contact them.
+      throw invalid(
+        'This landlord does not take maintenance requests through the portal. '
+          + 'Contact them directly and they will log it for you.',
+      );
+    }
     // The lease must be one the resident actually holds. RLS enforces this on the
     // insert too; checking here produces a readable error instead of a bare denial.
     const [allowed] = await tx<{ ok: boolean }[]>`

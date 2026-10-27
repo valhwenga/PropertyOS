@@ -134,6 +134,12 @@ describe('Schema invariants', () => {
           'platform_operator_roles', 'platform_operator_invitations',
           -- Requests for an account, which exist BEFORE any organisation does.
           'signup_requests',
+          -- What the product decides, and Spike's answer for everybody. The
+          -- registry describes what can be configured and holds nobody's data;
+          -- the global values are Spike's own. A customer's own answer lives in
+          -- organisation_setting_values, which DOES carry organisation_id and
+          -- is isolated by the standard policies like everything else.
+          'platform_settings', 'platform_setting_values',
           -- What a customer can let Spike do, and which permissions each of
           -- those choices carries. Reference data, readable by everybody and
           -- writable by nobody: the same rows the customer's tickboxes are

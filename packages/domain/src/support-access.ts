@@ -242,7 +242,10 @@ export async function approveSupportSession(
 }
 
 export const grantSupportAccessSchema = z.object({
-  hours: z.coerce.number().int().min(1).max(72),
+  // The ceiling here is the widest the SETTING may ever be opened to; the
+  // operative limit is `support.window.max_hours`, read below, because a
+  // number compiled into a schema cannot be changed without a deploy.
+  hours: z.coerce.number().int().min(1).max(168),
   reason: z.string().trim().min(5, 'Say what this is for, so the record means something.').max(500),
   /**
    * What Spike may DO in this window, beyond reading. Empty is the default and
@@ -268,6 +271,14 @@ export async function grantSupportAccess(
 ): Promise<{ grantId: string; expiresAt: Date }> {
   await requirePermission(tx, organisationId, 'support.access.manage');
   const g = parsed(grantSupportAccessSchema, input);
+
+  const [limit] = await tx<{ max_hours: number }[]>`
+    select app.setting_number('support.window.max_hours') as max_hours
+  `;
+  const maxHours = limit?.max_hours ?? 72;
+  if (g.hours > maxHours) {
+    throw invalid(`Support access can be left open for at most ${maxHours} hours.`);
+  }
 
   const expiresAt = new Date(Date.now() + g.hours * 3_600_000);
   const [row] = await tx<{ id: string }[]>`

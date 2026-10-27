@@ -657,8 +657,12 @@ export async function openSupportSession(
   if (params.reason.trim().length < 10) {
     throw invalid('A support session requires a reason of at least 10 characters, including the ticket reference.');
   }
-  if (params.hours < 1 || params.hours > 24) {
-    throw invalid('A support session may last between 1 and 24 hours.');
+  const [limit] = await tx<{ max_hours: number }[]>`
+    select app.setting_number('support.session.max_hours') as max_hours
+  `;
+  const maxHours = limit?.max_hours ?? 24;
+  if (params.hours < 1 || params.hours > maxHours) {
+    throw invalid(`A support session may last between 1 and ${maxHours} hours.`);
   }
 
   const expiresAt = new Date(Date.now() + params.hours * 3_600_000);

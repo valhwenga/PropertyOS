@@ -136,3 +136,20 @@ export async function clearPermissionOverrides(slug: string): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/**
+ * Every setting back to what the product ships with.
+ *
+ * A flag left off by an interrupted run is the worst kind of leftover: the
+ * next spec signs a resident in, the portal resolves no lease, and the failure
+ * looks like a broken portal rather than a test that did not tidy up.
+ */
+export async function clearSettings(): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`delete from organisation_setting_values`;
+    await sql`delete from platform_setting_values`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}

@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { Card, EmptyState, PageHeader } from '@propertyos/ui';
-import { resolveMenuPermissions, type PermissionKey } from '@propertyos/domain';
+import {
+  organisationSettings, resolveMenuPermissions, type PermissionKey,
+} from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { SectionIcon } from '@/components/icons';
 
@@ -122,8 +124,17 @@ export default async function SettingsPage({
 }) {
   const { org } = await params;
   const context = await requireOperator(org);
-  const menu = await readAs(context.viewer, (tx) =>
-    resolveMenuPermissions(tx, context.organisationId, SECTIONS.map((s) => s.permission)));
+  const { menu, features } = await readAs(context.viewer, async (tx) => ({
+    menu: await resolveMenuPermissions(
+      tx, context.organisationId, SECTIONS.map((s) => s.permission),
+    ),
+    // Only the ones meant for them, and only to say what is OFF: listing every
+    // feature that works would be noise, and the one a customer needs to know
+    // about is the one that does not.
+    features: await organisationSettings(tx, context.organisationId, {
+      visibleToCustomerOnly: true,
+    }),
+  }));
   const allowed = new Set<string>(menu.held);
   const sections = SECTIONS.filter((section) => allowed.has(section.permission));
   // Withheld for want of a second factor is a different answer from withheld
@@ -134,6 +145,31 @@ export default async function SettingsPage({
   return (
     <div className="space-y-6">
       <PageHeader title="Settings" description="Configuration for this organisation." />
+
+      {features.some((f) => f.effectiveValue === 'false') ? (
+        <Card className="border-caution-700/25 bg-caution-50 p-4">
+          <p className="text-sm font-semibold text-caution-700">
+            Some features are switched off for your account
+          </p>
+          <p className="mt-1 text-sm text-ink-700">
+            Ask Spike support to switch any of these back on. Nothing about your records
+            changes while a feature is off.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {features.filter((f) => f.effectiveValue === 'false').map((feature) => (
+              <li key={feature.key} className="text-sm text-ink-700">
+                <strong>{feature.name}</strong> — {feature.description}
+                {feature.ownReason ? (
+                  <span className="block text-xs text-ink-500">
+                    {feature.ownReason}
+                    {feature.setByName ? ` · switched off by ${feature.setByName} at Spike` : ''}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {sections.map((section) => (

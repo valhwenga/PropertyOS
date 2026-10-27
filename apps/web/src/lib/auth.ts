@@ -97,6 +97,11 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
       join leases l on l.id = pl.lease_id
       where pl.auth_user_id = ${authUserId}::uuid
         and pl.status = 'active' and pl.revoked_at is null and pl.expires_at > now()
+        -- The portal can be switched off for one customer. Applied HERE rather
+        -- than on the portal pages: this is what every portal screen and every
+        -- portal action resolves a lease through, so one condition closes all
+        -- of them, and a resident of another landlord is unaffected.
+        and app.setting_enabled(l.organisation_id, 'resident.portal')
     `;
 
     return {
