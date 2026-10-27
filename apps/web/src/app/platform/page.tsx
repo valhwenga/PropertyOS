@@ -126,7 +126,9 @@ export default async function PlatformPage() {
             <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Failed jobs</p>
             <p className="tabular mt-1 text-2xl font-semibold">{health.deadJobs}</p>
             {health.deadJobs > 0 ? (
-              <p className="mt-1 text-xs text-critical-700">Needs an operator to inspect</p>
+              <Link href="/platform/jobs" className="mt-1 block text-xs text-critical-700 hover:underline">
+                Inspect them →
+              </Link>
             ) : null}
           </Card>
           <Card className={health.unpublishedOutbox > 50 ? 'border-caution-700/30 p-4' : 'p-4'}>

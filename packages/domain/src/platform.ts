@@ -70,6 +70,7 @@ export type PlatformPermissionKey =
   | 'platform.operators.manage'
   | 'platform.permissions.manage'
   | 'platform.config.manage'
+  | 'platform.operations.manage'
   | 'platform.audit.read';
 
 export interface PlatformOperatorIdentity {

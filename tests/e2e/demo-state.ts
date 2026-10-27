@@ -170,3 +170,53 @@ export async function clearScheduledPrices(): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/**
+ * Dead jobs to look at.
+ *
+ * The queue screen cannot be exercised against a healthy demo database,
+ * because a healthy one has nothing on it. These are prefixed `demo.spec.` so
+ * the cleanup below can remove exactly what the spec made and nothing a real
+ * failure left behind.
+ */
+export async function seedDeadJobs(
+  jobType: string,
+  count: number,
+  error: string,
+): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [org] = await sql<{ id: string }[]>`
+      select id from organisations where slug = 'demo-blue-crane'
+    `;
+    for (let i = 0; i < count; i += 1) {
+      const [job] = await sql<{ id: string }[]>`
+        insert into jobs (
+          organisation_id, job_type, payload, status, attempts, max_attempts,
+          last_error, completed_at
+        ) values (
+          ${org?.id ?? null}, ${jobType},
+          ${sql.json({ resourceId: '00000000-0000-0000-0000-000000000001' } as never)},
+          'dead', 5, 5, ${error}, now()
+        )
+        returning id::text
+      `;
+      await sql`
+        insert into job_attempts (job_id, attempt, finished_at, outcome, error)
+        values (${job!.id}::bigint, 5, now(), 'dead', ${error})
+      `;
+    }
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/** Removes only what the job spec created. */
+export async function clearTestJobs(): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`delete from jobs where job_type like 'demo.spec.%'`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
