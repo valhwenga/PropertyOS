@@ -242,3 +242,13 @@ export async function reopenAccount(slug: string, status = 'active'): Promise<vo
     await sql.end({ timeout: 5 });
   }
 }
+
+/** Recovery requests from an earlier run, which would block a fresh ask. */
+export async function clearRecoveryRequests(): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`delete from recovery_requests`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}

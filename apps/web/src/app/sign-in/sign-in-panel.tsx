@@ -55,6 +55,12 @@ export function SignInPanel({
         </Card>
 
         <p className="text-center text-sm text-ink-500">
+          <a href="/recover" className="font-medium text-spike-600 hover:underline">
+            Cannot sign in?
+          </a>
+        </p>
+
+        <p className="text-center text-sm text-ink-500">
           No account yet?{' '}
           <a href="/request-access" className="font-medium text-spike-600 hover:underline">
             Ask for one
@@ -67,8 +73,10 @@ export function SignInPanel({
             <strong className="font-semibold">Development authentication.</strong>{' '}
             AUTH_PROVIDER is not set to <code>supabase</code>, so credentials are held in the
             local database rather than by Supabase Auth. Multi-factor authentication IS
-            enforced for elevated roles in this mode, but password policy, breach detection
-            and account recovery are not. Do not use this mode with real customer data.
+            enforced for elevated roles in this mode, but password policy and breach
+            detection are not. Account recovery works <em>only</em> in this mode: it resets
+            the credentials held in this database, which Supabase Auth does not read. Do not
+            use this mode with real customer data.
           </p>
         ) : null}
       </div>

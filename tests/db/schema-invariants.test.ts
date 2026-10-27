@@ -135,6 +135,18 @@ describe('Schema invariants', () => {
           'platform_operator_roles', 'platform_operator_invitations',
           -- Requests for an account, which exist BEFORE any organisation does.
           'signup_requests',
+          -- Somebody asking for a way back into their own account. It belongs
+          -- to a PERSON rather than to an organisation: they may be a member of
+          -- several, of none (a Spike operator), or of none anybody can name
+          -- yet, because the public form records a request for an address that
+          -- has no account at all and must answer identically either way.
+          -- Resolving one organisation at insert time would also mean the
+          -- anonymous form deciding which landlord an address belongs to.
+          -- Its policies are keyed on who may DECIDE it — a colleague holding
+          -- membership.manage, or Spike where there is no such colleague — and
+          -- are asserted from every side in
+          -- tests/integration/account-recovery.test.ts.
+          'recovery_requests',
           -- What the product decides, and Spike's answer for everybody. The
           -- registry describes what can be configured and holds nobody's data;
           -- the global values are Spike's own. A customer's own answer lives in

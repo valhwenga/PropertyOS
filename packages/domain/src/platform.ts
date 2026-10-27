@@ -65,6 +65,7 @@ export type PlatformPermissionKey =
   | 'platform.customers.plan'
   | 'platform.customers.status'
   | 'platform.customers.destroy'
+  | 'platform.customers.recover'
   | 'platform.support.request'
   | 'platform.billing.manage'
   | 'platform.templates.manage'

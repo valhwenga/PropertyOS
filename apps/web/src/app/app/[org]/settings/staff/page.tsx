@@ -2,12 +2,13 @@ import Link from 'next/link';
 import { BackLink } from '@/components/back-link';
 import { Card, EmptyState, PageHeader, StatusBadge } from '@propertyos/ui';
 import {
-  assignableRoles, hasPermission, listStaff, listStaffInvitations,
+  assignableRoles, hasPermission, listRecoveryRequests, listStaff, listStaffInvitations,
   organisationPermissionOverrides, type RolePermissionOverride,
 } from '@propertyos/domain';
 import { readAs, requireOperator } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { loadPropertyChoices } from '@/lib/operations-queries';
+import { RecoveryRequests } from './recovery-forms';
 import {
   InviteStaffForm, MemberForms, MemberStatus, RevokeInvitationForm,
 } from './staff-forms';
@@ -42,18 +43,23 @@ export default async function StaffPage({
     if (!canManage) {
       return {
         canManage, granted, members: [], invitations: [], roles: [], properties: [],
+        recoveries: [],
       };
     }
     return {
       canManage,
       granted,
       members: await listStaff(tx, context.organisationId, context.viewer.authUserId),
+      // Colleagues locked out of their own accounts. The policy decides which
+      // ones a caller sees, so this is the people in their organisations and
+      // nobody else's.
+      recoveries: await listRecoveryRequests(tx),
       invitations: await listStaffInvitations(tx, context.organisationId),
       roles: await assignableRoles(tx),
       properties: await loadPropertyChoices(tx, context.organisationId),
     };
   });
-  const { canManage, granted, members, invitations, roles, properties } = data;
+  const { canManage, granted, members, invitations, roles, properties, recoveries } = data;
 
   const baseUrl = process.env.APP_BASE_URL ?? '';
   const propertyChoices = properties.map((p) => ({ id: p.id, label: `${p.name} (${p.code})` }));
@@ -150,6 +156,20 @@ export default async function StaffPage({
       <InviteStaffForm
         org={org} roles={roles} properties={propertyChoices} baseUrl={baseUrl}
       />
+
+      {/* --------------------------------------------------------- locked out */}
+
+      <section aria-labelledby="recoveries" className="space-y-3">
+        <h2 id="recoveries" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+          Locked out
+        </h2>
+        <p className="text-sm text-ink-500">
+          A colleague who has forgotten a password or lost the phone with their authenticator
+          asks here, and you confirm it is really them. Spike does not see these while you
+          can decide them — you are the one who knows your own staff.
+        </p>
+        <RecoveryRequests slug={org} requests={recoveries} baseUrl={baseUrl} />
+      </section>
 
       {/* ------------------------------------------------------------ members */}
 

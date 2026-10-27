@@ -11,6 +11,7 @@ export default defineConfig({
       // to `index.ts/dates`.
       'server-only': `${root}tests/support/server-only.ts`,
       '@propertyos/domain/dates': `${root}packages/domain/src/dates.ts`,
+      '@propertyos/db/client': `${root}packages/db/src/privileged.ts`,
       '@propertyos/db': `${root}packages/db/src/index.ts`,
       '@propertyos/domain': `${root}packages/domain/src/index.ts`,
       '@propertyos/integrations': `${root}packages/integrations/src/index.ts`,

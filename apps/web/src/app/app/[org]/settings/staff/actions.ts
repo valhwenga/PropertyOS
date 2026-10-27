@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import {
+  approveRecoveryAsAdministrator, cancelRecovery,
   changeMemberRoles, inviteStaff, reinstateMember, revokeStaffInvitation,
   setMemberScope, suspendMember,
 } from '@propertyos/domain';
@@ -114,5 +115,40 @@ export async function suspendMemberAction(_previous: unknown, formData: FormData
     return { done: true };
   });
   if (result.ok) revalidatePath(`/app/${org}/settings/staff`);
+  return result;
+}
+
+/**
+ * Deciding whether a colleague gets back into their account.
+ *
+ * The same permission that invites and removes them, `membership.manage`,
+ * because it is the same kind of act and the same person is the right judge of
+ * it: the colleague who can tell whether this is really them.
+ *
+ * Approving does not let anybody in. It produces a link, returned here so the
+ * screen can show it to whoever approved it — they hand it over the way they
+ * already hand over a staff invitation, by whatever channel they trust.
+ */
+export async function approveRecoveryAction(_previous: unknown, formData: FormData) {
+  const slug = String(formData.get('slug') ?? '');
+  const result = await command(async ({ tx, viewer }) => {
+    const approval = await approveRecoveryAsAdministrator(tx, viewer.authUserId, {
+      requestId: String(formData.get('requestId') ?? ''),
+      reason: String(formData.get('reason') ?? ''),
+    });
+    return approval;
+  });
+  if (result.ok) revalidatePath(`/app/${slug}/settings/staff`);
+  return result;
+}
+
+export async function declineRecoveryAction(_previous: unknown, formData: FormData) {
+  const slug = String(formData.get('slug') ?? '');
+  const result = await command(({ tx, viewer }) =>
+    cancelRecovery(tx, viewer.authUserId, {
+      requestId: String(formData.get('requestId') ?? ''),
+      reason: String(formData.get('reason') ?? ''),
+    }).then(() => ({})));
+  if (result.ok) revalidatePath(`/app/${slug}/settings/staff`);
   return result;
 }
