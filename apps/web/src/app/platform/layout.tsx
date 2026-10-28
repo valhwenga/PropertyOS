@@ -73,6 +73,10 @@ export default async function PlatformLayout({ children }: { children: React.Rea
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-white/90">
               Plans
             </Link>
+            <Link href="/platform/collections"
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-white/90">
+              Debit orders
+            </Link>
             <Link href="/platform/billing"
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-white/90">
               Billing

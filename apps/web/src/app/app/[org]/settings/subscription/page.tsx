@@ -5,7 +5,8 @@ import type { StatusTone } from '@propertyos/ui';
 import {
   billerForInvoice, customerSubscriptionInvoices, formatMinor, formatMoney,
   invoicePaymentAttempts, liveMandate, listPlans, minorToMajorInput,
-  organisationMandates, type PaymentAttempt, type SubscriptionMandate,
+  organisationCollections, organisationMandates, type PaymentAttempt,
+  type SubscriptionMandate,
 } from '@propertyos/domain';
 import Link from 'next/link';
 import { BackLink } from '@/components/back-link';
@@ -70,9 +71,12 @@ export default async function SubscriptionPage({
     await listPlans(tx),
   ] as const);
 
-  const [mandate, mandateHistory] = await readAs(context.viewer, async (tx) => [
+  const [mandate, mandateHistory, collections] = await readAs(context.viewer, async (tx) => [
     await liveMandate(tx, context.organisationId),
     await organisationMandates(tx, context.organisationId),
+    // What is about to leave their account. A customer finding out from their
+    // bank statement is how a debit order becomes a dispute.
+    await organisationCollections(tx, context.organisationId),
   ] as const);
 
   // Only for the invoices somebody could still pay: an attempt against a
@@ -112,6 +116,14 @@ export default async function SubscriptionPage({
         suggestedAmount={minorToMajorInput(
           latest ? Math.round(Number(latest.totalMinor) * 1.5) : 100_000,
         )}
+        collections={collections.slice(0, 6).map((c) => ({
+          reference: c.reference,
+          amount: formatMoney(c.amountMinor, c.currencyCode),
+          actionDate: c.actionDate,
+          status: c.status,
+          invoiceNumber: c.invoiceNumber,
+          unpaidReason: c.unpaidReason,
+        }))}
       />
 
       {invoices.length === 0 ? (

@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { sealField } from '@propertyos/integrations';
 
 /**
  * Putting one corner of the demo data back to a known state.
@@ -322,6 +323,67 @@ export async function clearMandates(slug: string): Promise<void> {
   try {
     const [org] = await sql<{ id: string }[]>`select id from organisations where slug = ${slug}`;
     if (org) await sql`delete from subscription_mandates where organisation_id = ${org.id}`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/**
+ * An authenticated mandate for a demo customer, as a payer's bank would leave
+ * one.
+ *
+ * The account number is sealed properly rather than stubbed: submitting a
+ * collection opens it, so a placeholder cipher makes the submission throw —
+ * which is exactly how the first version of this helper failed, silently, in
+ * the browser.
+ */
+export async function seedAuthenticatedMandate(
+  slug: string, authorisedMinor = 500_000,
+): Promise<{ reference: string }> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [org] = await sql<{ id: string }[]>`select id from organisations where slug = ${slug}`;
+    if (!org) throw new Error(`no organisation with slug ${slug} in the preview database`);
+    await sql`delete from subscription_mandates where organisation_id = ${org.id}`;
+    const [event] = await sql<{ id: string }[]>`
+      insert into webhook_events (
+        provider, provider_event_id, event_type, signature_verified, payload
+      ) values (
+        'sandbox', ${`e2e-man-${Date.now().toString(36)}`}, 'mandate.authenticated', true,
+        '{}'::jsonb
+      )
+      returning id
+    `;
+    const reference = `MAN-E2E-${Date.now().toString(36).toUpperCase()}`;
+    await sql`
+      insert into subscription_mandates (
+        organisation_id, provider, reference, authorised_amount_minor, currency_code,
+        collection_day, first_collection_on, account_holder, bank_name, branch_code,
+        account_type, account_number_cipher, account_number_last4, status,
+        authenticated_at, authentication_event_id
+      ) values (
+        ${org.id}, 'sandbox', ${reference}, ${authorisedMinor}, 'ZAR', 1,
+        (date_trunc('month', current_date) - interval '1 month')::date,
+        'Blue Crane Properties (Pty) Ltd', 'Standard Bank', '051001', 'cheque',
+        ${sealField('62001234567', `mandate_account:${org.id}`)}, '4567',
+        'authenticated', now(), ${event!.id}
+      )
+    `;
+    return { reference };
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/** Collections an e2e run prepared, and the mandates behind them. */
+export async function clearCollections(slug: string): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [org] = await sql<{ id: string }[]>`select id from organisations where slug = ${slug}`;
+    if (org) {
+      await sql`delete from subscription_collections where organisation_id = ${org.id}`;
+      await sql`delete from subscription_mandates where organisation_id = ${org.id}`;
+    }
   } finally {
     await sql.end({ timeout: 5 });
   }

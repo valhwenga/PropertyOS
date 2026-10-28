@@ -36,6 +36,7 @@ residents until those are done.
 | Content Security Policy | Permits `'unsafe-inline'` for scripts | Required by Next's inline hydration bootstrap. Tightening to a nonce-based policy is outstanding. |
 | Spike's own payment collection | **Built, sandbox provider only** | `recordSubscriptionPayment` is still there and still honest — an operator reading Spike's bank statement — but a customer can now pay an issued invoice from their subscription settings. An attempt is a record, not a result: `confirmed` requires a `webhook_event_id` whose signature was verified, enforced by a check constraint and a trigger, and there is no UPDATE policy on the attempts table for the application role at all, so nothing the browser touches can settle an invoice. The return page reports the recorded state and never congratulates somebody for arriving. Short payments record what arrived and leave the invoice issued. **Limit: the only working adapter is the sandbox**, which signs and verifies its own notifications so the whole path is exercised locally; `SUBSCRIPTION_PAYMENT_PROVIDER=payfast` resolves to an adapter that refuses, and the worker's preflight refuses to start. See `docs/decisions/0031-spike-can-be-paid.md`. |
 | Debit order mandates | **Built, sandbox provider only** | The authority, not the collection: a customer authorises Spike to collect up to a capped amount on a chosen day from a named account, and their own bank authenticates it. The terms are immutable — a trigger refuses any change to the amount, day, start date or account, so changing them means cancelling and authenticating another, with both records kept. Only a verified provider event can authenticate one (check constraint plus trigger, no UPDATE policy for the application role), one live mandate per customer (partial unique index), and the payer can withdraw it here or at their own bank — a withdrawal arriving unprompted is recorded as theirs. The account number is sealed like every other account number here, with four digits in the clear. See `docs/decisions/0032-a-mandate-to-collect.md`. **Limit: nothing is collected against it yet**, and the sandbox stands in for the payer's bank — DebiCheck's real authentication happens in the payer's banking app, which no stand-in can imitate. |
+| Debit order collections | **Built, sandbox provider only** | Prepare, submit and the bank's answer are three separate acts: preparing is arithmetic that can be redone, submitting is a person's decision rather than a timer, and only a verified provider event can mark a collection successful. A collection may never exceed the mandate's authorised amount — a trigger reads the mandate — and it is refused again at submission, because a payer can withdraw authority between the 29th and the 1st. The run collects what is outstanding, skips what it cannot collect and names who, one live instruction per invoice is a unique index, and a dispute reverses the settlement because the money never arrived. The customer sees what is about to leave their account. See `docs/decisions/0033-collecting-on-the-mandate.md`. **Limits: nothing is submitted automatically, no provider can actually submit (sandbox only), and there is no retry or representment of an unpaid debit.** |
 | Rent payment provider | **Deliberately disabled** | See `docs/decisions/0004-money-flow.md`. Not to be enabled before merchant ownership and settlement are confirmed in writing. |
 | Contractor portal | Schema and assignment model only | Phase 2 per the blueprint. Contractor-visible comments and attachments are already separated in the data model and enforced by RLS, ready for that portal. |
 | Document upload UI | **Built for operators** | Upload with validation, scanning and quarantine; share control; authorised download. The resident photo attachment on a maintenance request is still not built. |
@@ -228,17 +229,18 @@ way that fails safe until someone with the relevant authority decides.
   alerting raises. Giving those events real recipients and a template renderer
   is outstanding work, and it is what "undelivered notifications" means on the
   console.
-* **Spike still cannot collect money by itself.** A customer can pay an invoice
-  by pressing a button, and can now give a debit order mandate — but nothing
-  collects against that mandate. The collection instruction, its submission,
-  unpaid reason codes and retries are the next piece, and that is the one
-  needing a sponsoring bank or a provider with a debit-order facility and a
-  registered user code. There is still no stored card and no tokenised
-  recurring charge, no dunning, nothing ends a trial, a plan changed
+* **Spike still cannot collect money without a real provider.** The whole path
+  exists — mandate, run, submission, outcome, dispute reversal — and the only
+  adapter that can submit anything is the sandbox. A live deployment needs a
+  sponsoring bank or a provider with a debit-order facility and a registered
+  user code. Nothing submits on a schedule either: a person presses the button,
+  deliberately, until the arithmetic has been watched for a few months.
+* **An unpaid debit is not re-presented.** It can be abandoned or left; nothing
+  tries again on a later date, and the rules for that are the provider's and
+  the bank's rather than ours to invent. There is still no stored card, no
+  tokenised recurring charge, no dunning, nothing ends a trial, a plan changed
   mid-period is billed as though it changed at the start, and refunds are
-  reversed at the provider and recorded here by hand. The overdue-invoice
-  alert is the whole of the chasing, and it tells Spike rather than the
-  customer.
+  reversed at the provider and recorded here by hand.
 * **DebiCheck's own fields are not modelled** — no tracking indicator, no debit
   value type, no amendment flow — and whether Payfast is the right provider for
   debit orders at all is open: in South Africa the debit-order providers are

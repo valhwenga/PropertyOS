@@ -69,3 +69,5 @@ export * from './alerts';
 export * from './subscription-payments';
 export * from './provider-events';
 export * from './subscription-mandates';
+export * from './invoice-settlement';
+export * from './subscription-collections';

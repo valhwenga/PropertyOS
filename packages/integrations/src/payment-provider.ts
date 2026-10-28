@@ -80,6 +80,28 @@ export interface MandateRequest {
   notifyUrl: string;
 }
 
+/**
+ * One debit order instruction, as a provider needs it.
+ *
+ * The account number is here in full, which is the only place in this product
+ * it travels: a bank cannot be instructed with four digits. It is opened from
+ * the mandate at the moment of submission and not held anywhere.
+ */
+export interface CollectionInstruction {
+  reference: string;
+  mandateReference: string;
+  providerMandateReference: string | null;
+  amountMinor: number;
+  currencyCode: string;
+  actionDate: string;
+  accountHolder: string;
+  bankName: string;
+  branchCode: string;
+  accountType: 'cheque' | 'savings' | 'transmission';
+  accountNumber: string;
+  notifyUrl: string;
+}
+
 export type PaymentEventStatus = 'pending' | 'confirmed' | 'failed' | 'cancelled';
 
 /** A provider's word about an attempt, once it has been checked. */
@@ -116,7 +138,28 @@ export interface ProviderMandateEvent {
   reason: string | null;
 }
 
-export type ProviderEvent = ProviderPaymentEvent | ProviderMandateEvent;
+/**
+ * A provider's word about a collection.
+ *
+ * `unpaid` carries the bank's reason — insufficient funds, account closed,
+ * payer stopped it — because the reason decides what happens next, and
+ * "failed" on its own decides nothing. `disputed` means the payer challenged a
+ * debit that had already succeeded and their bank reversed it, which is a
+ * different and later event.
+ */
+export interface ProviderCollectionEvent {
+  kind: 'collection';
+  providerEventId: string;
+  eventType: string;
+  reference: string;
+  providerReference: string | null;
+  status: 'successful' | 'unpaid' | 'disputed';
+  amountMinor: number | null;
+  reason: string | null;
+}
+
+export type ProviderEvent =
+  | ProviderPaymentEvent | ProviderMandateEvent | ProviderCollectionEvent;
 
 export interface PaymentProvider {
   readonly name: string;
@@ -133,6 +176,15 @@ export interface PaymentProvider {
    * than a payment.
    */
   mandateCheckout(request: MandateRequest): Promise<PaymentCheckout>;
+  /**
+   * Hands one debit order instruction to the provider.
+   *
+   * Returns the provider's own reference for it. It does NOT return an
+   * outcome: a bank takes days to say whether a debit succeeded, and a method
+   * that returned success here would be inviting its caller to believe
+   * something nobody knows yet.
+   */
+  submitCollection(instruction: CollectionInstruction): Promise<{ providerReference: string }>;
   /**
    * Checks an inbound notification and says what it means.
    *
@@ -156,6 +208,10 @@ export class UnavailablePaymentProvider implements PaymentProvider {
   }
 
   async mandateCheckout(): Promise<PaymentCheckout> {
+    throw new Error(`No payment provider is available: ${this.unavailableReason}`);
+  }
+
+  async submitCollection(): Promise<{ providerReference: string }> {
     throw new Error(`No payment provider is available: ${this.unavailableReason}`);
   }
 
@@ -206,6 +262,26 @@ export class SandboxPaymentProvider implements PaymentProvider {
     return { url: url.toString(), method: 'GET', fields: {} };
   }
 
+  /**
+   * Accepts an instruction and gives it a reference, and that is all.
+   *
+   * Deliberately no outcome: the sandbox's outcomes are produced from its own
+   * page, by somebody choosing what the bank says, because that is the shape
+   * of the real thing — an instruction goes out and an answer comes back days
+   * later through the notification endpoint.
+   */
+  async submitCollection(
+    instruction: CollectionInstruction,
+  ): Promise<{ providerReference: string }> {
+    if (!/^\d{6,11}$/.test(instruction.accountNumber)) {
+      throw new Error('That account number is not one a bank would accept.');
+    }
+    if (instruction.amountMinor <= 0) {
+      throw new Error('A collection must be for a positive amount.');
+    }
+    return { providerReference: `sbx-col-${instruction.reference.slice(-8)}` };
+  }
+
   async checkout(request: PaymentRequest): Promise<PaymentCheckout> {
     // A page inside this application standing in for the provider's hosted
     // page. It is reached by GET because there is nothing to hide from the
@@ -223,6 +299,23 @@ export class SandboxPaymentProvider implements PaymentProvider {
     if (given.length !== expected.length) return null;
     if (!timingSafeEqual(Buffer.from(given), Buffer.from(expected))) return null;
     if (!raw.reference || !raw.event_id) return null;
+
+    if (raw.kind === 'collection') {
+      const status = raw.status;
+      if (status !== 'successful' && status !== 'unpaid' && status !== 'disputed') return null;
+      return {
+        kind: 'collection',
+        providerEventId: raw.event_id,
+        eventType: `collection.${status}`,
+        reference: raw.reference,
+        providerReference: raw.provider_reference ?? null,
+        status,
+        amountMinor: raw.amount_minor === undefined || raw.amount_minor === ''
+          ? null
+          : Number(raw.amount_minor),
+        reason: raw.reason ?? null,
+      };
+    }
 
     if (raw.kind === 'mandate') {
       const status = raw.status;

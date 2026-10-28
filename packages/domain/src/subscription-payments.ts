@@ -4,6 +4,7 @@ import type { Sql } from '@propertyos/db';
 import { recordAudit } from './audit';
 import { DomainError, forbidden, invalid, notFound, parsed } from './errors';
 import { requirePermission } from './permissions';
+import { applyFundsToInvoice } from './invoice-settlement';
 import { markEventProcessed, recordUnverifiedEvent, recordVerifiedEvent } from './provider-events';
 
 /**
@@ -266,29 +267,14 @@ export async function ingestProviderEvent(
        where id = ${attempt.id}::uuid
     `;
 
-    // The same rule the manual path has always followed: a short payment is
-    // recorded as what arrived and leaves the invoice issued. Marking it
-    // settled for less than it says would make what customers owe quietly
-    // wrong.
-    const [invoice] = await tx<{ total_minor: string; paid_minor: string | null }[]>`
-      select total_minor::text, paid_minor::text from subscription_invoices
-      where id = ${attempt.invoice_id}::uuid
-    `;
-    const already = Number(invoice?.paid_minor ?? 0);
-    const total = Number(invoice?.total_minor ?? 0);
-    const paidNow = already + paid;
-    invoiceSettled = paidNow >= total;
-
-    await tx`
-      update subscription_invoices
-         set status = ${invoiceSettled ? 'paid' : 'issued'},
-             paid_on = ${invoiceSettled ? tx`current_date` : tx`null`},
-             paid_minor = ${paidNow},
-             payment_reference = ${event.providerReference ?? event.reference}
-             -- payment_recorded_by stays null: no operator recorded this, a
-             -- provider did, and the attempt row says which one.
-       where id = ${attempt.invoice_id}::uuid and status = 'issued'
-    `;
+    // One rule for every way money reaches an invoice: a short payment is
+    // recorded as what arrived and leaves the invoice issued.
+    const settlement = await applyFundsToInvoice(tx, {
+      invoiceId: attempt.invoice_id,
+      amountMinor: paid,
+      reference: event.providerReference ?? event.reference,
+    });
+    invoiceSettled = settlement.settled;
   } else if (event.status === 'pending') {
     await tx`
       update subscription_payment_attempts

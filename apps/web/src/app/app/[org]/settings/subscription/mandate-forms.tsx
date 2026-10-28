@@ -43,8 +43,19 @@ function ordinal(day: number): string {
   return `${day}${suffix}`;
 }
 
+/** What is about to leave the customer's account, or just did. */
+export interface CollectionNotice {
+  reference: string;
+  amount: string;
+  actionDate: string;
+  status: 'prepared' | 'submitted' | 'successful' | 'unpaid' | 'disputed' | 'abandoned';
+  invoiceNumber: string;
+  unpaidReason: string | null;
+}
+
 export function MandatePanel({
   slug, organisationId, live, history, providerAvailable, providerReason, suggestedAmount,
+  collections,
 }: {
   slug: string;
   organisationId: string;
@@ -53,6 +64,7 @@ export function MandatePanel({
   providerAvailable: boolean;
   providerReason?: string | undefined;
   suggestedAmount: string;
+  collections: CollectionNotice[];
 }) {
   const [requested, request, requesting] = useActionState(requestMandateAction, null);
   const [cancelled, cancel, cancelling] = useActionState(cancelMandateAction, null);
@@ -104,6 +116,47 @@ export function MandatePanel({
             Reference <span className="tabular">{live.reference}</span>
             {live.authenticatedAt ? ` · authorised ${live.authenticatedAt.slice(0, 10)}` : ''}
           </p>
+
+          {collections.length > 0 ? (
+            <div className="rounded-lg border border-ink-200 bg-ink-50 p-3">
+              <p className="text-sm font-medium text-ink-900">What is being collected</p>
+              <ul className="mt-1 space-y-1">
+                {collections.map((c) => (
+                  <li key={c.reference} className="text-sm text-ink-700">
+                    {c.status === 'prepared' || c.status === 'submitted' ? (
+                      <>
+                        <strong className="font-medium text-ink-900">{c.amount}</strong> on{' '}
+                        {c.actionDate} for {c.invoiceNumber} — not taken yet
+                      </>
+                    ) : c.status === 'successful' ? (
+                      <>
+                        {c.amount} taken on {c.actionDate} for {c.invoiceNumber}
+                      </>
+                    ) : c.status === 'unpaid' ? (
+                      <span className="text-critical-700">
+                        {c.amount} on {c.actionDate} did not go through
+                        {c.unpaidReason ? ` (${c.unpaidReason})` : ''} — {c.invoiceNumber} is
+                        still owing
+                      </span>
+                    ) : c.status === 'disputed' ? (
+                      <span className="text-critical-700">
+                        {c.amount} on {c.actionDate} was reversed — {c.invoiceNumber} is owing
+                        again
+                      </span>
+                    ) : (
+                      <span className="text-ink-500">
+                        {c.amount} on {c.actionDate} was not collected
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-ink-500">
+                Spike takes only what an invoice says is outstanding, and never more than the
+                amount above.
+              </p>
+            </div>
+          ) : null}
 
           <p className="text-xs text-ink-500">
             The amount, the day and the account cannot be edited: that is what you authorised.

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { privilegedSql } from '@propertyos/db/client';
-import { ingestMandateEvent, ingestProviderEvent } from '@propertyos/domain';
+import {
+  ingestCollectionEvent, ingestMandateEvent, ingestProviderEvent,
+} from '@propertyos/domain';
 import { resolvePaymentProvider } from '@propertyos/integrations';
 import { log } from '@/lib/logger';
 
@@ -73,21 +75,24 @@ export async function POST(
   const event = await provider.verify(raw, { sourceIp });
 
   const sql = privilegedSql();
-  const outcome = await sql.begin(async (tx) => (
-    event?.kind === 'mandate'
-      ? ingestMandateEvent(tx as never, {
-        provider: provider.name,
-        signatureVerified: true,
-        payload,
-        event,
-      })
-      : ingestProviderEvent(tx as never, {
-        provider: provider.name,
-        signatureVerified: event !== null,
-        payload,
-        event: event?.kind === 'payment' ? event : null,
-      })
-  ));
+  const outcome = await sql.begin(async (tx) => {
+    if (event?.kind === 'mandate') {
+      return ingestMandateEvent(tx as never, {
+        provider: provider.name, signatureVerified: true, payload, event,
+      });
+    }
+    if (event?.kind === 'collection') {
+      return ingestCollectionEvent(tx as never, {
+        provider: provider.name, signatureVerified: true, payload, event,
+      });
+    }
+    return ingestProviderEvent(tx as never, {
+      provider: provider.name,
+      signatureVerified: event !== null,
+      payload,
+      event: event?.kind === 'payment' ? event : null,
+    });
+  });
 
   log('info', 'payment notification handled', {
     provider: provider.name,
