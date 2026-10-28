@@ -252,3 +252,14 @@ export async function clearRecoveryRequests(): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/** Alert silences and raised notices from an earlier run. */
+export async function clearAlertState(): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`delete from platform_alert_silences`;
+    await sql`delete from platform_alert_notices`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}

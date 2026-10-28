@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { platformAlerts } from '@propertyos/domain';
+import { AlertBanner } from '@/components/alert-banner';
 import { Wordmark } from '@/components/wordmark';
-import { requireViewer } from '@/lib/auth';
+import { readAs, requireViewer } from '@/lib/auth';
 
 /**
  * Spike platform administration shell.
@@ -9,10 +11,17 @@ import { requireViewer } from '@/lib/auth';
  * Being a platform operator admits you to THIS console. It does not admit you to
  * any customer's records: that needs a support session the customer authorised,
  * which is time limited, read-only and audited.
+ *
+ * The alert banner is here rather than on the home page because the home page
+ * is the one screen an operator working on something else does not open. One
+ * extra query per page, against counts: cheap enough that nobody has to
+ * remember to look.
  */
 export default async function PlatformLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requireViewer();
   if (!viewer.isPlatformOperator) redirect('/app');
+
+  const alerts = await readAs(viewer, (tx) => platformAlerts(tx, viewer.authUserId));
 
   return (
     <div className="min-h-dvh bg-chrome-900">
@@ -83,6 +92,7 @@ export default async function PlatformLayout({ children }: { children: React.Rea
           </div>
         </div>
       </header>
+      <AlertBanner alerts={alerts} />
       <main id="main" className="mx-auto max-w-[80rem] px-4 py-6">
         <div className="rounded-[var(--radius-card)] bg-ink-50 p-6">{children}</div>
       </main>

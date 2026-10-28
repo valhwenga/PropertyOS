@@ -4,9 +4,11 @@ import {
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
 import {
-  listCustomers, listPendingCustomers, listSignupRequests, platformHealth,
+  listCustomers, listPendingCustomers, listSignupRequests, platformAlerts,
+  platformHealth, platformPermissionsOf, recentAlertNotices,
 } from '@propertyos/domain';
 import { readAs, readPrivilegedAs, requireViewer } from '@/lib/auth';
+import { AlertList, NoticeLog } from './alert-forms';
 import { formatDate } from '@/lib/format';
 
 export const metadata = { title: 'Platform' };
@@ -21,11 +23,20 @@ const ACCOUNT_STATUS: Record<string, { tone: StatusTone; glyph: string }> = {
 
 export default async function PlatformPage() {
   const viewer = await requireViewer();
-  const [customers, health, openRequests] = await readAs(viewer, async (tx) => [
+  const [customers, health, openRequests, alerts, mine] = await readAs(viewer, async (tx) => [
     await listCustomers(tx, viewer.authUserId),
     await platformHealth(tx, viewer.authUserId),
     await listSignupRequests(tx, viewer.authUserId, { status: 'requested' }),
+    await platformAlerts(tx, viewer.authUserId),
+    await platformPermissionsOf(tx, viewer.authUserId),
   ] as const);
+
+  // Only for the people who can act on them, which is the same permission that
+  // can silence one.
+  const canSilence = mine.includes('platform.operations.manage');
+  const notices = canSilence
+    ? await readAs(viewer, (tx) => recentAlertNotices(tx, viewer.authUserId, { limit: 10 }))
+    : [];
 
   // A provisioned organisation with no members is invisible to every
   // membership-keyed policy, including for the operator who created it — so
@@ -112,6 +123,37 @@ export default async function PlatformPage() {
           </Card>
         </section>
       ) : null}
+
+      <section aria-labelledby="attention-heading" className="space-y-3">
+        <h2
+          id="attention-heading"
+          className="text-sm font-semibold uppercase tracking-wide text-ink-500"
+        >
+          Needs attention
+        </h2>
+        <p className="text-sm text-ink-500">
+          Everything the product can tell is wrong right now. The counts below describe the
+          system; this describes what somebody has to do about it.
+        </p>
+        <AlertList
+          alerts={alerts.map((a) => ({
+            key: a.key, severity: a.severity, summary: a.summary, detail: a.detail,
+            href: a.href, silencedUntil: a.silencedUntil, silencedByName: a.silencedByName,
+            silenceReason: a.silenceReason, lastRaisedAt: a.lastRaisedAt,
+          }))}
+          canSilence={canSilence}
+        />
+        {canSilence ? (
+          <details className="rounded-lg border border-ink-200 bg-surface p-4">
+            <summary className="cursor-pointer text-sm font-medium text-ink-700">
+              What has been sent, and whether it arrived
+            </summary>
+            <div className="mt-3">
+              <NoticeLog notices={notices} />
+            </div>
+          </details>
+        ) : null}
+      </section>
 
       <section aria-labelledby="health-heading" className="space-y-3">
         <h2 id="health-heading" className="text-sm font-semibold uppercase tracking-wide text-ink-500">

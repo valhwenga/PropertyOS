@@ -13,9 +13,18 @@ import postgres from 'postgres';
 import { HANDLERS } from './handlers';
 import { claimJob, completeJob, failJob, reclaimStalled, type Sql } from './queue';
 import { publishOutbox } from './outbox';
+import { watchForTrouble } from './watch';
 
 const WORKER_ID = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const POLL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 2000);
+/**
+ * How often the worker asks what is wrong and tells somebody.
+ *
+ * Five minutes rather than every tick: the conditions are counts over whole
+ * tables, and the repeat window that stops a notice being sent twice is hours
+ * long, so asking more often would cost queries and change nothing.
+ */
+const WATCH_MS = Number(process.env.WORKER_WATCH_INTERVAL_MS ?? 300_000);
 
 /**
  * Drain and stop, instead of polling for ever.
@@ -97,6 +106,9 @@ async function main(): Promise<void> {
   process.on('SIGINT', stop);
 
   let sinceReclaim = Date.now();
+  // Deliberately in the past, so the first pass runs at startup: a worker that
+  // has just restarted is exactly when somebody wants to know what it found.
+  let sinceWatch = Date.now() - WATCH_MS;
   while (running) {
     try {
       const didWork = await tick(sql);
@@ -104,6 +116,18 @@ async function main(): Promise<void> {
       if (Date.now() - sinceReclaim > 60_000) {
         await reclaimStalled(sql);
         sinceReclaim = Date.now();
+      }
+      if (Date.now() - sinceWatch > WATCH_MS) {
+        sinceWatch = Date.now();
+        // Never allowed to stop the queue: a mail provider that is down is not
+        // a reason for rent charges to stop posting.
+        try {
+          await watchForTrouble(sql, log);
+        } catch (error) {
+          log('error', 'watch pass failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     } catch (error) {
       log('error', 'worker loop error', {

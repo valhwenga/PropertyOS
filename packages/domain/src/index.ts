@@ -65,3 +65,4 @@ export * from './approvals';
 export * from './invoice-delivery';
 export * from './offboarding';
 export * from './account-recovery';
+export * from './alerts';

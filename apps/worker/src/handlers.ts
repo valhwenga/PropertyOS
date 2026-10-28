@@ -53,14 +53,24 @@ const notify: Handler = async (sql, job) => {
   `;
   if (existing) return; // Already handled: at-least-once delivery, exactly-once effect.
 
+  // There is no recipient resolution for these events yet, and there was no
+  // recipient: this handler sent every one of them to `resident@example.invalid`
+  // with the template's raw body. Against the sink that was invisible; with
+  // SMTP configured it would have mailed a fabricated address and recorded it
+  // as delivered.
+  //
+  // So it no longer sends. The notice is recorded as queued, with the reason on
+  // it, which is both true and visible: undelivered notifications are one of
+  // the conditions `app.platform_alert_conditions()` raises, so a backlog of
+  // these now tells somebody instead of sitting in a table.
   const outcome =
     template.channel === 'email'
-      ? await email.send({
-          to: 'resident@example.invalid',
-          subject: template.subject ?? 'PropertyOS',
-          body: template.body,
-          templateKey,
-        })
+      ? ({
+          status: 'queued',
+          provider: null,
+          reason: 'No recipient resolution for this event yet: nothing was sent. '
+            + 'The notice is recorded so the message is not lost.',
+        } as const)
       : ({ status: 'sent', provider: 'in_app', providerMessageId: `outbox-${outboxId}` } as const);
 
   await sql`
@@ -74,17 +84,15 @@ const notify: Handler = async (sql, job) => {
       ${outcome.provider},
       ${`outbox-${outboxId}`},
       1,
-      ${outcome.status === 'failed' ? outcome.error
-        : outcome.status === 'development_sink' ? outcome.reason : null},
+      ${'reason' in outcome ? outcome.reason : null},
       ${outcome.status === 'sent' ? sql`now()` : null}
     )
   `;
 
-  if (outcome.status === 'failed') {
-    // Surfaced as a retry; a persistent failure lands in the dead queue where an
-    // operator can see it. The notice record is never erased.
-    throw new Error(`Email delivery failed: ${outcome.error}`);
-  }
+  // Nothing throws here any more. The old code failed the job when delivery
+  // failed, which was right when it was delivering; a job that fails because
+  // this product has no recipient resolution would die in the queue every time
+  // and tell an operator nothing they can act on.
 };
 
 /**

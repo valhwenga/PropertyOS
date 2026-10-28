@@ -29,6 +29,7 @@ residents until those are done.
 | Multi-factor authentication | **Enforced** | Part of permission resolution in the database (`app.has_permission` requires `aal2` for MFA-gated roles), so application code cannot bypass it. The local provider implements RFC 6238 TOTP with replay protection; Supabase owns verification in production. 13 tests. |
 | MFA enrolment UI | **Built** (was wrongly listed here as not built) | `/account/security`: enrol with a confirmation code, recovery codes issued at enrolment and shown once, re-issue, remove, and sign-in with a recovery code. Migration 0045 added the recovery codes, hashed and single-use. There is no administrator reset and no Spike reset, deliberately: anybody who could clear a colleague's factor could take over their account. |
 | Account recovery | **Built, local auth provider only** | There was none, and no password reset either: a landlord who forgot a password or lost the phone with their authenticator was locked out of their own records for good, and the only remedy was somebody running `pnpm db:mfa` against the database. Now they ask at `/recover`, and somebody else decides. Their own administrator (`membership.manage`) decides it where there is one, effective at once; Spike decides it **only** where the person has no such colleague — the policies make the request unreadable to an operator otherwise, and that rule is restated in the domain and in the query because some platform pages read with filtering lifted. Spike’s approval waits (24h by default) and the account holder can cancel it without signing in. Approval issues a single-use link, shown once to whoever approved it to hand over, and it does only what was lost — a forgotten password leaves the second factor standing. The form answers identically for an address with no account. See `docs/decisions/0029-a-way-back-in.md`. **Limit: it resets credentials in this database, which Supabase Auth does not read, so with `AUTH_PROVIDER=supabase` the action refuses rather than reporting a reset that did not happen.** |
+| Platform alerting | **Built, delivery needs SMTP** | Every signal was a screen somebody had to remember to open. Nine conditions are now defined once in `app.platform_alert_conditions()` — dead jobs, a worker that stopped, a stuck queue, somebody locked out waiting on Spike, an outbox or message backlog, an unanswered account request, a retention date passed, an overdue invoice — read by the console, the worker and the tests from the same function. A critical condition raises a banner on **every** console page, not just the home page nobody opened. The worker asks every five minutes and raises one notice per recipient, repeating daily while a condition stays true. An operator holding `platform.operations.manage` can silence one with a reason and an expiry (max 30 days); silenced is greyed in the list with who and why, never hidden. See `docs/decisions/0030-something-tells-somebody.md`. **Limit: nothing is delivered until `EMAIL_PROVIDER` and the SMTP settings are set — until then every notice is recorded `undeliverable` with the reason, and the console shows "0 of 2 delivered" rather than claiming otherwise.** |
 | Session revocation | Time-based only | No server-side session store, so a stolen cookie is valid until it expires (8 hours). Membership and portal-link revocation take effect on the next request, which limits the blast radius. |
 | Supabase Storage | **Implemented, not run against a real bucket** | Upload, read, signed-URL and delete against a private bucket, using the service role key server-side only. The local filesystem adapter is fully exercised end to end (15 HTTP checks). The Supabase path has never run against a live project. |
 | Bank CSV import UI | **Built** (was wrongly listed here as not built) | Preview before commit, overlapping statements, suggested payers that stay suggestions, and lines set aside with a reason. Duplicate protection is enforced at database level and covered by tests. |
@@ -210,11 +211,21 @@ way that fails safe until someone with the relevant authority decides.
   holder is sent a notice, not that it is prevented. Recovering a *Spike*
   account from a customer organisation is refused outright.
 * **A recovery request sits until somebody decides it.** Nothing notifies the
-  administrator who could approve it, nothing expires an open request, and the
-  notice to an account holder whose recovery Spike approved is queued and
-  undelivered until a mail provider is configured — so the waiting period only
-  protects somebody if an operator tells them about it by another route. The
-  approval box asks what they checked, at length, for that reason.
+  administrator who could approve it, and nothing expires an open request. A
+  request only Spike can decide now raises a platform alert; one a colleague
+  could decide raises nothing, because Spike cannot see it. The notice to an
+  account holder whose recovery Spike approved is queued and undelivered until
+  a mail provider is configured — so the waiting period only protects somebody
+  if an operator tells them about it by another route, and the approval box
+  asks what they checked, at length, for that reason.
+* **Customer-facing notifications have no recipient and no rendering.** The
+  worker's `notify` handler used to send every one of them to a hard-coded
+  `resident@example.invalid` with the template's raw body, and record it as
+  delivered. It no longer sends at all: the notice is recorded `queued` with
+  that reason, and the backlog of them is now one of the conditions platform
+  alerting raises. Giving those events real recipients and a template renderer
+  is outstanding work, and it is what "undelivered notifications" means on the
+  console.
 * **Nothing in offboarding happens on its own.** No reminder when a retention
   date approaches, no list of accounts past theirs on the platform home page,
   and no notification to a closed customer — the page they are sent to tells

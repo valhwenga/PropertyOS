@@ -153,6 +153,14 @@ describe('Schema invariants', () => {
           -- organisation_setting_values, which DOES carry organisation_id and
           -- is isolated by the standard policies like everything else.
           'platform_settings', 'platform_setting_values',
+          -- Spike being told that something is wrong with Spike. Conditions
+          -- are platform-wide: "the worker has stopped" and "an outbox backlog
+          -- is building" belong to the system rather than to any customer, and
+          -- the notices are addressed to operators, who are members of nothing.
+          -- Their policies are app.platform_permission('platform.operations.manage')
+          -- and app.is_platform_operator(), asserted from both sides in
+          -- tests/integration/alerts.test.ts.
+          'platform_alert_silences', 'platform_alert_notices',
           -- What a customer can let Spike do, and which permissions each of
           -- those choices carries. Reference data, readable by everybody and
           -- writable by nobody: the same rows the customer's tickboxes are
