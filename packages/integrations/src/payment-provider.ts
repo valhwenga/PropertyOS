@@ -54,10 +54,37 @@ export interface PaymentCheckout {
   fields: Record<string, string>;
 }
 
+/**
+ * Asking a payer to authorise a standing collection.
+ *
+ * The amount here is a CEILING rather than a charge: a debit order mandate
+ * authorises up to an amount on a day, and the collections that follow are
+ * separate instructions. Sending the ceiling to the provider is the whole
+ * point of the mandate — it is what the payer's bank authenticates.
+ */
+export interface MandateRequest {
+  reference: string;
+  /** The most that may ever be collected under this authority. */
+  authorisedAmountMinor: number;
+  currencyCode: string;
+  collectionDay: number;
+  firstCollectionOn: string;
+  accountHolder: string;
+  bankName: string;
+  branchCode: string;
+  accountType: 'cheque' | 'savings' | 'transmission';
+  accountNumber: string;
+  payerName?: string;
+  payerEmail?: string;
+  returnUrl: string;
+  notifyUrl: string;
+}
+
 export type PaymentEventStatus = 'pending' | 'confirmed' | 'failed' | 'cancelled';
 
 /** A provider's word about an attempt, once it has been checked. */
 export interface ProviderPaymentEvent {
+  kind: 'payment';
   /** The provider's own id for this event, for deduplicating replays. */
   providerEventId: string;
   eventType: string;
@@ -69,6 +96,28 @@ export interface ProviderPaymentEvent {
   netMinor: number | null;
 }
 
+/**
+ * A provider's word about a mandate.
+ *
+ * `authenticated` means the payer's bank confirmed the authority — under
+ * DebiCheck, that the payer approved it themselves. `rejected` means they did
+ * not, or their bank refused. `cancelled` means the authority has been
+ * withdrawn, and a payer may do that at any time through their own bank
+ * without telling us first, which is why it arrives here as an event rather
+ * than as something we initiate.
+ */
+export interface ProviderMandateEvent {
+  kind: 'mandate';
+  providerEventId: string;
+  eventType: string;
+  reference: string;
+  providerReference: string | null;
+  status: 'authenticated' | 'rejected' | 'cancelled';
+  reason: string | null;
+}
+
+export type ProviderEvent = ProviderPaymentEvent | ProviderMandateEvent;
+
 export interface PaymentProvider {
   readonly name: string;
   /** False when the provider is named but cannot be used. */
@@ -76,6 +125,14 @@ export interface PaymentProvider {
   /** Why not, for a screen to show rather than a shrug. */
   readonly unavailableReason?: string;
   checkout(request: PaymentRequest): Promise<PaymentCheckout>;
+  /**
+   * Where to send a payer to authorise a standing collection.
+   *
+   * Separate from `checkout` because it is a different act with a different
+   * outcome: nothing is charged, and what comes back is an authority rather
+   * than a payment.
+   */
+  mandateCheckout(request: MandateRequest): Promise<PaymentCheckout>;
   /**
    * Checks an inbound notification and says what it means.
    *
@@ -87,7 +144,7 @@ export interface PaymentProvider {
   verify(
     raw: Record<string, string>,
     context: { sourceIp?: string | undefined },
-  ): Promise<ProviderPaymentEvent | null>;
+  ): Promise<ProviderEvent | null>;
 }
 
 export class UnavailablePaymentProvider implements PaymentProvider {
@@ -98,14 +155,19 @@ export class UnavailablePaymentProvider implements PaymentProvider {
     throw new Error(`No payment provider is available: ${this.unavailableReason}`);
   }
 
-  async verify(): Promise<ProviderPaymentEvent | null> {
+  async mandateCheckout(): Promise<PaymentCheckout> {
+    throw new Error(`No payment provider is available: ${this.unavailableReason}`);
+  }
+
+  async verify(): Promise<ProviderEvent | null> {
     return null;
   }
 }
 
 /** The fields the sandbox signs, in a fixed order. Order is part of a signature. */
 const SANDBOX_SIGNED = [
-  'reference', 'provider_reference', 'status', 'amount_minor', 'fee_minor', 'net_minor', 'event_id',
+  'kind', 'reference', 'provider_reference', 'status', 'amount_minor', 'fee_minor',
+  'net_minor', 'reason', 'event_id',
 ] as const;
 
 export function signSandboxNotification(
@@ -130,6 +192,20 @@ export class SandboxPaymentProvider implements PaymentProvider {
   readonly available = true;
   constructor(private readonly secret: string, private readonly baseUrl: string) {}
 
+  async mandateCheckout(request: MandateRequest): Promise<PaymentCheckout> {
+    // A page inside this product standing where a payer's own bank stands.
+    // Under DebiCheck the real thing is the payer approving it in their
+    // banking app, which is precisely the part no sandbox can imitate — so the
+    // page says so rather than implying it authenticated anything.
+    const url = new URL(
+      `/pay/sandbox/mandate/${encodeURIComponent(request.reference)}`, this.baseUrl,
+    );
+    url.searchParams.set('amount', String(request.authorisedAmountMinor));
+    url.searchParams.set('day', String(request.collectionDay));
+    url.searchParams.set('account', request.accountNumber.slice(-4));
+    return { url: url.toString(), method: 'GET', fields: {} };
+  }
+
   async checkout(request: PaymentRequest): Promise<PaymentCheckout> {
     // A page inside this application standing in for the provider's hosted
     // page. It is reached by GET because there is nothing to hide from the
@@ -141,23 +217,39 @@ export class SandboxPaymentProvider implements PaymentProvider {
     return { url: url.toString(), method: 'GET', fields: {} };
   }
 
-  async verify(raw: Record<string, string>): Promise<ProviderPaymentEvent | null> {
+  async verify(raw: Record<string, string>): Promise<ProviderEvent | null> {
     const given = raw.signature ?? '';
     const expected = signSandboxNotification(raw, this.secret);
     if (given.length !== expected.length) return null;
     if (!timingSafeEqual(Buffer.from(given), Buffer.from(expected))) return null;
+    if (!raw.reference || !raw.event_id) return null;
+
+    if (raw.kind === 'mandate') {
+      const status = raw.status;
+      if (status !== 'authenticated' && status !== 'rejected' && status !== 'cancelled') {
+        return null;
+      }
+      return {
+        kind: 'mandate',
+        providerEventId: raw.event_id,
+        eventType: `mandate.${status}`,
+        reference: raw.reference,
+        providerReference: raw.provider_reference ?? null,
+        status,
+        reason: raw.reason ?? null,
+      };
+    }
 
     const status = raw.status;
     if (status !== 'confirmed' && status !== 'failed' && status !== 'cancelled'
       && status !== 'pending') {
       return null;
     }
-    if (!raw.reference || !raw.event_id) return null;
-
     const number = (value: string | undefined) =>
       value === undefined || value === '' ? null : Number(value);
 
     return {
+      kind: 'payment',
       providerEventId: raw.event_id,
       eventType: `payment.${status}`,
       reference: raw.reference,

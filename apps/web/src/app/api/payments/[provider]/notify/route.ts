@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { privilegedSql } from '@propertyos/db/client';
-import { ingestProviderEvent } from '@propertyos/domain';
+import { ingestMandateEvent, ingestProviderEvent } from '@propertyos/domain';
 import { resolvePaymentProvider } from '@propertyos/integrations';
 import { log } from '@/lib/logger';
 
@@ -28,6 +28,11 @@ import { log } from '@/lib/logger';
  *
  * And it never says what it found. "No attempt with that reference" to an
  * unauthenticated caller is a way to probe which references exist.
+ *
+ * One endpoint for both kinds, because a provider posts everything it has to
+ * say to one URL. The adapter decides what an event IS — a payment or a
+ * mandate — and this routes on that rather than on the path, which a caller
+ * controls.
  */
 export async function POST(
   request: Request,
@@ -68,12 +73,21 @@ export async function POST(
   const event = await provider.verify(raw, { sourceIp });
 
   const sql = privilegedSql();
-  const outcome = await sql.begin(async (tx) => ingestProviderEvent(tx as never, {
-    provider: provider.name,
-    signatureVerified: event !== null,
-    payload,
-    event,
-  }));
+  const outcome = await sql.begin(async (tx) => (
+    event?.kind === 'mandate'
+      ? ingestMandateEvent(tx as never, {
+        provider: provider.name,
+        signatureVerified: true,
+        payload,
+        event,
+      })
+      : ingestProviderEvent(tx as never, {
+        provider: provider.name,
+        signatureVerified: event !== null,
+        payload,
+        event: event?.kind === 'payment' ? event : null,
+      })
+  ));
 
   log('info', 'payment notification handled', {
     provider: provider.name,

@@ -4,13 +4,15 @@ import {
 import type { StatusTone } from '@propertyos/ui';
 import {
   billerForInvoice, customerSubscriptionInvoices, formatMinor, formatMoney,
-  invoicePaymentAttempts, listPlans, type PaymentAttempt,
+  invoicePaymentAttempts, liveMandate, listPlans, minorToMajorInput,
+  organisationMandates, type PaymentAttempt, type SubscriptionMandate,
 } from '@propertyos/domain';
 import Link from 'next/link';
 import { BackLink } from '@/components/back-link';
 import { SectionIcon } from '@/components/icons';
 import { resolvePaymentProvider } from '@propertyos/integrations';
 import { readAs, requireOperator } from '@/lib/auth';
+import { MandatePanel, type MandateView } from './mandate-forms';
 import { PayInvoice } from './pay-forms';
 import { formatDate } from '@/lib/format';
 
@@ -31,6 +33,28 @@ const STATUS: Record<string, { tone: StatusTone; glyph: string; label: string }>
  * know what they are on, what they have been charged, what is still owing, and
  * where to pay it.
  */
+/**
+ * What the panel is given: a formatted amount and four digits, never the
+ * account number, which is sealed and is not read on this page at all.
+ */
+function toMandateView(mandate: SubscriptionMandate): MandateView {
+  return {
+    id: mandate.id,
+    reference: mandate.reference,
+    status: mandate.status,
+    authorisedAmount: formatMoney(mandate.authorisedAmountMinor, mandate.currencyCode),
+    collectionDay: mandate.collectionDay,
+    firstCollectionOn: mandate.firstCollectionOn,
+    bankName: mandate.bankName,
+    accountNumberLast4: mandate.accountNumberLast4,
+    accountType: mandate.accountType,
+    authenticatedAt: mandate.authenticatedAt,
+    rejectionReason: mandate.rejectionReason,
+    cancellationReason: mandate.cancellationReason,
+    cancelledByPayer: mandate.cancelledByPayer,
+  };
+}
+
 export default async function SubscriptionPage({
   params,
 }: {
@@ -44,6 +68,11 @@ export default async function SubscriptionPage({
     await customerSubscriptionInvoices(tx, context.organisationId),
     await billerForInvoice(tx),
     await listPlans(tx),
+  ] as const);
+
+  const [mandate, mandateHistory] = await readAs(context.viewer, async (tx) => [
+    await liveMandate(tx, context.organisationId),
+    await organisationMandates(tx, context.organisationId),
   ] as const);
 
   // Only for the invoices somebody could still pay: an attempt against a
@@ -71,6 +100,18 @@ export default async function SubscriptionPage({
       <PageHeader
         title="Your Spike subscription"
         description="What you are on, what you have been charged, and what is still owing."
+      />
+
+      <MandatePanel
+        slug={org}
+        organisationId={context.organisationId}
+        live={mandate ? toMandateView(mandate) : null}
+        history={mandateHistory.map(toMandateView)}
+        providerAvailable={provider.available}
+        providerReason={provider.unavailableReason}
+        suggestedAmount={minorToMajorInput(
+          latest ? Math.round(Number(latest.totalMinor) * 1.5) : 100_000,
+        )}
       />
 
       {invoices.length === 0 ? (

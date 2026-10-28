@@ -315,3 +315,14 @@ export async function clearPaymentTestData(): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/** Mandates an e2e run created, and the events behind them. */
+export async function clearMandates(slug: string): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [org] = await sql<{ id: string }[]>`select id from organisations where slug = ${slug}`;
+    if (org) await sql`delete from subscription_mandates where organisation_id = ${org.id}`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}

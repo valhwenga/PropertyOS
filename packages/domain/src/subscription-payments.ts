@@ -4,6 +4,7 @@ import type { Sql } from '@propertyos/db';
 import { recordAudit } from './audit';
 import { DomainError, forbidden, invalid, notFound, parsed } from './errors';
 import { requirePermission } from './permissions';
+import { markEventProcessed, recordUnverifiedEvent, recordVerifiedEvent } from './provider-events';
 
 /**
  * Paying one of Spike's invoices.
@@ -209,30 +210,17 @@ export async function ingestProviderEvent(
   // An event that could not be verified has no trustworthy id, so it is
   // recorded under one of ours and changes nothing.
   if (!params.signatureVerified || !params.event) {
-    await tx`
-      insert into webhook_events (
-        provider, provider_event_id, event_type, signature_verified, payload,
-        processed_at, processing_result
-      ) values (
-        ${params.provider}, ${`unverified-${randomBytes(8).toString('hex')}`},
-        'unverified', false, ${JSON.stringify(params.payload)}::jsonb,
-        now(), 'refused: signature could not be verified'
-      )
-    `;
+    await recordUnverifiedEvent(tx, { provider: params.provider, payload: params.payload });
     return { outcome: 'unverified' };
   }
 
   const event = params.event;
-  const [stored] = await tx<{ id: string }[]>`
-    insert into webhook_events (
-      provider, provider_event_id, event_type, signature_verified, payload
-    ) values (
-      ${params.provider}, ${event.providerEventId}, ${event.eventType}, true,
-      ${JSON.stringify(params.payload)}::jsonb
-    )
-    on conflict (provider, provider_event_id) do nothing
-    returning id::text
-  `;
+  const stored = await recordVerifiedEvent(tx, {
+    provider: params.provider,
+    providerEventId: event.providerEventId,
+    eventType: event.eventType,
+    payload: params.payload,
+  });
   if (!stored) return { outcome: 'duplicate', reference: event.reference };
 
   const [attempt] = await tx<{
@@ -245,23 +233,19 @@ export async function ingestProviderEvent(
      for update
   `;
   if (!attempt) {
-    await tx`
-      update webhook_events
-         set processed_at = now(),
-             processing_result = ${`no attempt with reference ${event.reference}`}
-       where id = ${stored.id}::uuid
-    `;
+    await markEventProcessed(tx, {
+      eventId: stored.eventId,
+      result: `no attempt with reference ${event.reference}`,
+    });
     return { outcome: 'unknown_reference', reference: event.reference };
   }
 
   // Already settled by an earlier event: a provider that sends `confirmed`
   // twice under two event ids must not produce two payments.
   if (attempt.status === 'confirmed') {
-    await tx`
-      update webhook_events set processed_at = now(),
-             processing_result = 'attempt already confirmed'
-       where id = ${stored.id}::uuid
-    `;
+    await markEventProcessed(tx, {
+      eventId: stored.eventId, result: 'attempt already confirmed',
+    });
     return {
       outcome: 'recorded', reference: event.reference, status: 'confirmed',
       invoiceSettled: true,
@@ -278,7 +262,7 @@ export async function ingestProviderEvent(
              provider_reference = ${event.providerReference},
              amount_confirmed_minor = ${paid},
              fee_minor = ${event.feeMinor}, net_minor = ${event.netMinor},
-             webhook_event_id = ${stored.id}::uuid
+             webhook_event_id = ${stored.eventId}::uuid
        where id = ${attempt.id}::uuid
     `;
 
@@ -322,12 +306,10 @@ export async function ingestProviderEvent(
     `;
   }
 
-  await tx`
-    update webhook_events
-       set processed_at = now(),
-           processing_result = ${`attempt ${event.reference} -> ${event.status}`}
-     where id = ${stored.id}::uuid
-  `;
+  await markEventProcessed(tx, {
+    eventId: stored.eventId,
+    result: `attempt ${event.reference} -> ${event.status}`,
+  });
 
   await recordAudit(tx, {
     organisationId: attempt.organisation_id,

@@ -1,7 +1,10 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { startPayment } from '@propertyos/domain';
+import { revalidatePath } from 'next/cache';
+import {
+  cancelMandate, parseMajorToMinor, requestMandate, startPayment,
+} from '@propertyos/domain';
 import { resolvePaymentProvider } from '@propertyos/integrations';
 import { command } from '@/lib/actions';
 import { log } from '@/lib/logger';
@@ -70,4 +73,100 @@ export async function payInvoiceAction(_previous: unknown, formData: FormData) {
 
   // A provider that wants a form POST: the page renders and submits it.
   return { ok: true as const, url: checkout.url, fields: checkout.fields };
+}
+
+/**
+ * Asking the payer's bank to authorise a standing collection.
+ *
+ * Two steps, like starting a payment and for the same reason: the mandate row
+ * is committed before the payer leaves, so the reference the provider echoes
+ * back is one this product has heard of.
+ *
+ * What it does not do is authorise anything. The row is `requested` until the
+ * payer's bank says otherwise, and nothing here can write a different status.
+ */
+export async function requestMandateAction(_previous: unknown, formData: FormData) {
+  const provider = resolvePaymentProvider();
+  if (!provider.available) {
+    return {
+      ok: false as const,
+      message: `Debit order collection is not available: ${provider.unavailableReason}`,
+    };
+  }
+
+  const text = (key: string) => String(formData.get(key) ?? '').trim();
+  const amountMinor = parseMajorToMinor(text('authorisedAmount'));
+  if (amountMinor === null || amountMinor <= 0) {
+    return { ok: false as const, message: 'Give the most that may be collected, as an amount.' };
+  }
+
+  const accountNumber = text('accountNumber');
+  const requested = await command(({ tx, viewer }) =>
+    requestMandate(tx, viewer.authUserId, {
+      organisationId: String(formData.get('organisationId') ?? ''),
+      provider: provider.name,
+      authorisedAmountMinor: Number(amountMinor),
+      currencyCode: text('currencyCode') || 'ZAR',
+      collectionDay: Number(text('collectionDay') || '1'),
+      firstCollectionOn: text('firstCollectionOn'),
+      accountHolder: text('accountHolder'),
+      bankName: text('bankName'),
+      branchCode: text('branchCode'),
+      accountType: text('accountType') as 'cheque' | 'savings' | 'transmission',
+      accountNumber,
+    }));
+  if (!requested.ok) return requested;
+
+  const { reference } = requested as unknown as { reference: string };
+  const base = process.env.APP_BASE_URL ?? 'http://localhost:3000';
+
+  let checkout;
+  try {
+    checkout = await provider.mandateCheckout({
+      reference,
+      authorisedAmountMinor: Number(amountMinor),
+      currencyCode: text('currencyCode') || 'ZAR',
+      collectionDay: Number(text('collectionDay') || '1'),
+      firstCollectionOn: text('firstCollectionOn'),
+      accountHolder: text('accountHolder'),
+      bankName: text('bankName'),
+      branchCode: text('branchCode'),
+      accountType: text('accountType') as 'cheque' | 'savings' | 'transmission',
+      accountNumber,
+      returnUrl: `${base}/pay/mandate/${reference}`,
+      notifyUrl: `${base}/api/payments/${provider.name}/notify`,
+    });
+  } catch (error) {
+    log('error', 'mandate authorisation could not be opened', {
+      provider: provider.name,
+      message: error instanceof Error ? error.message : 'unknown',
+    });
+    return {
+      ok: false as const,
+      message: 'The authorisation page could not be opened. The mandate is saved and waiting; '
+        + 'nothing has been authorised.',
+    };
+  }
+
+  if (checkout.method === 'GET') redirect(checkout.url);
+  return { ok: true as const, url: checkout.url, fields: checkout.fields };
+}
+
+/**
+ * The payer withdrawing their authority.
+ *
+ * Privileged, because `subscription_mandates` has no UPDATE policy for the
+ * application role at all — an authorisation record is not editable by the
+ * role that serves web requests. The caller's identity is still on the
+ * transaction, so `cancelMandate`'s own permission check in SQL is a real one.
+ */
+export async function cancelMandateAction(_previous: unknown, formData: FormData) {
+  const slug = String(formData.get('slug') ?? '');
+  const result = await command(({ tx, viewer }) =>
+    cancelMandate(tx, viewer.authUserId, {
+      mandateId: String(formData.get('mandateId') ?? ''),
+      reason: String(formData.get('reason') ?? ''),
+    }).then(() => ({})), { privileged: true });
+  if (result.ok) revalidatePath(`/app/${slug}/settings/subscription`);
+  return result;
 }

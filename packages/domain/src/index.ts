@@ -67,3 +67,5 @@ export * from './offboarding';
 export * from './account-recovery';
 export * from './alerts';
 export * from './subscription-payments';
+export * from './provider-events';
+export * from './subscription-mandates';
