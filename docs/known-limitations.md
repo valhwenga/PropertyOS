@@ -34,6 +34,7 @@ residents until those are done.
 | Supabase Storage | **Implemented, not run against a real bucket** | Upload, read, signed-URL and delete against a private bucket, using the service role key server-side only. The local filesystem adapter is fully exercised end to end (15 HTTP checks). The Supabase path has never run against a live project. |
 | Bank CSV import UI | **Built** (was wrongly listed here as not built) | Preview before commit, overlapping statements, suggested payers that stay suggestions, and lines set aside with a reason. Duplicate protection is enforced at database level and covered by tests. |
 | Content Security Policy | Permits `'unsafe-inline'` for scripts | Required by Next's inline hydration bootstrap. Tightening to a nonce-based policy is outstanding. |
+| Spike's own payment collection | **Built, sandbox provider only** | `recordSubscriptionPayment` is still there and still honest — an operator reading Spike's bank statement — but a customer can now pay an issued invoice from their subscription settings. An attempt is a record, not a result: `confirmed` requires a `webhook_event_id` whose signature was verified, enforced by a check constraint and a trigger, and there is no UPDATE policy on the attempts table for the application role at all, so nothing the browser touches can settle an invoice. The return page reports the recorded state and never congratulates somebody for arriving. Short payments record what arrived and leave the invoice issued. **Limit: the only working adapter is the sandbox**, which signs and verifies its own notifications so the whole path is exercised locally; `SUBSCRIPTION_PAYMENT_PROVIDER=payfast` resolves to an adapter that refuses, and the worker's preflight refuses to start. See `docs/decisions/0031-spike-can-be-paid.md`. |
 | Rent payment provider | **Deliberately disabled** | See `docs/decisions/0004-money-flow.md`. Not to be enabled before merchant ownership and settlement are confirmed in writing. |
 | Contractor portal | Schema and assignment model only | Phase 2 per the blueprint. Contractor-visible comments and attachments are already separated in the data model and enforced by RLS, ready for that portal. |
 | Document upload UI | **Built for operators** | Upload with validation, scanning and quarantine; share control; authorised download. The resident photo attachment on a maintenance request is still not built. |
@@ -226,6 +227,21 @@ way that fails safe until someone with the relevant authority decides.
   alerting raises. Giving those events real recipients and a template renderer
   is outstanding work, and it is what "undelivered notifications" means on the
   console.
+* **Spike still cannot collect money by itself.** What exists is a customer
+  paying an invoice they were sent, once, by pressing a button. There is no
+  stored card, no tokenised recurring charge and no debit-order mandate — which
+  for a South African subscription business is probably the shape that matters,
+  and brings DebiCheck with it. There is no dunning, nothing ends a trial, a
+  plan changed mid-period is billed as though it changed at the start, and
+  refunds are reversed at the provider and recorded here by hand. The
+  overdue-invoice alert is the whole of the chasing, and it tells Spike rather
+  than the customer.
+* **The Payfast adapter is not written.** Its signature rule, ITN field names
+  and validation callback have to come from the official specification; this
+  environment's network policy denies `developers.payfast.co.za` and
+  `payfast.io`, and a signature written from memory fails silently in both
+  directions. The seam, the state machine and the notification endpoint are
+  provider-independent, so it is one adapter rather than a redesign.
 * **Nothing in offboarding happens on its own.** No reminder when a retention
   date approaches, no list of accounts past theirs on the platform home page,
   and no notification to a closed customer — the page they are sent to tells

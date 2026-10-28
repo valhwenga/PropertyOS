@@ -435,6 +435,13 @@ DEFAULT_COUNTRY=ZA
 DEFAULT_CURRENCY=ZAR
 DEFAULT_TIME_ZONE=Africa/Johannesburg
 
+# Spike's OWN collection, through the sandbox provider: signed notifications
+# this product verifies itself, so the whole path from Pay to a settled invoice
+# runs locally with no merchant account. ADR 0004 keeps this separate from rent,
+# which stays off below.
+SUBSCRIPTION_PAYMENT_PROVIDER=sandbox
+PAYMENT_SANDBOX_SECRET=preview-sandbox-payment-secret-not-a-real-one-and-long-enough
+
 # Rent payment providers stay off until merchant ownership and settlement are
 # confirmed. See docs/known-limitations.md.
 RENT_PAYMENT_PROVIDER_ENABLED=false

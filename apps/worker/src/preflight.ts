@@ -31,6 +31,7 @@ import {
   pingClamAv,
   resolveAuthProviderName,
   resolveEmailAdapter,
+  resolvePaymentProvider,
   resolveStorageAdapter,
   supabaseAuthConfig,
   verifySmtpConnection,
@@ -366,6 +367,34 @@ function checkApplication(): void {
     );
   } else {
     record('pass', 'rent payment provider', 'disabled, as it must be until merchant ownership is confirmed');
+  }
+
+  // Spike's OWN collection, which ADR 0004 keeps as a separate money flow and
+  // does not prohibit. The failure mode worth refusing to start over: a
+  // deployment configured to take payments through an adapter that is not
+  // implemented would show customers a Pay button that cannot work.
+  const payments = resolvePaymentProvider();
+  if (payments.name === 'none') {
+    record(
+      'info',
+      'subscription payments',
+      "no provider: Spike's invoices are settled by hand from its bank statement",
+    );
+  } else if (!payments.available) {
+    record(
+      'fail',
+      'SUBSCRIPTION_PAYMENT_PROVIDER',
+      `${payments.name}, which cannot be used: ${payments.unavailableReason}`,
+    );
+  } else if (payments.name === 'sandbox') {
+    record(
+      'gap',
+      'subscription payments',
+      'SANDBOX provider. Notifications are signed and verified by this product itself and '
+        + 'no money moves. Never use this with real customers.',
+    );
+  } else {
+    record('pass', 'subscription payments', `${payments.name}`);
   }
 }
 

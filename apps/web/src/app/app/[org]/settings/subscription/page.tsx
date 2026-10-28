@@ -3,12 +3,15 @@ import {
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
 import {
-  billerForInvoice, customerSubscriptionInvoices, formatMinor, formatMoney, listPlans,
+  billerForInvoice, customerSubscriptionInvoices, formatMinor, formatMoney,
+  invoicePaymentAttempts, listPlans, type PaymentAttempt,
 } from '@propertyos/domain';
 import Link from 'next/link';
 import { BackLink } from '@/components/back-link';
 import { SectionIcon } from '@/components/icons';
+import { resolvePaymentProvider } from '@propertyos/integrations';
 import { readAs, requireOperator } from '@/lib/auth';
+import { PayInvoice } from './pay-forms';
 import { formatDate } from '@/lib/format';
 
 export const metadata = { title: 'Your Spike subscription' };
@@ -36,11 +39,23 @@ export default async function SubscriptionPage({
   const { org } = await params;
   const context = await requireOperator(org);
 
+  const provider = resolvePaymentProvider();
   const [invoices, biller, plans] = await readAs(context.viewer, async (tx) => [
     await customerSubscriptionInvoices(tx, context.organisationId),
     await billerForInvoice(tx),
     await listPlans(tx),
   ] as const);
+
+  // Only for the invoices somebody could still pay: an attempt against a
+  // settled invoice is history, and the PDF is the record of that.
+  const payable = invoices.filter((i) => i.status === 'issued');
+  const attempts = await readAs(context.viewer, async (tx) => {
+    const byInvoice = new Map<string, PaymentAttempt[]>();
+    for (const invoice of payable) {
+      byInvoice.set(invoice.id, await invoicePaymentAttempts(tx, invoice.id));
+    }
+    return byInvoice;
+  });
 
   const latest = invoices.find((i) => i.status !== 'void') ?? null;
   const plan = plans.find((p) => p.key === latest?.planKey) ?? null;
@@ -137,7 +152,7 @@ export default async function SubscriptionPage({
             </h2>
             <div className="space-y-3">
               {invoices.map((i) => (
-                <Card key={i.id} className="p-4">
+                <Card key={i.id} className="p-4" data-invoice={i.invoiceNumber}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <div>
                       <p className="text-sm font-semibold text-ink-900">
@@ -171,6 +186,24 @@ export default async function SubscriptionPage({
                       </Link>
                     </div>
                   </div>
+
+                  {i.status === 'issued' ? (
+                    <div className="mt-3 border-t border-ink-100 pt-3">
+                      <PayInvoice
+                        invoiceId={i.id}
+                        outstanding={formatMoney(
+                          i.totalMinor - (i.paidMinor ?? 0), i.currencyCode,
+                        )}
+                        attempts={(attempts.get(i.id) ?? []).map((a: PaymentAttempt) => ({
+                          reference: a.reference, provider: a.provider, status: a.status,
+                          createdAt: a.createdAt, amountMinor: a.amountMinor,
+                          failureReason: a.failureReason,
+                        }))}
+                        providerAvailable={provider.available}
+                        providerReason={provider.unavailableReason}
+                      />
+                    </div>
+                  ) : null}
 
                   <DataTable
                     caption={`What ${i.invoiceNumber} charged`}

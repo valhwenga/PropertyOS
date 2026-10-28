@@ -4,7 +4,7 @@ import {
 } from '@propertyos/ui';
 import type { StatusTone } from '@propertyos/ui';
 import {
-  formatMinor, formatMoney, listSubscriptionInvoices, minorToMajorInput,
+  formatMinor, formatMoney, listSubscriptionInvoices, minorToMajorInput, openPaymentAttempts,
   platformBillingSettings,
 } from '@propertyos/domain';
 import { BackLink } from '@/components/back-link';
@@ -31,9 +31,13 @@ function lastMonthStart(today: Date): string {
 
 export default async function PlatformBillingPage() {
   const viewer = await requireViewer();
-  const [settings, invoices] = await readAs(viewer, async (tx) => [
+  const [settings, invoices, pendingAttempts] = await readAs(viewer, async (tx) => [
     await platformBillingSettings(tx, viewer.authUserId),
     await listSubscriptionInvoices(tx, viewer.authUserId),
+    // So that an operator about to record a bank transfer can see that the
+    // customer has a card payment in flight. Recording both is how a customer
+    // gets credited twice.
+    await openPaymentAttempts(tx),
   ] as const);
 
   const today = new Date();
@@ -193,6 +197,12 @@ export default async function PlatformBillingPage() {
                     ) : null}
                     {i.voidReason ? (
                       <span className="mt-0.5 block text-xs text-ink-400">{i.voidReason}</span>
+                    ) : null}
+                    {pendingAttempts.get(i.id) ? (
+                      <span className="mt-0.5 block text-xs text-info-700">
+                        payment in flight · {pendingAttempts.get(i.id)!.provider} ·{' '}
+                        <span className="tabular">{pendingAttempts.get(i.id)!.reference}</span>
+                      </span>
                     ) : null}
                   </Td>
                   <Td>

@@ -263,3 +263,55 @@ export async function clearAlertState(): Promise<void> {
     await sql.end({ timeout: 5 });
   }
 }
+
+/**
+ * One issued subscription invoice for a demo customer, and nothing else.
+ *
+ * The browser test for paying needs something to pay. Billing runs are
+ * month-keyed and one per period, so this uses a period far enough back that
+ * it cannot collide with a run somebody did in the preview.
+ */
+export async function seedPayableInvoice(
+  slug: string, totalMinor = 115_000,
+): Promise<{ invoiceNumber: string }> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [org] = await sql<{ id: string }[]>`select id from organisations where slug = ${slug}`;
+    if (!org) throw new Error(`no organisation with slug ${slug} in the preview database`);
+    const invoiceNumber = `SPK-E2E-${Date.now().toString(36).toUpperCase()}`;
+    await sql`
+      insert into subscription_invoices (
+        organisation_id, invoice_number, period_start, period_end, issue_date, due_date,
+        currency_code, plan_key, plan_name, included_units, billable_units, units_over,
+        subtotal_minor, vat_rate_bp, vat_minor, total_minor, status
+      ) values (
+        ${org.id}, ${invoiceNumber},
+        (date_trunc('month', current_date) - interval '11 months')::date,
+        (date_trunc('month', current_date) - interval '10 months 1 day')::date,
+        current_date, current_date + 14, 'ZAR', 'starter', 'Starter', 10, 1, 0,
+        ${Math.round(totalMinor / 1.15)}, 1500,
+        ${totalMinor - Math.round(totalMinor / 1.15)}, ${totalMinor}, 'issued'
+      )
+    `;
+    return { invoiceNumber };
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/** The invoices and payment attempts an e2e run created. */
+export async function clearPaymentTestData(): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`
+      delete from subscription_payment_attempts
+      where invoice_id in (
+        select id from subscription_invoices where invoice_number like 'SPK-E2E-%'
+      )
+    `;
+    await sql`delete from subscription_invoices where invoice_number like 'SPK-E2E-%'`;
+    await sql`delete from webhook_events where provider = 'sandbox'`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
