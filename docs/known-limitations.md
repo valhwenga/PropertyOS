@@ -201,6 +201,21 @@ way that fails safe until someone with the relevant authority decides.
   debit order all exist now (ADRs 0031–0034); proration is the one still
   missing from how Spike is paid, along with any way to contact a customer from
   the console.
+* **A municipal bill is typed, not imported.** The monthly capture (ADR 0038)
+  puts every live tenancy on one screen with last month's reading already in
+  the box, and works the amount out from the meter and the tariff — but
+  somebody still reads the municipal statement and types. Parsing those
+  statements is a bigger piece of work whose first bug would be somebody's
+  water bill.
+* **There is no tariff table and no bulk-meter split.** The rate is typed on
+  each line; a block with one municipal meter and twelve tenants is twelve
+  typed lines, because the apportionment rule is the landlord's and this
+  product does not hold one.
+* **Rent and utilities are separate invoices.** The run groups a tenancy's
+  captured charges into one utility invoice, so a tenant goes from one document
+  per charge to two: rent, and the month's recoveries. Collapsing them needs a
+  different double-billing guarantee than the per-schedule unique index in
+  place, which is not worth inventing while the money is real.
 * **Idempotency covers the commands that create records, not every command.**
   Recording a receipt or a deposit, drafting an expense, and a resident's proof
   of payment or maintenance request are each protected by a per-form key. The

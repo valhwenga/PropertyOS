@@ -125,6 +125,47 @@ export default async function BillingPage({
         </Card>
       </div>
 
+      {preview.captured.length > 0 ? (
+        <section aria-labelledby="captured" className="space-y-2">
+          <h2 id="captured" className="text-sm font-semibold uppercase tracking-wide text-ink-500">
+            Captured for this month
+          </h2>
+          <p className="text-sm text-ink-500">
+            Typed rather than derived from a schedule — water readings, refuse, one-off
+            recoveries. Posting the run turns each tenancy&rsquo;s lines into one invoice.{' '}
+            <Link
+              href={`/app/${org}/billing/capture?period=${preview.periodStart.slice(0, 7)}`}
+              className="font-medium text-spike-600 underline underline-offset-2"
+            >
+              Capture more
+            </Link>
+            .
+          </p>
+          <Card className="divide-y divide-ink-100 p-0">
+            {preview.captured.map((line) => (
+              <div
+                key={line.pendingChargeId}
+                className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm text-ink-900">
+                    <span className="font-medium">{line.unitLabel}</span>
+                    <span className="ml-2 text-ink-500">{line.description}</span>
+                  </p>
+                  <p className="text-xs text-ink-500">
+                    {line.quantity !== null && line.unit ? `${line.quantity} ${line.unit} · ` : ''}
+                    due {formatDate(line.dueDate, context.timeZone)}
+                  </p>
+                </div>
+                <span className="tabular text-sm font-medium text-ink-900">
+                  <Money minor={line.amountMinor} currency={preview.currencyCode} />
+                </span>
+              </div>
+            ))}
+          </Card>
+        </section>
+      ) : null}
+
       {preview.exceptions.length > 0 ? (
         <section aria-labelledby="exceptions" className="space-y-2">
           <h2 id="exceptions" className="text-sm font-semibold uppercase tracking-wide text-ink-500">

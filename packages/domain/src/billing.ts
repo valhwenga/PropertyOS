@@ -40,15 +40,38 @@ export interface BillingException {
   message: string;
 }
 
+export interface CapturedPreviewLine {
+  pendingChargeId: string;
+  leaseId: string;
+  leaseReference: string;
+  unitLabel: string;
+  category: string;
+  description: string;
+  amountMinor: Minor;
+  quantity: number | null;
+  unit: string | null;
+  dueDate: string;
+}
+
 export interface BillingPreview {
   periodStart: string;
   periodEnd: string;
   currencyCode: string;
   lines: BillingPreviewLine[];
+  /**
+   * The month's utilities and other one-off charges, typed rather than
+   * derived from a schedule. They become ONE invoice per lease when the run
+   * posts, so a tenant with water, sewerage and refuse gets one document
+   * instead of three.
+   */
+  captured: CapturedPreviewLine[];
   exceptions: BillingException[];
   totalMinor: Minor;
   billableLineCount: number;
   skippedLineCount: number;
+  /** What the captured lines add, kept separate so the rent total still reads
+   *  as the rent total. */
+  capturedTotalMinor: Minor;
 }
 
 function lastDayOfMonth(year: number, month1: number): number {
@@ -238,14 +261,58 @@ export async function previewBillingRun(
     });
   }
 
+  // What somebody typed for this month and has not billed yet: the water
+  // readings, the refuse, the one-off recoveries. Read here rather than in a
+  // separate screen's query, so the preview an operator approves is the whole
+  // month rather than the half of it a schedule knows about.
+  const capturedRows = await tx<{
+    id: string; lease_id: string; reference: string; property_name: string; unit_code: string;
+    category: string; description: string; amount_minor: string; quantity: string | null;
+    unit: string | null; due_day: number | null;
+  }[]>`
+    select pc.id::text, pc.lease_id::text, l.reference, p.name as property_name,
+           u.code as unit_code, pc.category, pc.description, pc.amount_minor::text,
+           pc.quantity::text, pc.unit,
+           (select cs.due_day from charge_schedules cs
+             where cs.lease_id = pc.lease_id and cs.is_active and cs.category = 'rent'
+             limit 1) as due_day
+      from pending_charges pc
+      join leases l on l.id = pc.lease_id
+      join units u on u.id = l.unit_id
+      join properties p on p.id = l.property_id
+     where pc.organisation_id = ${organisationId}::uuid
+       and pc.period_start = ${p.periodStart}::date
+       and pc.posted_at is null
+       ${p.propertyIds?.length ? tx`and l.property_id = any(${p.propertyIds}::uuid[])` : tx``}
+     order by p.name, u.code, pc.category
+  `;
+
+  const captured: CapturedPreviewLine[] = capturedRows.map((r) => ({
+    pendingChargeId: r.id,
+    leaseId: r.lease_id,
+    leaseReference: r.reference,
+    unitLabel: `${r.property_name} / ${r.unit_code}`,
+    category: r.category,
+    description: r.description,
+    amountMinor: BigInt(r.amount_minor),
+    quantity: r.quantity === null ? null : Number(r.quantity),
+    unit: r.unit,
+    // The same day the rent falls due, where the lease has one: a tenant
+    // paying on the first should not have water due on the seventh.
+    dueDate: resolveDueDate(p.periodStart, r.due_day ?? 1),
+  }));
+
   const billable = lines.filter((l) => !l.alreadyBilled);
+  const capturedTotal = sumMinor(captured.map((c) => c.amountMinor));
   return {
     periodStart: p.periodStart,
     periodEnd,
     currencyCode: book.currency_code,
     lines,
+    captured,
     exceptions,
-    totalMinor: sumMinor(billable.map((l) => l.amountMinor)),
+    totalMinor: sumMinor(billable.map((l) => l.amountMinor)) + capturedTotal,
+    capturedTotalMinor: capturedTotal,
     billableLineCount: billable.length,
     skippedLineCount: lines.length - billable.length,
   };
@@ -417,6 +484,61 @@ export async function postBillingRun(
           throw error;
         }
       }
+    }
+
+    // The month's typed charges, grouped so that a tenant with water, sewerage
+    // and refuse receives ONE utility invoice rather than three. Posted after
+    // the schedules, so a failure here cannot leave rent half-billed, and
+    // inside the same transaction, so a failure anywhere takes the lot back.
+    const capturedByLease = new Map<string, typeof preview.captured>();
+    for (const line of preview.captured) {
+      const list = capturedByLease.get(line.leaseId) ?? [];
+      list.push(line);
+      capturedByLease.set(line.leaseId, list);
+    }
+
+    for (const [leaseId, capturedLines] of capturedByLease) {
+      const result = await postCharge(tx, organisationId, actorUserId, {
+        leaseId,
+        // Utilities where every line is a utility, and the neutral debit where
+        // the month also carried a parking bay or an admin fee: the document
+        // type has to be true of the whole document, not of its first line.
+        documentType: capturedLines.every((l) => l.category.startsWith('utility_'))
+          ? 'utility_invoice'
+          : 'adjustment_debit',
+        issueDate: params.issueDate,
+        dueDate: capturedLines[0]!.dueDate,
+        periodStart: preview.periodStart,
+        periodEnd: preview.periodEnd,
+        billingRunId: params.runId,
+        correlationId: params.correlationId,
+        lines: capturedLines.map((line) => ({
+          category: line.category,
+          description: line.quantity !== null && line.unit
+            ? `${line.description} (${line.quantity} ${line.unit})`
+            : line.description,
+          amountMinor: line.amountMinor,
+          dueDate: line.dueDate,
+          servicePeriodStart: preview.periodStart,
+          servicePeriodEnd: preview.periodEnd,
+        })),
+      });
+
+      // The captured rows become history, pointing at the document they
+      // became. A trigger stops them being edited or deleted from here on:
+      // the invoice is the record, and the correction for it is a credit note.
+      await tx`
+        update pending_charges
+           set posted_at = now(), billing_run_id = ${params.runId}::uuid,
+               charge_document_id = ${result.documentId}::uuid
+         where id = any(${capturedLines.map((l) => l.pendingChargeId)}::uuid[])
+           and organisation_id = ${organisationId}::uuid
+           and posted_at is null
+      `;
+
+      documentIds.push(result.documentId);
+      total += result.totalMinor;
+      posted += capturedLines.length;
     }
 
     await tx`
