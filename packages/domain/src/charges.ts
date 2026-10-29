@@ -195,6 +195,10 @@ export async function postCharge(
           amount_minor: l.amountMinor.toString(),
           currency_code: lease.currency_code,
           income_account_id: accounts.get(incomeRoleFor(l.category))!,
+          // Which schedule produced this line. The DOCUMENT used to carry it
+          // and cannot any more: one document now carries lines from several
+          // schedules, and the thing that was billed is the line (0090).
+          schedule_id: l.scheduleId ?? input.scheduleId ?? null,
           prorated: l.prorated,
           proration_numerator: l.prorationNumerator ?? null,
           proration_denominator: l.prorationDenominator ?? null,

@@ -58,6 +58,10 @@ twice. Collapsing rent and utilities onto a single document needs a different
 guarantee than the one in place, and inventing one while the money is real is
 not worth the saving of one PDF.
 
+> *Superseded the same day by 0039, which replaced that guarantee properly:
+> the crash guard is now keyed on (lease, period, run) and the per-schedule
+> provenance moved down to the line. A run raises one document per tenancy.*
+
 ### Nothing new is needed to send them
 
 `invoice_deliveries` has had `ready → queued → sent` and a *Send all N ready
@@ -82,6 +86,7 @@ is exactly the drift that test exists to stop.
 ## What this does not do
 
 **It does not bill rent and utilities on one document**, for the reason above.
+*(0039 does.)*
 
 **It does not import a municipal bill.** Every figure is typed. Reading a
 municipal statement — a PDF per property, with its own account numbers and its

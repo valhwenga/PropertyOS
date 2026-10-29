@@ -154,9 +154,14 @@ export async function previewBillingRun(
         * daterange(l.start_date, l.end_date, '[]')
       ) - 1)::text as overlap_end,
       l.start_date::text as lease_start, l.end_date::text as lease_end,
+      -- Asked of the LINE rather than the document, because a document now
+      -- carries lines from several schedules and can no longer name one
+      -- (0090). Same question as before: has this schedule already been
+      -- billed for this period?
       exists (
-        select 1 from charge_documents cd
-        where cd.schedule_id = cs.id
+        select 1 from charge_lines cl
+        join charge_documents cd on cd.id = cl.document_id
+        where cl.schedule_id = cs.id
           and cd.period_start = ${p.periodStart}::date
           and cd.status <> 'draft'
       ) as already_billed
@@ -351,11 +356,14 @@ export async function saveBillingPreview(
 /**
  * Posts an approved billing run.
  *
- * Safe to retry. Duplicate protection is enforced by the unique index on
- * (schedule_id, period_start, document_type) for non-draft documents, so a
- * worker that crashes mid-run and retries produces exactly one charge per
- * schedule and period — never two — and the second attempt reports the
- * already-posted lines as skipped rather than failing the whole run.
+ * Safe to retry. Duplicate protection is the unique index on
+ * (lease_id, period_start, billing_run_id) for non-draft documents, so a
+ * worker that crashes mid-run and retries produces exactly one document per
+ * lease and period — never two — and the second attempt reports those lines
+ * as skipped rather than failing the whole run. A LATER run for the same
+ * period can still raise what the first one did not, which is what somebody
+ * who forgot the water readings needs; what stops it re-billing the rent is
+ * the per-schedule check on the lines (0090).
  */
 export async function postBillingRun(
   tx: Sql,
@@ -428,68 +436,13 @@ export async function postBillingRun(
   let total = 0n;
 
   try {
-    for (const [leaseId, leaseLines] of byLease) {
-      // One document per lease per schedule, so the duplicate key applies per line.
-      for (const line of leaseLines) {
-        try {
-          const result = await postCharge(tx, organisationId, actorUserId, {
-            leaseId,
-            // The document follows what is being charged. Everything that is
-            // neither rent nor a utility — a parking bay, a levy, insurance —
-            // is a debit raised on the account, and was being labelled a
-            // utility invoice because those were the only two options.
-            documentType: line.category === 'rent'
-              ? 'rent_invoice'
-              : line.category.startsWith('utility_')
-                ? 'utility_invoice'
-                : 'adjustment_debit',
-            issueDate: params.issueDate,
-            dueDate: line.dueDate,
-            periodStart: preview.periodStart,
-            periodEnd: preview.periodEnd,
-            scheduleId: line.scheduleId,
-            billingRunId: params.runId,
-            correlationId: params.correlationId,
-            lines: [
-              {
-                // The schedule's own category, not a guess from it. This used
-                // to collapse everything but rent to "other", so a water
-                // recovery and a parking bay reached a tenant's invoice under
-                // the same meaningless word — and the income account they
-                // credited was decided by that word.
-                category: line.category,
-                description: line.prorated
-                  ? `${line.description} (${line.prorationNumerator}/${line.prorationDenominator} days)`
-                  : line.description,
-                amountMinor: line.amountMinor,
-                dueDate: line.dueDate,
-                servicePeriodStart: line.servicePeriodStart,
-                servicePeriodEnd: line.servicePeriodEnd,
-                prorated: line.prorated,
-                prorationNumerator: line.prorationNumerator,
-                prorationDenominator: line.prorationDenominator,
-                fullPeriodAmountMinor: line.fullAmountMinor,
-              },
-            ],
-          });
-          documentIds.push(result.documentId);
-          total += result.totalMinor;
-          posted += 1;
-        } catch (error) {
-          // The duplicate key is the safety net doing its job, not a failure.
-          if (error instanceof DomainError && error.code === 'duplicate') {
-            skipped += 1;
-            continue;
-          }
-          throw error;
-        }
-      }
-    }
-
-    // The month's typed charges, grouped so that a tenant with water, sewerage
-    // and refuse receives ONE utility invoice rather than three. Posted after
-    // the schedules, so a failure here cannot leave rent half-billed, and
-    // inside the same transaction, so a failure anywhere takes the lot back.
+    // One document per lease, carrying everything that lease owes for the
+    // month: rent from its schedules, water and refuse from what somebody
+    // typed, a parking bay if it has one. It used to be one document per
+    // SCHEDULE, because the duplicate guard was keyed on the schedule — so a
+    // tenant received three envelopes for one month and three PDFs to
+    // reconcile. 0090 moved that guard to (lease, period, run) and the
+    // provenance down to the line, which is what makes this possible.
     const capturedByLease = new Map<string, typeof preview.captured>();
     for (const line of preview.captured) {
       const list = capturedByLease.get(line.leaseId) ?? [];
@@ -497,22 +450,31 @@ export async function postBillingRun(
       capturedByLease.set(line.leaseId, list);
     }
 
-    for (const [leaseId, capturedLines] of capturedByLease) {
-      const result = await postCharge(tx, organisationId, actorUserId, {
-        leaseId,
-        // Utilities where every line is a utility, and the neutral debit where
-        // the month also carried a parking bay or an admin fee: the document
-        // type has to be true of the whole document, not of its first line.
-        documentType: capturedLines.every((l) => l.category.startsWith('utility_'))
-          ? 'utility_invoice'
-          : 'adjustment_debit',
-        issueDate: params.issueDate,
-        dueDate: capturedLines[0]!.dueDate,
-        periodStart: preview.periodStart,
-        periodEnd: preview.periodEnd,
-        billingRunId: params.runId,
-        correlationId: params.correlationId,
-        lines: capturedLines.map((line) => ({
+    const leaseIds = new Set([...byLease.keys(), ...capturedByLease.keys()]);
+
+    for (const leaseId of leaseIds) {
+      const scheduled = byLease.get(leaseId) ?? [];
+      const captured = capturedByLease.get(leaseId) ?? [];
+
+      const lines = [
+        ...scheduled.map((line) => ({
+          category: line.category,
+          description: line.prorated
+            ? `${line.description} (${line.prorationNumerator}/${line.prorationDenominator} days)`
+            : line.description,
+          amountMinor: line.amountMinor,
+          dueDate: line.dueDate,
+          servicePeriodStart: line.servicePeriodStart,
+          servicePeriodEnd: line.servicePeriodEnd,
+          prorated: line.prorated,
+          prorationNumerator: line.prorationNumerator,
+          prorationDenominator: line.prorationDenominator,
+          fullPeriodAmountMinor: line.fullAmountMinor,
+          // The line remembers where it came from, so a second run can still
+          // tell what has already been billed.
+          scheduleId: line.scheduleId,
+        })),
+        ...captured.map((line) => ({
           category: line.category,
           description: line.quantity !== null && line.unit
             ? `${line.description} (${line.quantity} ${line.unit})`
@@ -522,23 +484,62 @@ export async function postBillingRun(
           servicePeriodStart: preview.periodStart,
           servicePeriodEnd: preview.periodEnd,
         })),
-      });
+      ];
+      if (lines.length === 0) continue;
 
-      // The captured rows become history, pointing at the document they
-      // became. A trigger stops them being edited or deleted from here on:
-      // the invoice is the record, and the correction for it is a credit note.
-      await tx`
-        update pending_charges
-           set posted_at = now(), billing_run_id = ${params.runId}::uuid,
-               charge_document_id = ${result.documentId}::uuid
-         where id = any(${capturedLines.map((l) => l.pendingChargeId)}::uuid[])
-           and organisation_id = ${organisationId}::uuid
-           and posted_at is null
-      `;
+      // What the document IS has to be true of the whole of it. Rent anywhere
+      // in it makes it a rent invoice — that is what the tenant will call it —
+      // and a month of nothing but utilities is a utility invoice. Anything
+      // else is a debit raised on the account.
+      const documentType = lines.some((l) => l.category === 'rent')
+        ? 'rent_invoice' as const
+        : lines.every((l) => l.category.startsWith('utility_'))
+          ? 'utility_invoice' as const
+          : 'adjustment_debit' as const;
 
-      documentIds.push(result.documentId);
-      total += result.totalMinor;
-      posted += capturedLines.length;
+      // The earliest due date on the document, so nothing inside it falls due
+      // before the document does.
+      const dueDate = lines.map((l) => l.dueDate).sort()[0]!;
+
+      try {
+        const result = await postCharge(tx, organisationId, actorUserId, {
+          leaseId,
+          documentType,
+          issueDate: params.issueDate,
+          dueDate,
+          periodStart: preview.periodStart,
+          periodEnd: preview.periodEnd,
+          billingRunId: params.runId,
+          correlationId: params.correlationId,
+          lines,
+        });
+
+        if (captured.length > 0) {
+          // The captured rows become history, pointing at the document they
+          // became. A trigger stops them being edited or deleted from here on:
+          // the invoice is the record, and the correction is a credit note.
+          await tx`
+            update pending_charges
+               set posted_at = now(), billing_run_id = ${params.runId}::uuid,
+                   charge_document_id = ${result.documentId}::uuid
+             where id = any(${captured.map((l) => l.pendingChargeId)}::uuid[])
+               and organisation_id = ${organisationId}::uuid
+               and posted_at is null
+          `;
+        }
+
+        documentIds.push(result.documentId);
+        total += result.totalMinor;
+        posted += lines.length;
+      } catch (error) {
+        // The duplicate key is the safety net doing its job, not a failure:
+        // this run already raised this lease's document and is being retried.
+        if (error instanceof DomainError && error.code === 'duplicate') {
+          skipped += lines.length;
+          continue;
+        }
+        throw error;
+      }
     }
 
     await tx`

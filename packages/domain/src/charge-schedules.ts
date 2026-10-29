@@ -113,8 +113,12 @@ export async function listChargeSchedules(
            lower(cs.effective_period)::text as start_date,
            (upper(cs.effective_period) - 1)::text as end_date,
            cs.due_day, cs.is_active, cs.supersedes_schedule_id, cs.change_reason,
-           (select count(*) from charge_documents cd
-             where cd.schedule_id = cs.id and cd.status <> 'draft')::text as billed_periods
+           -- Counted off the LINES, because one document now carries lines
+           -- from several schedules and no longer names one (0090). The
+           -- question is unchanged: how many periods has this charge billed?
+           (select count(distinct cd.period_start) from charge_lines cl
+              join charge_documents cd on cd.id = cl.document_id
+             where cl.schedule_id = cs.id and cd.status <> 'draft')::text as billed_periods
       from charge_schedules cs
      where cs.organisation_id = ${organisationId}::uuid
        and cs.lease_id = ${leaseId}::uuid
@@ -284,11 +288,12 @@ export async function changeChargeScheduleAmount(
   // stand; the operator is told rather than left to notice.
   const [{ billed }] = await tx<{ billed: boolean }[]>`
     select exists (
-      select 1 from charge_documents
-       where schedule_id = ${existing.id}::uuid
-         and status <> 'draft'
-         and period_start <= ${data.effectiveFrom}::date
-         and (period_end is null or period_end >= ${data.effectiveFrom}::date)
+      select 1 from charge_lines cl
+       join charge_documents cd on cd.id = cl.document_id
+       where cl.schedule_id = ${existing.id}::uuid
+         and cd.status <> 'draft'
+         and cd.period_start <= ${data.effectiveFrom}::date
+         and (cd.period_end is null or cd.period_end >= ${data.effectiveFrom}::date)
     ) as billed
   ` as unknown as [{ billed: boolean }];
 

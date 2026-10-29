@@ -142,7 +142,7 @@ describe('Capturing a month before billing it', () => {
     expect(after.some((r) => r.id === discardable.id)).toBe(false);
   });
 
-  it('bills a month in one run: one utility invoice, rent on its own', async () => {
+  it('bills a month in one run, as one invoice carrying rent and the utilities', async () => {
     // Two more charges, so the grouping is worth asserting.
     await as(org.adminUserId, (tx) =>
       captureCharge(tx, org.organisationId, org.adminUserId, {
@@ -173,31 +173,73 @@ describe('Capturing a month before billing it', () => {
 
     const documents = await ownerSql()<{
       id: string; document_type: string; total_minor: string; lines: number;
+      schedule_id: string | null;
     }[]>`
-      select d.id::text, d.document_type::text, d.total_minor::text,
+      select d.id::text, d.document_type::text, d.total_minor::text, d.schedule_id::text,
              (select count(*) from charge_lines cl where cl.document_id = d.id)::int as lines
         from charge_documents d
        where d.lease_id = ${leaseId}::uuid and d.billing_run_id = ${runId}::uuid
-       order by d.document_type
     `;
-    // Two documents, not four: rent, and one invoice carrying all three
-    // utilities.
-    expect(documents).toHaveLength(2);
-    const utilities = documents.find((d) => d.document_type === 'utility_invoice')!;
-    expect(utilities.lines).toBe(3);
-    expect(Number(utilities.total_minor)).toBe(Number(preview.capturedTotalMinor));
-    expect(documents.find((d) => d.document_type === 'rent_invoice')!.lines).toBe(1);
+
+    // ONE document for the month, carrying four lines: the rent and the three
+    // utilities. A tenant receives one invoice and reconciles one figure.
+    expect(documents).toHaveLength(1);
+    const invoice = documents[0]!;
+    expect(invoice.lines).toBe(4);
+    expect(Number(invoice.total_minor)).toBe(Number(preview.totalMinor));
+    // Rent anywhere in it makes it a rent invoice: that is what the tenant
+    // will call it.
+    expect(invoice.document_type).toBe('rent_invoice');
+    // And the document names no schedule, because it came from several.
+    expect(invoice.schedule_id).toBeNull();
+
+    // The provenance moved to the line, which is what the next run reads to
+    // know the rent has already been billed.
+    const [rentLine] = await ownerSql()<{ schedule_id: string | null; category: string }[]>`
+      select schedule_id::text, category from charge_lines
+       where document_id = ${invoice.id}::uuid and category = 'rent'
+    `;
+    expect(rentLine?.schedule_id).not.toBeNull();
 
     // The arithmetic is on the line, so a tenant can check it.
-    const [waterLine] = await ownerSql()<{ description: string }[]>`
-      select description from charge_lines
-       where document_id = ${utilities.id}::uuid and category = 'utility_water'
+    const [waterLine] = await ownerSql()<{ description: string; schedule_id: string | null }[]>`
+      select description, schedule_id::text from charge_lines
+       where document_id = ${invoice.id}::uuid and category = 'utility_water'
     `;
     expect(waterLine?.description).toContain('45 kl');
+    // A typed line came from no schedule, and says so.
+    expect(waterLine?.schedule_id).toBeNull();
 
     // And the books still balance, which is the only real test of a posting.
     await expect(as(org.adminUserId, (tx) =>
       assertBookBalances(tx, org.organisationId))).resolves.not.toThrow();
+  });
+
+  it('will not bill the same lease and period twice in one run', async () => {
+    // The crash guard: a run that died after writing a document and is
+    // retried must find the row already there rather than raise a second one.
+    const [existing] = await ownerSql()<{ billing_run_id: string; period_start: string }[]>`
+      select billing_run_id::text, period_start::text from charge_documents
+       where lease_id = ${leaseId}::uuid and billing_run_id is not null
+       order by posted_at desc limit 1
+    `;
+    // A faithful copy of the document the run raised — same lease, same
+    // period, same run, every other column carried over so that nothing but
+    // the guard can refuse it.
+    await expect(ownerSql()`
+      insert into charge_documents (
+        organisation_id, book_id, lease_id, document_type, document_number, status,
+        currency_code, issue_date, due_date, period_start, period_end, billing_run_id,
+        total_minor, journal_id, posted_at, posted_by, created_by
+      )
+      select organisation_id, book_id, lease_id, document_type, 'DUP-0001', status,
+             currency_code, issue_date, due_date, period_start, period_end, billing_run_id,
+             total_minor, journal_id, posted_at, posted_by, created_by
+        from charge_documents
+       where lease_id = ${leaseId}::uuid
+         and billing_run_id = ${existing!.billing_run_id}::uuid
+       limit 1
+    `).rejects.toThrow(/charge_documents_one_per_run_idx/);
   });
 
   it('will not bill the same capture twice', async () => {
