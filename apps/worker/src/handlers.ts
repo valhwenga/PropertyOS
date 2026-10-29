@@ -1,4 +1,6 @@
+import { dispatchEventNotice } from '@propertyos/domain';
 import { resolveEmailAdapter } from '@propertyos/integrations';
+import { log } from './logger';
 import type { Job, Sql } from './queue';
 
 export type Handler = (sql: Sql, job: Job) => Promise<void>;
@@ -6,93 +8,44 @@ export type Handler = (sql: Sql, job: Job) => Promise<void>;
 const email = resolveEmailAdapter();
 
 /**
- * Turns a domain event into a notification.
+ * Turns a domain event into a notice somebody can read.
  *
- * Idempotent: the notification row is keyed on the outbox id, so a redelivered
- * event updates the same row instead of sending a second message.
+ * It used to turn one into a row nobody could. The notice was written with no
+ * `recipient_user_id`, which the inbox reads by, and with the template's own
+ * text — so the body said `{{reference}}` — and then recorded as **sent**. Not
+ * queued, not undelivered: sent, which every screen and every alert believed.
  *
- * Honesty rule: the row's status is whatever the adapter actually returned.
- * When no provider is configured the status is `development_sink` and the UI
- * says the message was not delivered. Nothing here ever writes `sent` on the
- * strength of having tried.
+ * Both are now impossible in the schema (0087), and the work of satisfying it
+ * — who should be told, what the message actually says — is
+ * `dispatchEventNotice` in the domain, where it can be tested without a
+ * worker. This handler is the thin part: hand it the event, log what came of
+ * it.
+ *
+ * It still does not throw. A notice with no audience is a fact about this
+ * product (a resident without portal access cannot be told anything by it),
+ * not a job failure to be retried until it dies.
  */
-/**
- * Which events become a notice, and under which template.
- *
- * A map rather than a ladder of ternaries, because the registry at the bottom
- * of this file has to cover every event type the domain can emit and the two
- * lists are read together.
- */
-const NOTIFICATION_TEMPLATES: Record<string, string> = {
-  'receipt.allocated': 'statement.issued',
-  'payment.evidence.submitted': 'payment.evidence.received',
-  'maintenance.ticket.created': 'maintenance.ticket.created',
-  // Support access: the customer has to approve a session before it reaches
-  // anything, and a request sitting on a screen nobody opened is a request
-  // nobody answers.
-  'platform.support_session.requested': 'support.access.requested',
-  'platform.support_session.opened': 'support.access.opened',
-};
-
 const notify: Handler = async (sql, job) => {
-  const outboxId = String(job.payload.outboxId);
-  const eventType = String(job.payload.eventType);
+  // Every notice belongs to a customer. A job with no organisation is a
+  // platform job, and none of them notify anybody here.
+  if (!job.organisationId) return;
 
-  const templateKey = NOTIFICATION_TEMPLATES[eventType] ?? null;
-  if (!templateKey) return; // Not every event has a notification.
+  // The outbox publisher spreads the event's own payload over these three
+  // fields, so the whole job payload IS the event's variables.
+  const outcome = await dispatchEventNotice(sql as never, {
+    organisationId: job.organisationId,
+    eventType: String(job.payload.eventType),
+    resourceType: String(job.payload.resourceType ?? ''),
+    resourceId: job.payload.resourceId ? String(job.payload.resourceId) : null,
+    payload: job.payload as Record<string, unknown>,
+    outboxId: String(job.payload.outboxId),
+  });
 
-  const [template] = await sql<{ channel: string; subject: string | null; body: string }[]>`
-    select channel, subject, body from notification_templates where key = ${templateKey}
-  `;
-  if (!template) return;
-
-  const [existing] = await sql<{ id: string }[]>`
-    select id from notifications
-    where organisation_id = ${job.organisationId}
-      and provider_message_id = ${`outbox-${outboxId}`}
-  `;
-  if (existing) return; // Already handled: at-least-once delivery, exactly-once effect.
-
-  // There is no recipient resolution for these events yet, and there was no
-  // recipient: this handler sent every one of them to `resident@example.invalid`
-  // with the template's raw body. Against the sink that was invisible; with
-  // SMTP configured it would have mailed a fabricated address and recorded it
-  // as delivered.
-  //
-  // So it no longer sends. The notice is recorded as queued, with the reason on
-  // it, which is both true and visible: undelivered notifications are one of
-  // the conditions `app.platform_alert_conditions()` raises, so a backlog of
-  // these now tells somebody instead of sitting in a table.
-  const outcome =
-    template.channel === 'email'
-      ? ({
-          status: 'queued',
-          provider: null,
-          reason: 'No recipient resolution for this event yet: nothing was sent. '
-            + 'The notice is recorded so the message is not lost.',
-        } as const)
-      : ({ status: 'sent', provider: 'in_app', providerMessageId: `outbox-${outboxId}` } as const);
-
-  await sql`
-    insert into notifications (
-      organisation_id, template_key, channel, subject, body, status, provider,
-      provider_message_id, attempts, last_error, sent_at
-    ) values (
-      ${job.organisationId}, ${templateKey}, ${template.channel},
-      ${template.subject}, ${template.body},
-      ${outcome.status},
-      ${outcome.provider},
-      ${`outbox-${outboxId}`},
-      1,
-      ${'reason' in outcome ? outcome.reason : null},
-      ${outcome.status === 'sent' ? sql`now()` : null}
-    )
-  `;
-
-  // Nothing throws here any more. The old code failed the job when delivery
-  // failed, which was right when it was delivering; a job that fails because
-  // this product has no recipient resolution would die in the queue every time
-  // and tell an operator nothing they can act on.
+  if (outcome.skipped) {
+    log('info', 'notice not written', {
+      eventType: job.payload.eventType, template: outcome.templateKey, reason: outcome.skipped,
+    });
+  }
 };
 
 /**

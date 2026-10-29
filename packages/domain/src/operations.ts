@@ -408,3 +408,47 @@ export async function retryDeadJobsOfType(
 
   return { retried: requeued.length };
 }
+
+export interface UndeliveredNotices {
+  /** One row per state nobody received it in, with the most recent reason. */
+  byState: Array<{ status: string; count: number; reason: string | null; oldestAt: string | null }>;
+  total: number;
+}
+
+/**
+ * The messages nobody received, and why not.
+ *
+ * A count on its own invites the wrong conclusion. There are three different
+ * reasons a message is undelivered and they need different actions: `queued`
+ * means the worker has not reached it yet, `development_sink` means no mail
+ * provider is configured and this deployment delivers nothing at all, and
+ * `failed` means a provider refused it and said something about why.
+ *
+ * Grouped with the provider's own words attached, for the same reason the dead
+ * jobs are grouped by handler: one cause, not a hundred failures.
+ */
+export async function undeliveredNotices(
+  tx: Sql,
+  authUserId: string,
+): Promise<UndeliveredNotices> {
+  await requirePlatformPermission(tx, authUserId, 'platform.operations.manage');
+
+  const rows = await tx<Array<{
+    status: string; n: string; reason: string | null; oldest: string | null;
+  }>>`
+    select status, count(*)::text as n,
+           (array_agg(last_error order by created_at desc))[1] as reason,
+           min(created_at)::text as oldest
+      from notifications
+     where status = any (app.notification_backlog_states())
+     group by status
+     order by count(*) desc
+  `;
+
+  return {
+    byState: rows.map((r) => ({
+      status: r.status, count: Number(r.n), reason: r.reason, oldestAt: r.oldest,
+    })),
+    total: rows.reduce((sum, r) => sum + Number(r.n), 0),
+  };
+}

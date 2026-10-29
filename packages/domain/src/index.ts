@@ -10,6 +10,7 @@ export * from './organisations';
 export * from './portfolio';
 export * from './applications';
 export * from './notifications';
+export * from './notification-dispatch';
 export * from './residents';
 export * from './leases';
 export * from './charge-categories';

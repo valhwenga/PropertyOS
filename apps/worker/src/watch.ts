@@ -21,7 +21,10 @@
  * and the screen says so — rather than a product that believes it has told
  * somebody.
  */
-import { chaseOverdueInvoices, raiseAlertNotices, recordNoticeOutcome } from '@propertyos/domain';
+import {
+  chaseOverdueInvoices, noticesAwaitingDelivery, raiseAlertNotices, recordNoticeDelivery,
+  recordNoticeOutcome,
+} from '@propertyos/domain';
 import { resolveEmailAdapter } from '@propertyos/integrations';
 import type { Sql } from './queue';
 
@@ -61,6 +64,20 @@ export async function watchForTrouble(sql: Sql, log: Log): Promise<number> {
     // Never allowed to stop the alerting that follows it, for the same reason
     // alerting is never allowed to stop the queue.
     log('error', 'chasing pass failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // Then the messages written for customers and residents, which until now
+  // nothing had ever sent: a reminder, a final notice, an invoice message's
+  // sibling notices — all written, all queued, all sitting in a table. The
+  // alerts below are Spike telling itself; this is the product telling the
+  // people it is about.
+  try {
+    const delivered = await deliverQueuedNotices(sql, log);
+    if (delivered.attempted > 0) log('info', 'queued notices attempted', { ...delivered });
+  } catch (error) {
+    log('error', 'notice delivery pass failed', {
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -112,4 +129,74 @@ export async function watchForTrouble(sql: Sql, log: Log): Promise<number> {
     });
   }
   return notices.length;
+}
+
+/**
+ * Delivers the email notices the product has written for people.
+ *
+ * Separate from the alert delivery above on purpose: those are Spike's own
+ * messages to its operators, and this is everything the product says to a
+ * landlord or a resident — the dunning reminder, the final notice, whatever a
+ * future template adds. They were all being written and none of them sent,
+ * because `sendInvoiceMessage` was the only thing in the worker that had ever
+ * called the adapter for a notification row.
+ *
+ * Capped per pass, oldest first, and `attempts` caps the retries: a provider
+ * that has refused the same message four times will refuse the fifth, and the
+ * record says why rather than the loop trying forever.
+ *
+ * Nothing here throws. A mail provider that is down must not stop the queue —
+ * the notice says it was not delivered, and the undelivered count is itself one
+ * of the conditions the alert pass raises.
+ */
+export async function deliverQueuedNotices(
+  sql: Sql,
+  log: Log,
+): Promise<{ attempted: number; sent: number; undelivered: number }> {
+  const queued = await noticesAwaitingDelivery(sql as never, { limit: 50 });
+  let sent = 0;
+  let undelivered = 0;
+
+  for (const notice of queued) {
+    try {
+      const outcome = await email.send({
+        to: notice.recipientEmail,
+        subject: notice.subject,
+        body: notice.body,
+        templateKey: notice.templateKey ?? undefined,
+      });
+
+      await recordNoticeDelivery(sql as never, {
+        notificationId: notice.id,
+        status: outcome.status,
+        provider: outcome.provider,
+        providerMessageId: outcome.status === 'sent' ? outcome.providerMessageId : null,
+        detail: outcome.status === 'sent'
+          ? null
+          : outcome.status === 'development_sink' ? outcome.reason : outcome.error,
+      });
+
+      if (outcome.status === 'sent') sent += 1;
+      else undelivered += 1;
+    } catch (error) {
+      // A provider that throws is the same outcome as one that refuses.
+      await recordNoticeDelivery(sql as never, {
+        notificationId: notice.id,
+        status: 'failed',
+        provider: email.name,
+        providerMessageId: null,
+        detail: error instanceof Error ? error.message : 'unknown delivery error',
+      });
+      undelivered += 1;
+    }
+  }
+
+  if (undelivered > 0) {
+    // Said once per pass rather than once per message: with no provider
+    // configured this is every notice, every time, and a log nobody can read
+    // is as useless as a notice nobody receives.
+    log('warn', 'notices were not delivered', { count: undelivered, provider: email.name });
+  }
+
+  return { attempted: queued.length, sent, undelivered };
 }

@@ -11,11 +11,12 @@
  */
 import postgres from 'postgres';
 import { HANDLERS } from './handlers';
+import { log, WORKER_ID } from './logger';
 import { claimJob, completeJob, failJob, reclaimStalled, type Sql } from './queue';
 import { publishOutbox } from './outbox';
 import { watchForTrouble } from './watch';
 
-const WORKER_ID = process.env.WORKER_ID ?? `worker-${process.pid}`;
+
 const POLL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 2000);
 /**
  * How often the worker asks what is wrong and tells somebody.
@@ -42,13 +43,6 @@ const DRAIN = process.argv.includes('--drain') || process.env.WORKER_DRAIN === '
 const DRAIN_LIMIT_MS = Number(process.env.WORKER_DRAIN_LIMIT_MS ?? 120_000);
 
 let running = true;
-
-function log(level: 'info' | 'warn' | 'error', message: string, extra: Record<string, unknown> = {}) {
-  // Structured, and deliberately free of personal data.
-  process.stdout.write(`${JSON.stringify({
-    level, worker: WORKER_ID, message, timestamp: new Date().toISOString(), ...extra,
-  })}\n`);
-}
 
 async function tick(sql: Sql): Promise<boolean> {
   const published = await publishOutbox(sql);

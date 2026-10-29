@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { Card, EmptyState, PageHeader } from '@propertyos/ui';
-import { listJobs, platformPermissionsOf, queueHealth } from '@propertyos/domain';
+import {
+  listJobs, platformPermissionsOf, queueHealth, undeliveredNotices,
+} from '@propertyos/domain';
 import { readPrivilegedAs, requireViewer } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format';
 import { JobRow, RetryTypeForm } from './job-forms';
@@ -34,8 +36,9 @@ export default async function JobsPage({
     ? (q.status as 'dead' | 'abandoned' | 'queued' | 'running' | 'succeeded')
     : 'dead';
 
-  const { health, listed, mine } = await readPrivilegedAs(viewer, async (tx) => ({
+  const { health, listed, mine, undelivered } = await readPrivilegedAs(viewer, async (tx) => ({
     health: await queueHealth(tx, viewer.authUserId),
+    undelivered: await undeliveredNotices(tx, viewer.authUserId),
     listed: await listJobs(tx, viewer.authUserId, {
       status, ...(q.type ? { jobType: q.type } : {}),
     }),
@@ -130,6 +133,47 @@ export default async function JobsPage({
           </p>
         </Card>
       </div>
+
+      {undelivered.total > 0 ? (
+        <section aria-labelledby="undelivered" className="space-y-3">
+          <h2
+            id="undelivered"
+            className="text-sm font-semibold uppercase tracking-wide text-ink-500"
+          >
+            Messages nobody received
+          </h2>
+          <p className="text-sm text-ink-500">
+            Grouped by why. <strong>Queued</strong> means the worker has not reached it yet;
+            <strong> no provider</strong> means this deployment delivers nothing at all and the
+            message was recorded rather than sent; <strong>refused</strong> means a provider
+            said no, in its own words.
+          </p>
+          {undelivered.byState.map((state) => (
+            <Card key={state.status} className="p-4" data-undelivered={state.status}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="text-sm font-medium text-ink-900">
+                  {state.status === 'queued'
+                    ? 'Queued, not yet attempted'
+                    : state.status === 'development_sink'
+                      ? 'No mail provider is configured'
+                      : 'A provider refused it'}
+                </p>
+                <p className="tabular text-sm text-ink-700">
+                  {state.count} message{state.count === 1 ? '' : 's'}
+                </p>
+              </div>
+              {state.reason ? (
+                <p className="mt-2 text-xs text-ink-500">{state.reason}</p>
+              ) : null}
+              {state.oldestAt ? (
+                <p className="mt-1 text-xs text-ink-400">
+                  oldest written {state.oldestAt.slice(0, 10)}
+                </p>
+              ) : null}
+            </Card>
+          ))}
+        </section>
+      ) : null}
 
       {health.deadByType.length > 0 ? (
         <section aria-labelledby="causes" className="space-y-3">

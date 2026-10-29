@@ -223,14 +223,24 @@ way that fails safe until someone with the relevant authority decides.
   a mail provider is configured — so the waiting period only protects somebody
   if an operator tells them about it by another route, and the approval box
   asks what they checked, at length, for that reason.
-* **Customer-facing notifications have no recipient and no rendering.** The
-  worker's `notify` handler used to send every one of them to a hard-coded
-  `resident@example.invalid` with the template's raw body, and record it as
-  delivered. It no longer sends at all: the notice is recorded `queued` with
-  that reason, and the backlog of them is now one of the conditions platform
-  alerting raises. Giving those events real recipients and a template renderer
-  is outstanding work, and it is what "undelivered notifications" means on the
-  console.
+* **Nothing is actually delivered by email on this deployment, and that is now
+  the only thing missing.** The notices are correct as of ADR 0035: addressed
+  to the people they are about, rendered with real values, refused outright if
+  a placeholder is unfilled, and attempted by the worker on a cadence. With no
+  `EMAIL_PROVIDER` configured every attempt ends `development_sink` with the
+  sink's own reason on it, the console groups them by why, and nobody receives
+  anything. Configuring SMTP is the whole of the remaining work — but until
+  somebody does, an email notice is a record rather than a message.
+* **A resident without portal access cannot be told anything.** An in-app
+  notice is delivered by being written into their inbox, which only exists if
+  they have accepted a portal invitation. Where nobody on the lease has one the
+  dispatcher writes nothing and says why in the worker log, rather than filing
+  a row no person can open. Reaching those residents needs SMS or a landlord
+  with a phone, and the product has neither.
+* **Notification wording is not editable by anybody.** The templates live in
+  migrations: a customer cannot change what their residents are told, and
+  cannot add a notice of their own. Nine of the eleven registered templates
+  are in-app only.
 * **Spike still cannot collect money without a real provider.** The whole path
   exists — mandate, run, submission, outcome, dispute reversal — and the only
   adapter that can submit anything is the sandbox. A live deployment needs a

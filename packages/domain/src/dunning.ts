@@ -1,5 +1,6 @@
 import type { Sql } from '@propertyos/db';
 import { recordAudit } from './audit';
+import { formatMoney } from './money';
 import { forbidden, invalid } from './errors';
 import { requirePlatformPermission, setAccountStatus } from './platform';
 
@@ -208,7 +209,10 @@ export async function chaseOverdueInvoices(tx: Sql): Promise<ChaseOutcome> {
     if (['suspended', 'closed'].includes(invoice.organisationStatus)) continue;
 
     const taken = new Set(invoice.steps.map((s) => s.step));
-    const outstanding = invoice.totalMinor - invoice.paidMinor;
+    // Formatted, not minor units. The first draft of this interpolated
+    // `115000` into a sentence that read "115000 is still outstanding", which
+    // is what happens when nobody reads the message the product sends.
+    const outstanding = formatMoney(invoice.totalMinor - invoice.paidMinor, invoice.currencyCode);
 
     // One a day, so a backlog climbs in order rather than all at once.
     const lastStep = invoice.steps[invoice.steps.length - 1];
