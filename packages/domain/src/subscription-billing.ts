@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Sql } from '@propertyos/db';
 import { recordAudit } from './audit';
 import { DomainError, invalid, notFound, parsed } from './errors';
-import { requirePlatformPermission } from './platform';
+import { requirePlatformPermission, setAccountStatus } from './platform';
 
 /**
  * Spike charging the landlord.
@@ -233,9 +233,15 @@ export async function runSubscriptionBilling(
     );
   }
 
+  // `::text`, not `::date`. A date column comes back from the driver as a JS
+  // Date, and comparing a 'YYYY-MM-DD' string with a Date coerces the Date to
+  // a number, which makes every such comparison quietly false — so the guard
+  // below has never once fired, and the declared type of this outcome
+  // (`periodStart: string`) was a Date all along. Two bugs from one implicit
+  // conversion.
   const [period] = await tx<{ period_start: string; period_end: string }[]>`
-    select ${r.periodStart}::date as period_start,
-           (${r.periodStart}::date + interval '1 month')::date as period_end
+    select (${r.periodStart}::date)::text as period_start,
+           ((${r.periodStart}::date + interval '1 month')::date)::text as period_end
   `;
   const periodStart = period!.period_start;
   const periodEnd = period!.period_end;
@@ -245,7 +251,8 @@ export async function runSubscriptionBilling(
   }
 
   const customers = await tx<
-    { id: string; name: string; status: string; currency_code: string;
+    { id: string; name: string; status: string; trial_ends_on: string | null;
+      currency_code: string;
       plan_key: string; plan_name: string; included_units: number | null;
       monthly_price_minor: string | null; additional_unit_price_minor: string | null;
       billable_units: number; already: string | null;
@@ -253,6 +260,7 @@ export async function runSubscriptionBilling(
       recipient_vat_number: string | null }[]
   >`
     select o.id, o.name, o.status::text, o.currency_code,
+           s.trial_ends_on::text as trial_ends_on,
            p.key as plan_key, p.name as plan_name, price.included_units,
            price.monthly_price_minor::text, price.additional_unit_price_minor::text,
            coalesce(u.billable_units, 0) as billable_units,
@@ -302,9 +310,34 @@ export async function runSubscriptionBilling(
       });
       continue;
     }
+    // A trial is a DATE, not a status. The status says what somebody last set;
+    // the date says whether the free period is over. Before this, `trial` with
+    // no end date meant every customer ever provisioned was free for ever
+    // until an operator remembered to change a dropdown.
     if (c.status === 'trial') {
-      outcome.skipped.push({ organisationName: c.name, reason: 'on trial — nothing is charged' });
-      continue;
+      const trialEndsOn = c.trial_ends_on;
+      if (!trialEndsOn || trialEndsOn > periodStart) {
+        outcome.skipped.push({
+          organisationName: c.name,
+          reason: trialEndsOn
+            ? `on trial until ${trialEndsOn} — nothing is charged`
+            : 'on trial with no end date — nothing is charged',
+        });
+        continue;
+      }
+      // The trial ended before this period began, so this period is chargeable
+      // and the account is no longer on trial. Moving it is part of the run
+      // rather than a silent flip: it is caused by a commercial event and it is
+      // recorded with the reason.
+      await setAccountStatus(tx, authUserId, {
+        organisationId: c.id,
+        status: 'active',
+        reason: `Trial ended on ${trialEndsOn}; first invoice issued for ${periodStart}.`,
+      });
+      await tx`
+        update subscriptions set status = 'active', updated_at = now()
+        where organisation_id = ${c.id}::uuid and status = 'trialing'
+      `;
     }
     if (c.status === 'closed') {
       outcome.skipped.push({ organisationName: c.name, reason: 'account closed' });

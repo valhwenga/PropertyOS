@@ -106,7 +106,9 @@ details, and not something every colleague reads.
   test asserts an administrator of one customer cannot read another's lines.
 * **Still absent, and still said so on the screens:** no payment provider, no
   debit order, no dunning, no trial expiry, and no proration when a plan
-  changes mid-period.
+  changes mid-period. *(All but proration were built in 0031–0034. Left as
+  written: these records are dated, not maintained — `docs/known-limitations.md`
+  is the living account.)*
 
 ## Addendum — the document (same day)
 

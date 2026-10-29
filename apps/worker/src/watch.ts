@@ -21,7 +21,7 @@
  * and the screen says so — rather than a product that believes it has told
  * somebody.
  */
-import { raiseAlertNotices, recordNoticeOutcome } from '@propertyos/domain';
+import { chaseOverdueInvoices, raiseAlertNotices, recordNoticeOutcome } from '@propertyos/domain';
 import { resolveEmailAdapter } from '@propertyos/integrations';
 import type { Sql } from './queue';
 
@@ -48,6 +48,23 @@ function body(notice: {
 }
 
 export async function watchForTrouble(sql: Sql, log: Log): Promise<number> {
+  // Chasing before alerting, so that a reminder recorded on this pass is
+  // reflected in the conditions the same pass raises rather than a cadence
+  // later. It only records steps and queues messages — it cannot suspend
+  // anybody, which is a person's decision.
+  try {
+    const chased = await chaseOverdueInvoices(sql as never);
+    if (chased.reminders + chased.finalNotices + chased.proposed > 0) {
+      log('info', 'chased overdue invoices', { ...chased });
+    }
+  } catch (error) {
+    // Never allowed to stop the alerting that follows it, for the same reason
+    // alerting is never allowed to stop the queue.
+    log('error', 'chasing pass failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   const { notices, conditions, recipients } = await raiseAlertNotices(sql as never);
 
   if (conditions > 0 && recipients === 0) {

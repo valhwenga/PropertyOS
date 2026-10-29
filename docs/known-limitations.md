@@ -29,7 +29,7 @@ residents until those are done.
 | Multi-factor authentication | **Enforced** | Part of permission resolution in the database (`app.has_permission` requires `aal2` for MFA-gated roles), so application code cannot bypass it. The local provider implements RFC 6238 TOTP with replay protection; Supabase owns verification in production. 13 tests. |
 | MFA enrolment UI | **Built** (was wrongly listed here as not built) | `/account/security`: enrol with a confirmation code, recovery codes issued at enrolment and shown once, re-issue, remove, and sign-in with a recovery code. Migration 0045 added the recovery codes, hashed and single-use. There is no administrator reset and no Spike reset, deliberately: anybody who could clear a colleague's factor could take over their account. |
 | Account recovery | **Built, local auth provider only** | There was none, and no password reset either: a landlord who forgot a password or lost the phone with their authenticator was locked out of their own records for good, and the only remedy was somebody running `pnpm db:mfa` against the database. Now they ask at `/recover`, and somebody else decides. Their own administrator (`membership.manage`) decides it where there is one, effective at once; Spike decides it **only** where the person has no such colleague — the policies make the request unreadable to an operator otherwise, and that rule is restated in the domain and in the query because some platform pages read with filtering lifted. Spike’s approval waits (24h by default) and the account holder can cancel it without signing in. Approval issues a single-use link, shown once to whoever approved it to hand over, and it does only what was lost — a forgotten password leaves the second factor standing. The form answers identically for an address with no account. See `docs/decisions/0029-a-way-back-in.md`. **Limit: it resets credentials in this database, which Supabase Auth does not read, so with `AUTH_PROVIDER=supabase` the action refuses rather than reporting a reset that did not happen.** |
-| Platform alerting | **Built, delivery needs SMTP** | Every signal was a screen somebody had to remember to open. Nine conditions are now defined once in `app.platform_alert_conditions()` — dead jobs, a worker that stopped, a stuck queue, somebody locked out waiting on Spike, an outbox or message backlog, an unanswered account request, a retention date passed, an overdue invoice — read by the console, the worker and the tests from the same function. A critical condition raises a banner on **every** console page, not just the home page nobody opened. The worker asks every five minutes and raises one notice per recipient, repeating daily while a condition stays true. An operator holding `platform.operations.manage` can silence one with a reason and an expiry (max 30 days); silenced is greyed in the list with who and why, never hidden. See `docs/decisions/0030-something-tells-somebody.md`. **Limit: nothing is delivered until `EMAIL_PROVIDER` and the SMTP settings are set — until then every notice is recorded `undeliverable` with the reason, and the console shows "0 of 2 delivered" rather than claiming otherwise.** |
+| Platform alerting | **Built, delivery needs SMTP** | Every signal was a screen somebody had to remember to open. Eleven conditions are now defined once in `app.platform_alert_conditions()` — dead jobs, a worker that stopped, a stuck queue, somebody locked out waiting on Spike, an outbox or message backlog, an unanswered account request, a retention date passed, an overdue invoice, a trial that has run out, and a debt whose chasing is waiting on a person (the last two added by 0086) — read by the console, the worker and the tests from the same function. A critical condition raises a banner on **every** console page, not just the home page nobody opened. The worker asks every five minutes and raises one notice per recipient, repeating daily while a condition stays true. An operator holding `platform.operations.manage` can silence one with a reason and an expiry (max 30 days); silenced is greyed in the list with who and why, never hidden. See `docs/decisions/0030-something-tells-somebody.md`. **Limit: nothing is delivered until `EMAIL_PROVIDER` and the SMTP settings are set — until then every notice is recorded `undeliverable` with the reason, and the console shows "0 of 2 delivered" rather than claiming otherwise.** |
 | Session revocation | Time-based only | No server-side session store, so a stolen cookie is valid until it expires (8 hours). Membership and portal-link revocation take effect on the next request, which limits the blast radius. |
 | Supabase Storage | **Implemented, not run against a real bucket** | Upload, read, signed-URL and delete against a private bucket, using the service role key server-side only. The local filesystem adapter is fully exercised end to end (15 HTTP checks). The Supabase path has never run against a live project. |
 | Bank CSV import UI | **Built** (was wrongly listed here as not built) | Preview before commit, overlapping statements, suggested payers that stay suggestions, and lines set aside with a reason. Duplicate protection is enforced at database level and covered by tests. |
@@ -194,11 +194,13 @@ way that fails safe until someone with the relevant authority decides.
   application, redeeming a tenancy invitation) will also buffer a body that
   large. Moving uploads to route handlers, which stream and can be limited
   individually, would remove that exposure and is not done.
-* **Nothing chases Spike's own money.** A subscription invoice is issued from the
-  platform console and a payment is recorded by hand from Spike's bank
-  statement. There is no payment provider, no debit order, no dunning, no trial
-  expiry and no proration when a plan changes mid-period, so "outstanding"
-  means "not yet recorded as received" rather than "unpaid".
+* **A plan changed mid-period is billed as though it changed at the start.**
+  There is no proration, no per-customer price and no discount: a customer who
+  upgrades on the 20th pays the new plan for the whole month, and one who
+  downgrades pays the old one. Chasing, trial expiry, a payment provider and a
+  debit order all exist now (ADRs 0031–0034); proration is the one still
+  missing from how Spike is paid, along with any way to contact a customer from
+  the console.
 * **Idempotency covers the commands that create records, not every command.**
   Recording a receipt or a deposit, drafting an expense, and a resident's proof
   of payment or maintenance request are each protected by a per-form key. The
@@ -237,10 +239,27 @@ way that fails safe until someone with the relevant authority decides.
   deliberately, until the arithmetic has been watched for a few months.
 * **An unpaid debit is not re-presented.** It can be abandoned or left; nothing
   tries again on a later date, and the rules for that are the provider's and
-  the bank's rather than ours to invent. There is still no stored card, no
-  tokenised recurring charge, no dunning, nothing ends a trial, a plan changed
-  mid-period is billed as though it changed at the start, and refunds are
-  reversed at the provider and recorded here by hand.
+  the bank's rather than ours to invent. There is still no stored card and no
+  tokenised recurring charge, and refunds are reversed at the provider and
+  recorded here by hand.
+
+* **Nothing warns a customer before their trial ends.** The trial ends on its
+  date and the first they hear of it is the invoice. The warning needs a
+  template and a working mail provider, neither of which exists, so it is
+  written down here rather than half-built.
+* **A reminder is sent once per step, not until it is paid.** The ladder has
+  three rungs — a reminder at 3 days overdue, a final notice at 10, a
+  suspension proposal at 21 — and then it waits for a person. Dunning that
+  nags weekly needs a scheduling model and a way for a customer to say "I
+  know", and it has neither. The reminder and the notice are also *queued and
+  undelivered* until `EMAIL_PROVIDER` and the SMTP settings are set, like every
+  other customer-facing notification: until then the ladder is honest with
+  Spike and silent to the customer, which is the worse half of chasing
+  somebody.
+* **Suspension for non-payment collects nothing.** It stops the console. It
+  does not re-present a failed debit order, does not chase the debt further,
+  and does not expire: an account stays suspended until a person reopens it.
+  The debt survives the suspension and the invoice survives both.
 * **DebiCheck's own fields are not modelled** — no tracking indicator, no debit
   value type, no amendment flow — and whether Payfast is the right provider for
   debit orders at all is open: in South Africa the debit-order providers are

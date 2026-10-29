@@ -310,6 +310,12 @@ export async function clearPaymentTestData(): Promise<void> {
         select id from subscription_invoices where invoice_number like 'SPK-E2E-%'
       )
     `;
+    await sql`
+      delete from subscription_dunning_steps
+      where invoice_id in (
+        select id from subscription_invoices where invoice_number like 'SPK-E2E-%'
+      )
+    `;
     await sql`delete from subscription_invoices where invoice_number like 'SPK-E2E-%'`;
     await sql`delete from webhook_events where provider = 'sandbox'`;
   } finally {
@@ -384,6 +390,67 @@ export async function clearCollections(slug: string): Promise<void> {
       await sql`delete from subscription_collections where organisation_id = ${org.id}`;
       await sql`delete from subscription_mandates where organisation_id = ${org.id}`;
     }
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/**
+ * An invoice that fell due in the past, and the chasing that would have
+ * happened by now.
+ *
+ * The browser test is about the screen and the decision a person makes on it,
+ * so the ladder it finds is seeded rather than climbed: the integration suite
+ * already proves the pass produces exactly these steps at exactly these
+ * thresholds. Cleared by `clearPaymentTestData`, which the invoice number
+ * prefix puts it in the way of.
+ */
+export async function seedOverdueInvoice(
+  slug: string,
+  options: {
+    daysOverdue: number; totalMinor?: number; steps?: string[];
+    /** Which past month the invoice is for. One invoice per customer per
+     *  period is a database constraint, so two seeded debts need two. */
+    monthsBack?: number;
+  },
+): Promise<{ invoiceNumber: string }> {
+  const totalMinor = options.totalMinor ?? 115_000;
+  const monthsBack = options.monthsBack ?? 11;
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    const [org] = await sql<{ id: string }[]>`select id from organisations where slug = ${slug}`;
+    if (!org) throw new Error(`no organisation with slug ${slug} in the preview database`);
+    const invoiceNumber = `SPK-E2E-${Date.now().toString(36).toUpperCase()}`;
+    // Issued long enough ago that the due date can be in the past: 0067 freezes
+    // the issue date of an issued invoice, and the due date cannot precede it.
+    const [invoice] = await sql<{ id: string }[]>`
+      insert into subscription_invoices (
+        organisation_id, invoice_number, period_start, period_end, issue_date, due_date,
+        currency_code, plan_key, plan_name, included_units, billable_units, units_over,
+        subtotal_minor, vat_rate_bp, vat_minor, total_minor, status
+      ) values (
+        ${org.id}, ${invoiceNumber},
+        (date_trunc('month', current_date) - make_interval(months => ${monthsBack}))::date,
+        (date_trunc('month', current_date) - make_interval(months => ${monthsBack - 1})
+          - interval '1 day')::date,
+        current_date - 90, (current_date - ${options.daysOverdue}::integer), 'ZAR',
+        'starter', 'Starter', 10, 1, 0,
+        ${Math.round(totalMinor / 1.15)}, 1500,
+        ${totalMinor - Math.round(totalMinor / 1.15)}, ${totalMinor}, 'issued'
+      )
+      returning id
+    `;
+    for (const step of options.steps ?? []) {
+      await sql`
+        insert into subscription_dunning_steps (
+          invoice_id, organisation_id, step, days_overdue
+        ) values (
+          ${invoice!.id}, ${org.id}, ${step}, ${options.daysOverdue}
+        )
+        on conflict (invoice_id, step) do nothing
+      `;
+    }
+    return { invoiceNumber };
   } finally {
     await sql.end({ timeout: 5 });
   }

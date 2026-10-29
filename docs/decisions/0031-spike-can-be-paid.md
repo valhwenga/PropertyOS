@@ -110,7 +110,9 @@ tokenised recurring charge, no debit order mandate — which for a South African
 subscription business is likely the shape that matters, and is a different
 piece of work with DebiCheck mandates in it.
 
-**There is still no dunning, no trial expiry and no proration.** Nothing chases
+**There is still no dunning, no trial expiry and no proration.** *(Dunning and
+trial expiry were built in 0034; proration still is not. Left as written —
+these records are dated, not maintained.)* Nothing chases
 an unpaid invoice, nothing ends a trial, and a plan changed mid-period is
 billed as though it changed at the start. The overdue-invoice alert from 0030
 is the whole of the chasing, and it tells Spike rather than the customer.

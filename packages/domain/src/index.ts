@@ -71,3 +71,4 @@ export * from './provider-events';
 export * from './subscription-mandates';
 export * from './invoice-settlement';
 export * from './subscription-collections';
+export * from './dunning';

@@ -3,6 +3,7 @@ import {
   changePlan, createProperty, createUnit, customerSubscriptionInvoices,
   listSubscriptionInvoices, platformBillingSettings, recordSubscriptionPayment,
   closeCustomer, runSubscriptionBilling, saveBillingSettings, setAccountStatus,
+  trialsEnded,
   voidSubscriptionInvoice,
 } from '@propertyos/domain';
 import {
@@ -23,15 +24,17 @@ import {
 describe('Subscription billing', () => {
   let operator: string;
   let active: OrganisationFixture;
+  let trialling: OrganisationFixture;
   let closed: OrganisationFixture;
 
   beforeAll(async () => {
     operator = await createAuthUser('Billing Operator', { platformOperator: true });
 
     active = await createOrganisation('Billed Co', { planKey: 'starter' });
-    // Created for its state rather than its handle: a customer still on trial,
-    // which the run must skip by name.
-    await createOrganisation('Trialling Co', { planKey: 'starter' });
+    // Kept for its state and now its handle: a customer still on trial, which
+    // the run must skip by name, and whose trial the last test in this block
+    // brings to an end.
+    trialling = await createOrganisation('Trialling Co', { planKey: 'starter' });
     closed = await createOrganisation('Gone Co', { planKey: 'starter' });
 
     // Twelve units on a ten-unit plan: two over, at the plan's overage price.
@@ -237,6 +240,65 @@ describe('Subscription billing', () => {
          where id = ${invoice!.id}
       `,
     ).rejects.toThrow(/cannot be changed/);
+  });
+
+  /**
+   * The end of a trial, which until now nothing could reach: `trialing` was a
+   * status a customer was put into and never came out of, so the first invoice
+   * never arrived. The trial is keyed on a date, and a run whose period starts
+   * after that date bills instead of skipping.
+   *
+   * It lives here rather than with the rest of dunning because it needs Spike's
+   * own invoicing details, and those are global: a file that writes them breaks
+   * the test above asserting what happens when they are absent.
+   */
+  it('skips a trial that is still running, and bills one that has ended', async () => {
+    await ownerSql()`
+      update subscriptions set trial_ends_on = '2026-07-15'
+       where organisation_id = ${trialling.organisationId}::uuid
+    `;
+    const during = await as(operator, (tx) =>
+      runSubscriptionBilling(tx, operator, {
+        periodStart: '2026-07-01', issueDate: '2026-07-01',
+      }),
+    );
+    expect(during.skipped.find((s) => s.organisationName === 'Trialling Co')?.reason)
+      .toContain('on trial until 2026-07-15');
+    expect(during.issued.some((i) => i.organisationName === 'Trialling Co')).toBe(false);
+
+    // The same customer, with the trial now ending before the period begins.
+    await ownerSql()`
+      update subscriptions set trial_ends_on = '2026-06-30'
+       where organisation_id = ${trialling.organisationId}::uuid
+    `;
+    const ended = await as(operator, (tx) => trialsEnded(tx, operator));
+    expect(ended.some((t) => t.organisationName === 'Trialling Co')).toBe(true);
+
+    const after = await as(operator, (tx) =>
+      runSubscriptionBilling(tx, operator, {
+        periodStart: '2026-07-01', issueDate: '2026-07-01',
+      }),
+    );
+    expect(after.issued.some((i) => i.organisationName === 'Trialling Co')).toBe(true);
+
+    // The account is no longer trialing, and says why it stopped being.
+    const [organisation] = await ownerSql()<{ status: string }[]>`
+      select status::text as status from organisations
+       where id = ${trialling.organisationId}::uuid
+    `;
+    expect(organisation?.status).toBe('active');
+
+    const [audit] = await ownerSql()<{ reason: string }[]>`
+      select reason from audit_events
+       where organisation_id = ${trialling.organisationId}::uuid
+         and action = 'platform.account.status_changed'
+       order by occurred_at desc limit 1
+    `;
+    expect(audit?.reason).toMatch(/trial ended on 2026-06-30/i);
+
+    // And it has left the list of ended trials, because it is no longer one.
+    const settled = await as(operator, (tx) => trialsEnded(tx, operator));
+    expect(settled.some((t) => t.organisationName === 'Trialling Co')).toBe(false);
   });
 });
 

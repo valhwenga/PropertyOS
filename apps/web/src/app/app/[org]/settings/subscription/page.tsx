@@ -5,7 +5,7 @@ import type { StatusTone } from '@propertyos/ui';
 import {
   billerForInvoice, customerSubscriptionInvoices, formatMinor, formatMoney,
   invoicePaymentAttempts, liveMandate, listPlans, minorToMajorInput,
-  organisationCollections, organisationMandates, type PaymentAttempt,
+  organisationCollections, organisationDunningSteps, organisationMandates, type PaymentAttempt,
   type SubscriptionMandate,
 } from '@propertyos/domain';
 import Link from 'next/link';
@@ -19,6 +19,19 @@ import { formatDate } from '@/lib/format';
 
 export const metadata = { title: 'Your Spike subscription' };
 export const dynamic = 'force-dynamic';
+
+/**
+ * What was sent, in the customer's words rather than the ladder's. They did not
+ * agree to a dunning process; they are owed a plain sentence about what arrived
+ * in their inbox and when.
+ */
+const CHASED_LABEL: Record<string, string> = {
+  first_reminder: 'We sent a reminder',
+  final_notice: 'We sent a final notice',
+  suspension_proposed: 'We flagged the account internally',
+  suspended: 'We suspended the console',
+  written_off: 'We stopped chasing',
+};
 
 const STATUS: Record<string, { tone: StatusTone; glyph: string; label: string }> = {
   issued: { tone: 'info', glyph: '◐', label: 'Due' },
@@ -71,12 +84,15 @@ export default async function SubscriptionPage({
     await listPlans(tx),
   ] as const);
 
-  const [mandate, mandateHistory, collections] = await readAs(context.viewer, async (tx) => [
+  const [mandate, mandateHistory, collections, chased] = await readAs(context.viewer, async (tx) => [
     await liveMandate(tx, context.organisationId),
     await organisationMandates(tx, context.organisationId),
     // What is about to leave their account. A customer finding out from their
     // bank statement is how a debit order becomes a dispute.
     await organisationCollections(tx, context.organisationId),
+    // And what Spike has sent them about not paying. A suspension that arrives
+    // as a surprise is a product that chased somebody in silence.
+    await organisationDunningSteps(tx, context.organisationId),
   ] as const);
 
   // Only for the invoices somebody could still pay: an attempt against a
@@ -105,6 +121,26 @@ export default async function SubscriptionPage({
         title="Your Spike subscription"
         description="What you are on, what you have been charged, and what is still owing."
       />
+
+      {chased.length > 0 ? (
+        <Card className="border-caution-700/25 bg-caution-50 p-4" data-chasing>
+          <p className="text-sm font-semibold text-caution-700">
+            We have been in touch about an unpaid invoice
+          </p>
+          <ul className="mt-2 space-y-1">
+            {chased.map((step) => (
+              <li key={`${step.invoiceNumber}-${step.step}`} className="text-sm text-ink-700">
+                {CHASED_LABEL[step.step] ?? step.step} about {step.invoiceNumber} on{' '}
+                {formatDate(step.takenAt.slice(0, 10))}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-ink-500">
+            Paying what is outstanding below stops this. Your records are never deleted for
+            non-payment, and the resident portal keeps working either way.
+          </p>
+        </Card>
+      ) : null}
 
       <MandatePanel
         slug={org}
