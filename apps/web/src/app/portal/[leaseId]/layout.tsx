@@ -92,7 +92,10 @@ export default async function TenancyLayout({
             <img
               src={`/portal/${leaseId}/brand-logo?v=${branding.logoVersion ?? 'current'}`}
               alt={contact?.trading_name ?? 'Your landlord'}
-              className="mb-1 h-8 w-auto max-w-[11rem] object-contain"
+              // Bounded by the column rather than by a rem value picked out of
+              // the air, and tall enough to read: this is the one thing on the
+              // page that tells a resident whose portal they are in.
+              className="mb-2 h-12 w-auto max-w-full object-contain object-left"
             />
           ) : (
             <p className="text-xs font-semibold uppercase tracking-wide text-spike-700">

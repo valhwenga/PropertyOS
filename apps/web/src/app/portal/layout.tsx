@@ -49,7 +49,7 @@ export default async function PortalLayout({ children }: { children: React.React
               <img
                 src={`/portal/${only.leaseId}/brand-logo?v=${branding?.logoVersion ?? 'current'}`}
                 alt=""
-                className="h-6 w-auto max-w-[9rem] object-contain"
+                className="h-9 w-auto max-w-[12rem] object-contain object-left"
               />
             ) : (
               <Wordmark compact />

@@ -55,36 +55,48 @@ export function ConsoleSidebar({
   const environment = splitEnvironmentLabel(organisationName);
   const base = `/app/${slug}`;
 
+  /**
+   * The landlord's own mark when they have uploaded one, and the Spike
+   * wordmark when they have not.
+   *
+   * It gets the row to itself. It used to share one with the environment
+   * badge, which cost it twice: the badge took the width, and the flex row
+   * then squeezed the image below its natural size — a 640×160 logo rendered
+   * 112px wide and 28px tall, with [DEMO] sitting on top of it. A landlord who
+   * uploads their mark should see their mark.
+   *
+   * `shrink-0` so nothing beside it can squash it again, `object-left` so a
+   * logo narrower than the space sits where a logo sits rather than floating
+   * in the middle, and `max-w-full` so a very wide one is bounded by the
+   * sidebar instead of an arbitrary rem value.
+   */
   const identity = (
-    <div className="flex min-w-0 items-center gap-2">
-      {/* The landlord's own mark when they have uploaded one, and the Spike
-          wordmark when they have not. Sized by height so a wide logo and a
-          square one both sit on the same line, and labelled with the
-          organisation's name rather than the word "logo". */}
-      <Link href="/app" className="text-[length:var(--text-body)]">
-        {logoSrc ? (
-          <img
-            src={logoSrc}
-            alt={environment.name}
-            className="h-7 w-auto max-w-[9rem] object-contain"
-          />
-        ) : (
-          <Wordmark />
-        )}
-      </Link>
-      {environment.label ? (
-        <span
-          title={`Synthetic ${environment.label.toLowerCase()} data`}
-          className="
-            rounded border border-caution-700/30 bg-caution-50 px-1.5 py-0.5
-            text-[10px] font-semibold uppercase tracking-[0.08em] text-caution-700
-          "
-        >
-          {environment.label}
-        </span>
-      ) : null}
-    </div>
+    <Link href="/app" className="block shrink-0 text-[length:var(--text-body)]">
+      {logoSrc ? (
+        <img
+          src={logoSrc}
+          alt={environment.name}
+          className="h-9 w-auto max-w-full object-contain object-left lg:h-12"
+        />
+      ) : (
+        <Wordmark />
+      )}
+    </Link>
   );
+
+  /** The synthetic-data warning, which now travels with the NAME. It still
+   *  appears exactly once per screen; it just no longer stands on the logo. */
+  const environmentBadge = environment.label ? (
+    <span
+      title={`Synthetic ${environment.label.toLowerCase()} data`}
+      className="
+        shrink-0 rounded border border-caution-700/30 bg-caution-50 px-1.5 py-0.5
+        text-[10px] font-semibold uppercase tracking-[0.08em] text-caution-700
+      "
+    >
+      {environment.label}
+    </span>
+  ) : null;
 
   return (
     <>
@@ -104,8 +116,11 @@ export function ConsoleSidebar({
           <span className="sr-only">Open sections</span>
         </button>
         {identity}
-        <span className="ml-auto min-w-0 truncate text-[length:var(--text-meta)] text-ink-500">
-          {environment.name}
+        <span className="ml-auto flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[length:var(--text-meta)] text-ink-500">
+            {environment.name}
+          </span>
+          {environmentBadge}
         </span>
       </div>
 
@@ -126,7 +141,7 @@ export function ConsoleSidebar({
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <div className="flex items-center justify-between gap-2 px-4 py-3.5">
+        <div className="flex items-start justify-between gap-2 px-4 py-3.5">
           {identity}
           <button
             type="button"
@@ -141,7 +156,11 @@ export function ConsoleSidebar({
           </button>
         </div>
 
-        <OrganisationSwitcher current={slug} organisations={organisations} />
+        <OrganisationSwitcher
+          current={slug}
+          organisations={organisations}
+          environmentLabel={environment.label}
+        />
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <OperatorNav base={base} groups={groups} awaitingSecondFactor={awaitingSecondFactor} />

@@ -17,10 +17,13 @@ import { splitEnvironmentLabel } from './environment-label';
  * a control that can only choose what is already chosen.
  */
 export function OrganisationSwitcher({
-  current, organisations,
+  current, organisations, environmentLabel = null,
 }: {
   current: string;
   organisations: Array<{ slug: string; name: string }>;
+  /** "DEMO" and the like. It rides with the name here rather than on the
+   *  logo, which it used to cover. */
+  environmentLabel?: string | null;
 }) {
   const router = useRouter();
   const id = useId();
@@ -29,10 +32,21 @@ export function OrganisationSwitcher({
 
   if (organisations.length <= 1) {
     return (
-      <div className="border-y border-ink-100 px-4 py-2.5 lg:border-t-0">
-        <p className="truncate text-[length:var(--text-table)] font-semibold text-ink-900">
+      <div className="flex items-center gap-2 border-y border-ink-100 px-4 py-2.5 lg:border-t-0">
+        <p className="min-w-0 truncate text-[length:var(--text-table)] font-semibold text-ink-900">
           {label || 'Organisation'}
         </p>
+        {environmentLabel ? (
+          <span
+            title={`Synthetic ${environmentLabel.toLowerCase()} data`}
+            className="
+              shrink-0 rounded border border-caution-700/30 bg-caution-50 px-1.5 py-0.5
+              text-[10px] font-semibold uppercase tracking-[0.08em] text-caution-700
+            "
+          >
+            {environmentLabel}
+          </span>
+        ) : null}
       </div>
     );
   }
@@ -40,6 +54,18 @@ export function OrganisationSwitcher({
   return (
     <div className="relative border-y border-ink-100 px-3 py-2 lg:border-t-0">
       <label htmlFor={id} className="sr-only">Organisation</label>
+      {environmentLabel ? (
+        <span
+          title={`Synthetic ${environmentLabel.toLowerCase()} data`}
+          className="
+            pointer-events-none absolute right-10 top-1/2 z-10 -translate-y-1/2 rounded
+            border border-caution-700/30 bg-caution-50 px-1.5 py-0.5 text-[10px]
+            font-semibold uppercase tracking-[0.08em] text-caution-700
+          "
+        >
+          {environmentLabel}
+        </span>
+      ) : null}
       <select
         id={id}
         value={current}
