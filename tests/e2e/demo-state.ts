@@ -455,3 +455,36 @@ export async function seedOverdueInvoice(
     await sql.end({ timeout: 5 });
   }
 }
+
+/**
+ * An address the provider has reported as dead.
+ *
+ * Seeded rather than driven through the webhook: the integration suite already
+ * proves the endpoint verifies a signature and records the bounce. What the
+ * browser has to show is that a landlord looking at their own resident list
+ * is told to stop emailing and ring instead.
+ */
+export async function suppressAddress(
+  address: string, kind: 'hard_bounce' | 'complaint' = 'hard_bounce',
+): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`
+      insert into email_suppressions (address, kind, reason)
+      values (${address}, ${kind}, 'Seeded by an end-to-end test.')
+      on conflict (address) where lifted_at is null do nothing
+    `;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/** Whatever an e2e run suppressed. */
+export async function clearSuppressions(): Promise<void> {
+  const sql = postgres(DB_URL, { max: 1, onnotice: () => {} });
+  try {
+    await sql`delete from email_suppressions where reason = 'Seeded by an end-to-end test.'`;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}

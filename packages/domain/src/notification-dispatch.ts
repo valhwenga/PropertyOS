@@ -320,7 +320,7 @@ export interface QueuedNotice {
 }
 
 /**
- * Email notices nobody has delivered yet.
+ * Email notices nobody has delivered yet, and that it is worth trying.
  *
  * Capped, and oldest first, so one pass cannot spend an hour on a backlog and
  * starve everything else the worker does. `attempts` caps the retries: a
@@ -340,10 +340,18 @@ export async function noticesAwaitingDelivery(
   }[]>`
     select id::text, organisation_id::text, template_key, recipient_email::text,
            subject, body, attempts
-      from notifications
+      from notifications n
      where channel = 'email' and status = 'queued'
        and recipient_email is not null
        and attempts < ${maxAttempts}
+       -- Never to an address that has bounced permanently or complained.
+       -- suppressUndeliverableNotices then marks those notices so they do not
+       -- sit queued forever telling nobody why; this clause is what makes sure
+       -- nothing goes out in between.
+       and not exists (
+         select 1 from email_suppressions s
+          where s.address = n.recipient_email and s.lifted_at is null
+       )
      order by created_at
      limit ${limit}
   `;

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { DataTable, EmptyState, PageHeader, StatusBadge, Td, Th } from '@propertyos/ui';
 import { readAs, requireOperator } from '@/lib/auth';
+import { residentAddressesInTrouble } from '@propertyos/domain';
 import { loadResidents } from '@/lib/queries';
 import { pageHref, readPaging, summarise } from '@/lib/listing';
 import { ListSelect, ListToolbar, PageBar } from '@/components/list-controls';
@@ -37,6 +38,16 @@ export default async function ResidentsPage({
   const paging = readPaging(query.page);
   const { rows: residents, total } = await readAs(context.viewer, (tx) =>
     loadResidents(tx, context.organisationId, { query: query.q, status }, paging));
+
+  // Which of these addresses the product can no longer email. A landlord
+  // reminding a dead mailbox every month for a year is the thing this is for:
+  // they have the person's phone number, and nothing had ever told them to use
+  // it. Generalised on purpose — see ADR 0037. An address that belongs to
+  // another customer's resident is not in here, and the reason a message was
+  // refused is never attributed.
+  const trouble = await readAs(context.viewer, (tx) =>
+    residentAddressesInTrouble(tx, context.organisationId));
+  const introuble = new Map(trouble.map((t) => [t.address.toLowerCase(), t.trouble]));
 
   const filtered = Boolean(query.q || status);
   const summary = summarise(paging, residents.length, total, filtered);
@@ -96,7 +107,16 @@ export default async function ResidentsPage({
                   {r.first_name} {r.last_name}
                 </Link>
               </Td>
-              <Td className="text-ink-500">{r.email ?? r.phone ?? '—'}</Td>
+              <Td className="text-ink-500">
+                {r.email ?? r.phone ?? '—'}
+                {r.email && introuble.has(r.email.toLowerCase()) ? (
+                  <span className="mt-0.5 block text-xs font-medium text-caution-700">
+                    {introuble.get(r.email.toLowerCase()) === 'asked_not_to_receive'
+                      ? 'asked not to receive email — contact them another way'
+                      : 'email bounces — contact them another way'}
+                  </span>
+                ) : null}
+              </Td>
               {/* Identity numbers are masked in list views by design. */}
               <Td className="tabular text-ink-400">
                 {r.identity_number_last4 ? `••••••• ${r.identity_number_last4}` : '—'}

@@ -1,7 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { abandonJob, retryDeadJobsOfType, retryJob } from '@propertyos/domain';
+import {
+  abandonJob, liftSuppression, retryDeadJobsOfType, retryJob,
+} from '@propertyos/domain';
 import { command } from '@/lib/actions';
 
 /**
@@ -48,6 +50,25 @@ export async function retryTypeAction(_previous: unknown, formData: FormData) {
     });
     return { retried };
   });
+  if (result.ok) revalidatePath('/platform/jobs');
+  return result;
+}
+
+/**
+ * Trying a dead address again.
+ *
+ * Privileged: `email_suppressions` has no update policy for the application
+ * role at all, because an address coming off the list means mail starts
+ * flowing to it again and that is not something a web request should be able
+ * to do under its own authority. The permission is checked in SQL inside the
+ * domain function, against the caller's own identity.
+ */
+export async function liftSuppressionAction(_previous: unknown, formData: FormData) {
+  const result = await command(({ tx, viewer }) =>
+    liftSuppression(tx, viewer.authUserId, {
+      suppressionId: str(formData, 'suppressionId'),
+      reason: str(formData, 'reason'),
+    }).then(() => ({})), { privileged: true });
   if (result.ok) revalidatePath('/platform/jobs');
   return result;
 }

@@ -23,7 +23,7 @@
  */
 import {
   chaseOverdueInvoices, noticesAwaitingDelivery, raiseAlertNotices, recordNoticeDelivery,
-  recordNoticeOutcome,
+  recordNoticeOutcome, suppressUndeliverableNotices,
 } from '@propertyos/domain';
 import { resolveEmailAdapter } from '@propertyos/integrations';
 import type { Sql } from './queue';
@@ -152,7 +152,16 @@ export async function watchForTrouble(sql: Sql, log: Log): Promise<number> {
 export async function deliverQueuedNotices(
   sql: Sql,
   log: Log,
-): Promise<{ attempted: number; sent: number; undelivered: number }> {
+): Promise<{ attempted: number; sent: number; undelivered: number; suppressed: number }> {
+  // First, anything addressed to somewhere that has bounced permanently or
+  // complained. `noticesAwaitingDelivery` already refuses to return those, so
+  // without this they would sit queued forever, count as a backlog, and tell
+  // nobody why.
+  const { suppressed } = await suppressUndeliverableNotices(sql as never);
+  if (suppressed > 0) {
+    log('info', 'notices not sent to suppressed addresses', { count: suppressed });
+  }
+
   const queued = await noticesAwaitingDelivery(sql as never, { limit: 50 });
   let sent = 0;
   let undelivered = 0;
@@ -217,5 +226,5 @@ export async function deliverQueuedNotices(
     log('warn', 'notices were not delivered', { count: undelivered, provider: email.name });
   }
 
-  return { attempted: queued.length, sent, undelivered };
+  return { attempted: queued.length, sent, undelivered, suppressed };
 }

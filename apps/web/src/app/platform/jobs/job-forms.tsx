@@ -2,7 +2,9 @@
 
 import { useActionState, useState } from 'react';
 import { Button, Card, StatusBadge } from '@propertyos/ui';
-import { abandonJobAction, retryJobAction, retryTypeAction } from './actions';
+import {
+  abandonJobAction, liftSuppressionAction, retryJobAction, retryTypeAction,
+} from './actions';
 
 /**
  * One failure, and the two things that can be done about it.
@@ -14,6 +16,16 @@ import { abandonJobAction, retryJobAction, retryTypeAction } from './actions';
  */
 
 const FIELD = 'w-full rounded-lg border border-ink-200 bg-surface px-3 py-2 text-sm text-ink-900';
+
+export interface SuppressionRow {
+  id: string;
+  address: string;
+  kind: 'hard_bounce' | 'complaint' | 'blocked' | 'manual';
+  reason: string;
+  firstSuppressedAt: string;
+  events: number;
+  organisationName: string | null;
+}
 
 export interface JobView {
   id: string;
@@ -227,6 +239,90 @@ export function RetryTypeForm({
           </div>
           <Button type="submit" variant="primary" disabled={pending}>
             {pending ? 'Queueing…' : `Run all ${count} again`}
+          </Button>
+        </form>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * One address nothing will be sent to, and the decision to try it again.
+ *
+ * The provider's own words are on the card because that is what an operator
+ * needs when a landlord rings insisting the address is fine: "mailbox does not
+ * exist" is an answer, and "delivery failed" is not.
+ *
+ * Lifting is an expander with its own reason rather than a button, because it
+ * starts mail flowing to an address that has already rejected it — and a
+ * sending reputation is shared by every customer on the domain.
+ */
+export function SuppressionCard({ suppression }: { suppression: SuppressionRow }) {
+  const [state, action, pending] = useActionState(liftSuppressionAction, null);
+  const [open, setOpen] = useState(false);
+
+  const label = suppression.kind === 'complaint'
+    ? 'marked as spam'
+    : suppression.kind === 'blocked' ? 'refused by the server'
+      : suppression.kind === 'manual' ? 'suppressed by hand' : 'does not exist';
+
+  return (
+    <Card className="p-4" data-suppression={suppression.address}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink-900">{suppression.address}</p>
+          <p className="text-xs text-ink-500">
+            {label} · since {suppression.firstSuppressedAt.slice(0, 10)}
+            {suppression.events > 1 ? ` · ${suppression.events} events` : ''}
+            {suppression.organisationName ? ` · first seen for ${suppression.organisationName}` : ''}
+          </p>
+        </div>
+        <StatusBadge
+          tone={suppression.kind === 'complaint' ? 'critical' : 'caution'}
+          glyph={suppression.kind === 'complaint' ? '▲' : '■'}
+        >
+          {suppression.kind.replace('_', ' ')}
+        </StatusBadge>
+      </div>
+
+      <p className="mt-2 text-xs text-ink-500">{suppression.reason}</p>
+
+      {state && !state.ok ? (
+        <div className="mt-2 rounded-lg border border-critical-700/25 bg-critical-50 px-3 py-2">
+          <p className="text-sm text-critical-700">{state.message}</p>
+        </div>
+      ) : null}
+
+      <div className="mt-3 border-t border-ink-100 pt-3">
+        <button
+          type="button" onClick={() => setOpen((shown) => !shown)}
+          className="text-sm font-medium text-ink-600 hover:underline"
+        >
+          {open ? 'Leave it suppressed' : 'Try this address again'}
+        </button>
+      </div>
+
+      {open ? (
+        <form action={action} className="mt-2 flex flex-wrap items-end gap-2">
+          <input type="hidden" name="suppressionId" value={suppression.id} />
+          <div className="min-w-60 flex-1">
+            <label
+              className="block text-sm font-medium text-ink-700"
+              htmlFor={`lift-${suppression.id}`}
+            >
+              Why it is worth trying again
+            </label>
+            <input
+              id={`lift-${suppression.id}`} name="reason" required minLength={5} maxLength={500}
+              placeholder="Landlord confirmed the mailbox was restored"
+              className="mt-1 w-full rounded-lg border border-ink-200 bg-surface px-3 py-2 text-sm text-ink-900"
+            />
+            <p className="mt-1 text-xs text-ink-500">
+              Nothing already suppressed is resent. New messages will go out.
+            </p>
+          </div>
+          <Button type="submit" variant="danger" disabled={pending}>
+            {pending ? 'Saving…' : 'Try it again'}
           </Button>
         </form>
       ) : null}

@@ -1,11 +1,11 @@
 import Link from 'next/link';
 import { Card, EmptyState, PageHeader } from '@propertyos/ui';
 import {
-  listJobs, platformPermissionsOf, queueHealth, undeliveredNotices,
+  listJobs, listSuppressions, platformPermissionsOf, queueHealth, undeliveredNotices,
 } from '@propertyos/domain';
 import { readPrivilegedAs, requireViewer } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format';
-import { JobRow, RetryTypeForm } from './job-forms';
+import { JobRow, RetryTypeForm, SuppressionCard } from './job-forms';
 
 export const metadata = { title: 'Background work' };
 export const dynamic = 'force-dynamic';
@@ -36,9 +36,12 @@ export default async function JobsPage({
     ? (q.status as 'dead' | 'abandoned' | 'queued' | 'running' | 'succeeded')
     : 'dead';
 
-  const { health, listed, mine, undelivered } = await readPrivilegedAs(viewer, async (tx) => ({
+  const {
+    health, listed, mine, undelivered, suppressions,
+  } = await readPrivilegedAs(viewer, async (tx) => ({
     health: await queueHealth(tx, viewer.authUserId),
     undelivered: await undeliveredNotices(tx, viewer.authUserId),
+    suppressions: await listSuppressions(tx, viewer.authUserId, { limit: 50 }),
     listed: await listJobs(tx, viewer.authUserId, {
       status, ...(q.type ? { jobType: q.type } : {}),
     }),
@@ -171,6 +174,26 @@ export default async function JobsPage({
                 </p>
               ) : null}
             </Card>
+          ))}
+        </section>
+      ) : null}
+
+      {suppressions.length > 0 ? (
+        <section aria-labelledby="suppressed" className="space-y-3">
+          <h2
+            id="suppressed"
+            className="text-sm font-semibold uppercase tracking-wide text-ink-500"
+          >
+            Addresses nothing is sent to
+          </h2>
+          <p className="text-sm text-ink-500">
+            A mailbox that does not exist, a server refusing us, or somebody who marked a message
+            as spam. Mail to dead addresses is how a sending domain&rsquo;s reputation is lost,
+            and every customer on it shares that reputation — so nothing is sent to these, and
+            taking one off the list is a decision with a reason.
+          </p>
+          {suppressions.map((suppression) => (
+            <SuppressionCard key={suppression.id} suppression={suppression} />
           ))}
         </section>
       ) : null}

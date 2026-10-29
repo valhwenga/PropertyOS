@@ -304,6 +304,22 @@ async function checkEmail(): Promise<void> {
     }
   }
 
+  // A provider that cannot tell us about a bounce leaves the product sending
+  // reminders to dead addresses forever, which is both useless to the landlord
+  // and how a sending domain's reputation is lost.
+  if (!process.env.RESEND_WEBHOOK_SECRET) {
+    record(
+      'gap', 'RESEND_WEBHOOK_SECRET unset',
+      'Bounce and complaint events cannot be verified, so they are recorded and acted on by '
+        + 'nothing: mail keeps going to addresses that have already rejected it. Add the '
+        + "webhook in the provider's dashboard pointing at "
+        + `${process.env.APP_BASE_URL ?? '<APP_BASE_URL>'}/api/email/resend/events and set its `
+        + 'signing secret here.',
+    );
+  } else {
+    record('pass', 'RESEND_WEBHOOK_SECRET', 'set, so bounce and complaint events are verified');
+  }
+
   // Nothing here can check these, and a deployment that skips them has
   // deliverable-looking mail that lands in spam folders.
   record(

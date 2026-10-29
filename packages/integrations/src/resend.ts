@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 /**
  * Resend, over HTTPS.
  *
@@ -216,4 +218,174 @@ export async function verifyResendKey(
         error instanceof Error ? error.message : 'unknown transport error'}`,
     };
   }
+}
+
+/* ------------------------------------------------------------------ webhooks */
+
+/**
+ * What a provider says happened to a message after it accepted it.
+ *
+ * Acceptance is not arrival: the mailbox may not exist, may be full, or the
+ * recipient may mark the message as spam, and all of that comes back
+ * afterwards. Everything below is about reading those reports without trusting
+ * the body they arrive in.
+ */
+export interface EmailEvent {
+  /** The provider's id for this delivery, which matches `provider_message_id`. */
+  providerMessageId: string | null;
+  kind: 'delivered' | 'bounced' | 'complained' | 'delayed' | 'other';
+  /** For a bounce: whether the address is gone, or merely unavailable today. */
+  bounceKind: 'hard' | 'soft' | 'complaint' | 'blocked' | null;
+  /** The recipient, as the provider reports it. */
+  address: string | null;
+  /** The provider's own words, which is what an operator needs. */
+  detail: string;
+  /** The raw type string, recorded as-is for anything we do not model. */
+  type: string;
+}
+
+/**
+ * Verifies a Resend webhook, which is signed in the Svix scheme.
+ *
+ * The signed content is `<id>.<timestamp>.<raw body>`, HMAC-SHA256 under the
+ * secret (which is base64 after its `whsec_` prefix), base64-encoded. The
+ * header carries one or more space-separated `v1,<signature>` pairs, because a
+ * secret being rotated means two valid signatures for a while — so any match
+ * is a pass.
+ *
+ * Three refusals, all deliberate:
+ *
+ *   * **No secret configured is a refusal, not a pass.** An endpoint that
+ *     accepts unsigned events is an endpoint anybody can use to mark a rent
+ *     reminder undeliverable.
+ *   * **A stale timestamp is a refusal**, because a captured request must not
+ *     be replayable forever. Five minutes either way, which is the provider's
+ *     own tolerance and allows for clock drift.
+ *   * **The comparison is constant-time**, since a timing oracle on a
+ *     signature check is a signature check.
+ *
+ * It takes the RAW body. Re-serialising parsed JSON changes bytes — key order,
+ * whitespace, unicode escapes — and the signature is over the bytes.
+ */
+export function verifyResendWebhook(
+  secret: string | undefined,
+  headers: {
+    id: string | null;
+    timestamp: string | null;
+    signature: string | null;
+  },
+  rawBody: string,
+  now: Date = new Date(),
+): { verified: true } | { verified: false; reason: string } {
+  if (!secret) {
+    return {
+      verified: false,
+      reason: 'RESEND_WEBHOOK_SECRET is not set, so nothing can be verified. The event is '
+        + 'recorded and changes nothing.',
+    };
+  }
+  if (!headers.id || !headers.timestamp || !headers.signature) {
+    return { verified: false, reason: 'The request is missing its svix signature headers.' };
+  }
+
+  const seconds = Number(headers.timestamp);
+  if (!Number.isFinite(seconds)) {
+    return { verified: false, reason: 'The svix-timestamp header is not a timestamp.' };
+  }
+  const driftSeconds = Math.abs(now.getTime() / 1000 - seconds);
+  if (driftSeconds > 300) {
+    return {
+      verified: false,
+      reason: `The signature is ${Math.round(driftSeconds)}s out of date, so it is refused as a `
+        + 'replay.',
+    };
+  }
+
+  const key = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+  const expected = createHmac('sha256', key)
+    .update(`${headers.id}.${headers.timestamp}.${rawBody}`)
+    .digest();
+
+  // One or more `v1,<sig>` pairs: a secret mid-rotation signs with both.
+  const offered = headers.signature.split(' ')
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith('v1,'))
+    .map((part) => part.slice(3));
+
+  for (const candidate of offered) {
+    const given = Buffer.from(candidate, 'base64');
+    if (given.length === expected.length && timingSafeEqual(given, expected)) {
+      return { verified: true };
+    }
+  }
+
+  return { verified: false, reason: 'The signature does not match.' };
+}
+
+/**
+ * Reads one Resend event, defensively.
+ *
+ * Every field is checked rather than assumed: this is a parser for somebody
+ * else's JSON, and an event whose shape has moved should degrade to `other`
+ * with the raw type recorded, not throw inside a webhook handler.
+ */
+export function readResendEvent(payload: unknown): EmailEvent {
+  const body = (payload ?? {}) as {
+    type?: unknown;
+    data?: {
+      email_id?: unknown; to?: unknown; subject?: unknown;
+      bounce?: { type?: unknown; subType?: unknown; message?: unknown };
+    };
+  };
+  const type = typeof body.type === 'string' ? body.type : '';
+  const data = body.data ?? {};
+
+  const providerMessageId = typeof data.email_id === 'string' ? data.email_id : null;
+  const address = Array.isArray(data.to)
+    ? (typeof data.to[0] === 'string' ? data.to[0] : null)
+    : typeof data.to === 'string' ? data.to : null;
+
+  const bounceType = typeof data.bounce?.type === 'string' ? data.bounce.type.toLowerCase() : '';
+  const bounceSub = typeof data.bounce?.subType === 'string' ? data.bounce.subType : '';
+  const bounceMessage = typeof data.bounce?.message === 'string' ? data.bounce.message : '';
+
+  if (type === 'email.bounced') {
+    // Resend reports the class; anything it does not classify is treated as
+    // HARD, because the cost of guessing wrong the other way is reminding a
+    // dead address every month forever.
+    const kind: EmailEvent['bounceKind'] = bounceType === 'soft' || bounceType === 'transient'
+      ? 'soft'
+      : bounceType === 'blocked' || bounceSub === 'Suppressed' ? 'blocked' : 'hard';
+    return {
+      providerMessageId, kind: 'bounced', bounceKind: kind, address, type,
+      detail: [bounceType, bounceSub, bounceMessage].filter(Boolean).join(' — ')
+        || 'The provider reported a bounce with no reason.',
+    };
+  }
+
+  if (type === 'email.complained') {
+    return {
+      providerMessageId, kind: 'complained', bounceKind: 'complaint', address, type,
+      detail: bounceMessage || 'The recipient marked the message as spam.',
+    };
+  }
+
+  if (type === 'email.delivered') {
+    return {
+      providerMessageId, kind: 'delivered', bounceKind: null, address, type,
+      detail: 'The receiving server accepted it.',
+    };
+  }
+
+  if (type === 'email.delivery_delayed') {
+    return {
+      providerMessageId, kind: 'delayed', bounceKind: null, address, type,
+      detail: bounceMessage || 'The provider is still trying.',
+    };
+  }
+
+  return {
+    providerMessageId, kind: 'other', bounceKind: null, address, type,
+    detail: type ? `Unhandled event type ${type}.` : 'An event with no type.',
+  };
 }
