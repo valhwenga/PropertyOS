@@ -84,6 +84,10 @@ const sendInvoiceMessage: Handler = async (sql, job) => {
     subject: message.subject ?? 'Your invoice',
     body: message.body,
     templateKey: 'invoice.issued',
+    // A redelivered job must not send a second invoice. The status check above
+    // catches the ordinary case; this catches the one where the provider
+    // accepted the message and the connection died before we recorded it.
+    idempotencyKey: notificationId,
   });
 
   const detail = outcome.status === 'sent'

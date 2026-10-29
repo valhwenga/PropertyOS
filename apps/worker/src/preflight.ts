@@ -18,22 +18,24 @@
  * `--probe` makes real network connections to the services in this environment's
  * own configuration, using the credentials it was given. It does not send an
  * email, scan a file, or write a customer record: SMTP is taken as far as
- * authentication and then QUIT, clamd is asked for its signature version, and
- * object storage round-trips one object under a preflight/ key and deletes it.
+ * authentication and then QUIT, Resend is asked which domains it has verified,
+ * clamd is asked for its signature version, and object storage round-trips one
+ * object under a preflight/ key and deletes it.
  */
 import { readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import {
+  ResendEmailAdapter,
   SinkEmailAdapter,
-  SmtpEmailAdapter,
   pingClamAv,
   resolveAuthProviderName,
   resolveEmailAdapter,
   resolvePaymentProvider,
   resolveStorageAdapter,
   supabaseAuthConfig,
+  verifyResendKey,
   verifySmtpConnection,
 } from '@propertyos/integrations';
 
@@ -221,40 +223,84 @@ async function checkEmail(): Promise<void> {
   heading('Email');
 
   const adapter = resolveEmailAdapter();
-  if (!(adapter instanceof SmtpEmailAdapter)) {
-    const reason = adapter instanceof SinkEmailAdapter ? adapter.reason : '';
+
+  if (adapter instanceof SinkEmailAdapter) {
     record(
       'gap',
       'no delivery configured',
-      `Messages are recorded as 'development_sink' and NEVER reported as sent. ${reason}`.trim(),
+      `Messages are recorded as 'development_sink' and NEVER reported as sent. ${adapter.reason}`
+        .trim(),
     );
     return;
   }
 
-  const host = process.env.SMTP_HOST!;
-  const port = Number(process.env.SMTP_PORT);
-  record('pass', 'EMAIL_PROVIDER=smtp', `configured for ${host}:${port}, from ${process.env.EMAIL_FROM}`);
+  if (adapter instanceof ResendEmailAdapter) {
+    record(
+      'pass', 'EMAIL_PROVIDER=resend',
+      // The real endpoint unless something overrode it, and said plainly
+      // either way: a preflight that prints an address it is not using is a
+      // preflight that reassures about the wrong deployment.
+      `configured for ${process.env.RESEND_API_URL ?? 'https://api.resend.com'}, `
+        + `from ${process.env.EMAIL_FROM}`,
+    );
 
-  if (process.env.SMTP_ALLOW_SELF_SIGNED === 'true') {
-    record('fail', 'SMTP_ALLOW_SELF_SIGNED', 'true. Certificate verification is disabled; this is a development setting only.');
-  }
-
-  if (!probe) {
-    record('info', 'SMTP server', 'configured, not contacted (run with --probe)');
-  } else {
-    try {
-      await verifySmtpConnection({
-        host,
-        port,
-        user: process.env.SMTP_USER!,
-        password: process.env.SMTP_PASSWORD!,
+    if (!probe) {
+      record('info', 'Resend', 'configured, not contacted (run with --probe)');
+    } else {
+      // A read, not a send: it answers whether the key works and which
+      // domains are verified, which is what actually stops a first send.
+      const checked = await verifyResendKey({
+        apiKey: process.env.RESEND_API_KEY!,
         from: process.env.EMAIL_FROM!,
-        secure: port === 465,
-        rejectUnauthorized: process.env.SMTP_ALLOW_SELF_SIGNED !== 'true',
+        ...(process.env.RESEND_API_URL ? { baseUrl: process.env.RESEND_API_URL } : {}),
       });
-      record('pass', 'SMTP server reachable', `${host}:${port} accepted the credentials (nothing was sent)`);
-    } catch (error) {
-      record('fail', 'SMTP server reachable', (error as Error).message);
+      if (checked.ok) {
+        record(
+          'pass', 'Resend key accepted',
+          checked.domains.length > 0
+            ? `verified domains: ${checked.domains.join(', ')} (nothing was sent)`
+            : 'the key works, but NO domain is verified on this account — a send will be '
+              + 'refused until one is',
+        );
+        const from = (process.env.EMAIL_FROM ?? '').match(/@([^>\s]+)/)?.[1];
+        if (from && checked.domains.length > 0
+            && !checked.domains.some((d) => d.startsWith(from))) {
+          record(
+            'fail', 'EMAIL_FROM domain',
+            `${from} is not among the verified domains on this Resend account, so every send `
+              + 'will be refused.',
+          );
+        }
+      } else {
+        record('fail', 'Resend key accepted', checked.error);
+      }
+    }
+  } else {
+    const host = process.env.SMTP_HOST!;
+    const port = Number(process.env.SMTP_PORT);
+    record('pass', 'EMAIL_PROVIDER=smtp', `configured for ${host}:${port}, from ${process.env.EMAIL_FROM}`);
+
+    if (process.env.SMTP_ALLOW_SELF_SIGNED === 'true') {
+      record('fail', 'SMTP_ALLOW_SELF_SIGNED', 'true. Certificate verification is disabled; this is a development setting only.');
+    }
+
+    if (!probe) {
+      record('info', 'SMTP server', 'configured, not contacted (run with --probe)');
+    } else {
+      try {
+        await verifySmtpConnection({
+          host,
+          port,
+          user: process.env.SMTP_USER!,
+          password: process.env.SMTP_PASSWORD!,
+          from: process.env.EMAIL_FROM!,
+          secure: port === 465,
+          rejectUnauthorized: process.env.SMTP_ALLOW_SELF_SIGNED !== 'true',
+        });
+        record('pass', 'SMTP server reachable', `${host}:${port} accepted the credentials (nothing was sent)`);
+      } catch (error) {
+        record('fail', 'SMTP server reachable', (error as Error).message);
+      }
     }
   }
 

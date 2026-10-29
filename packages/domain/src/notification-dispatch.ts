@@ -374,8 +374,25 @@ export async function recordNoticeDelivery(
     provider: string;
     providerMessageId?: string | null;
     detail: string | null;
+    /**
+     * The provider asked to be left alone for a moment — a rate limit, a 5xx,
+     * an unreachable host. The notice stays `queued` and keeps its attempts,
+     * because spending one of four on "ask again shortly" is how real mail
+     * ends up marked failed. The reason is still recorded, so the console says
+     * what happened rather than showing an untouched row.
+     */
+    keepQueued?: boolean;
   },
 ): Promise<void> {
+  if (params.keepQueued) {
+    await tx`
+      update notifications
+         set last_error = ${params.detail}, provider = ${params.provider}
+       where id = ${params.notificationId}::uuid
+    `;
+    return;
+  }
+
   await tx`
     update notifications
        set status = ${params.status},

@@ -12,6 +12,7 @@
     "refresh": "./scripts/refresh.sh",
     "host": "./scripts/host.sh",
     "preflight": "pnpm --filter @propertyos/worker exec tsx src/preflight.ts",
+    "email:test": "pnpm --filter @propertyos/worker exec tsx src/email-test.ts",
     "db:loadgen": "pnpm --filter @propertyos/worker exec tsx src/loadgen.ts",
     "perf": "pnpm --filter @propertyos/tests exec playwright test -c playwright.perf.config.ts",
     "preview:reset": "./scripts/preview.sh --reset",

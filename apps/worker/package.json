@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "email:test": "tsx src/email-test.ts"
   },
   "dependencies": {
     "@propertyos/db": "workspace:*",

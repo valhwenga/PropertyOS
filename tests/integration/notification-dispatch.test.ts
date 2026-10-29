@@ -242,6 +242,47 @@ describe('Notices that reach somebody', () => {
     expect(stillWaiting.some((n) => n.id === notice!.id)).toBe(false);
   });
 
+  it('does not spend an attempt when the provider says "ask again shortly"', async () => {
+    const [notice] = await ownerSql()<{ id: string }[]>`
+      insert into notifications (
+        organisation_id, channel, recipient_user_id, recipient_email, title, subject,
+        body, status
+      ) values (
+        ${org.organisationId}, 'email', ${org.adminUserId}, 'billing@notified.invalid',
+        'Final notice', 'SPK-2 is 10 days overdue', 'Please settle SPK-2.', 'queued'
+      )
+      returning id::text
+    `;
+
+    // A rate limit is not a refusal. Four attempts is the whole budget for a
+    // message, and spending one of them on "we are busy" is how real mail ends
+    // up marked failed and never sent.
+    await asWorker((tx) => recordNoticeDelivery(tx, {
+      notificationId: notice!.id,
+      status: 'failed',
+      provider: 'resend',
+      detail: 'Resend answered 429 (rate_limit_exceeded): Too many requests.',
+      keepQueued: true,
+    }));
+
+    const [after] = await ownerSql()<{
+      status: string; attempts: number; last_error: string; provider: string;
+    }[]>`
+      select status, attempts, last_error, provider from notifications
+       where id = ${notice!.id}::uuid
+    `;
+    expect(after?.status).toBe('queued');
+    expect(after?.attempts).toBe(0);
+    // Recorded all the same, so the console says what happened rather than
+    // showing a row that looks untouched.
+    expect(after?.last_error).toMatch(/429/);
+    expect(after?.provider).toBe('resend');
+
+    // Still waiting, which is the point: the next pass picks it up.
+    const waiting = await asWorker((tx) => noticesAwaitingDelivery(tx));
+    expect(waiting.some((n) => n.id === notice!.id)).toBe(true);
+  });
+
   it('will not store a notice nobody can read, or one with a placeholder in it', async () => {
     // The two states the old handler wrote, now refused by the database rather
     // than by whoever remembers.

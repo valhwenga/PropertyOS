@@ -223,14 +223,31 @@ way that fails safe until someone with the relevant authority decides.
   a mail provider is configured — so the waiting period only protects somebody
   if an operator tells them about it by another route, and the approval box
   asks what they checked, at length, for that reason.
-* **Nothing is actually delivered by email on this deployment, and that is now
-  the only thing missing.** The notices are correct as of ADR 0035: addressed
-  to the people they are about, rendered with real values, refused outright if
-  a placeholder is unfilled, and attempted by the worker on a cadence. With no
-  `EMAIL_PROVIDER` configured every attempt ends `development_sink` with the
-  sink's own reason on it, the console groups them by why, and nobody receives
-  anything. Configuring SMTP is the whole of the remaining work — but until
-  somebody does, an email notice is a record rather than a message.
+* **Nothing is actually delivered by email until somebody configures a
+  provider, which is now a key and a DNS change rather than any code.** The
+  notices are correct as of ADR 0035 and there are two real adapters as of ADR
+  0036 — Resend over HTTPS, and SMTP for anything else — with a preflight that
+  asks Resend which domains are verified and a `pnpm email:test` that sends one
+  real message and prints the provider's own answer. With nothing configured
+  every attempt still ends `development_sink` with the sink's reason on it, the
+  console groups them by why, and nobody receives anything. What is outstanding
+  is a Resend key, an `EMAIL_FROM` on a domain verified with them, and SPF,
+  DKIM and DMARC records at the registrar — without those last three a rent
+  reminder lands in a spam folder and this product records it as sent, which is
+  worse than not sending it.
+* **Resend's API shape is written from public knowledge, not verified against
+  the reference.** This environment's network policy refuses `api.resend.com`
+  and `resend.com`, so the adapter was built and tested against a local server
+  answering in the documented shapes. It is defensive about it — the message id
+  is read from either field it might arrive in, an unreadable success is a
+  retryable failure rather than an assumption, and every error field is
+  optional — but the first live send is still the first live send.
+* **Nothing listens for bounces or complaints.** Resend reports both by
+  webhook. A dead resident address stays on a lease being reminded every month,
+  and nothing marks it undeliverable or tells the landlord. There is also no
+  reply-to on anything, so a resident hitting reply writes to `no-reply@`, and
+  no unsubscribe handling of any kind — defensible while every message is
+  transactional, and not for a day longer than that.
 * **A resident without portal access cannot be told anything.** An in-app
   notice is delivered by being written into their inbox, which only exists if
   they have accepted a portal invitation. Where nobody on the lease has one the

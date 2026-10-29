@@ -164,7 +164,16 @@ export async function deliverQueuedNotices(
         subject: notice.subject,
         body: notice.body,
         templateKey: notice.templateKey ?? undefined,
+        // The notice's own id, so that four retries of something the provider
+        // already accepted cannot put four copies in somebody's inbox.
+        idempotencyKey: notice.id,
       });
+
+      // "Ask again shortly" — a rate limit, a 5xx, an unreachable provider.
+      // The notice keeps its attempts and the pass stops: the next messages
+      // would get the same answer, and hammering a provider that just asked us
+      // to slow down is how an account gets suspended.
+      const waitAndRetry = outcome.status === 'failed' && outcome.retryAfterSeconds !== undefined;
 
       await recordNoticeDelivery(sql as never, {
         notificationId: notice.id,
@@ -174,7 +183,17 @@ export async function deliverQueuedNotices(
         detail: outcome.status === 'sent'
           ? null
           : outcome.status === 'development_sink' ? outcome.reason : outcome.error,
+        keepQueued: waitAndRetry,
       });
+
+      if (waitAndRetry) {
+        log('warn', 'delivery paused by the provider', {
+          provider: outcome.provider,
+          retryAfterSeconds: (outcome as { retryAfterSeconds?: number }).retryAfterSeconds,
+          remaining: queued.length - (sent + undelivered),
+        });
+        break;
+      }
 
       if (outcome.status === 'sent') sent += 1;
       else undelivered += 1;
